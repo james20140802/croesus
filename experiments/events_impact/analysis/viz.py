@@ -106,6 +106,70 @@ def plot_car_histogram(
     plt.close(fig)
 
 
+def plot_surprise_scatter(
+    scatter_df: pd.DataFrame,
+    category: str,
+    out_path: Path,
+) -> None:
+    """Scatter: Δ2yr yield (bp) on x vs S&P 500 AR on T=0 (%) on y.
+
+    Each dot is one FOMC meeting. Color encodes surprise type.
+    A regression line shows the overall relationship.
+    """
+    if scatter_df.empty:
+        return
+
+    colors = {
+        "hawkish_surprise": "#d32f2f",
+        "neutral": "#78909c",
+        "dovish_surprise": "#1976d2",
+        "unknown": "#bdbdbd",
+    }
+    labels = {
+        "hawkish_surprise": "Hawkish surprise",
+        "neutral": "Neutral",
+        "dovish_surprise": "Dovish surprise",
+    }
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    for stype, group in scatter_df.groupby("surprise_type"):
+        if stype == "unknown":
+            continue
+        ax.scatter(
+            group["delta_2yr_bp"],
+            group["ar_t0"] * 100,
+            c=colors.get(stype, "#bdbdbd"),
+            label=labels.get(stype, stype),
+            alpha=0.7,
+            edgecolors="white",
+            linewidths=0.5,
+            s=50,
+            zorder=3,
+        )
+
+    # regression line
+    valid = scatter_df.dropna(subset=["delta_2yr_bp", "ar_t0"])
+    if len(valid) >= 3:
+        x = valid["delta_2yr_bp"].values
+        y = valid["ar_t0"].values * 100
+        coeffs = np.polyfit(x, y, 1)
+        x_line = np.linspace(x.min(), x.max(), 100)
+        ax.plot(x_line, np.polyval(coeffs, x_line), color="black",
+                linewidth=1.2, linestyle="--", alpha=0.6,
+                label=f"Trend (β={coeffs[0]:.3f}%/bp)")
+
+    ax.axhline(0, color="black", linewidth=0.6, linestyle=":")
+    ax.axvline(0, color="black", linewidth=0.6, linestyle=":")
+    ax.set_xlabel("Δ 2-year Treasury yield on FOMC day (bp)")
+    ax.set_ylabel("S&P 500 abnormal return on T=0 (%)")
+    ax.set_title(f"{category.upper()} — Surprise vs Market Reaction (T=0)")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
 def plot_category_comparison(
     comparison: pd.DataFrame,
     out_path: Path,

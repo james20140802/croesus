@@ -20,8 +20,10 @@ import pandas as pd
 from config import RESULTS_DIR
 from events import fomc, dummy_macro
 from data.prices import fetch_prices
+from data.rates import fetch_2yr_yield
 from analysis.event_study import compute_event_study
 from analysis.stats import summarize_category, per_day_stats, compare_categories, variance_comment
+from analysis.surprise import run_surprise_analysis
 from analysis.viz import (
     plot_avg_ar_bar,
     plot_cumulative_car,
@@ -74,6 +76,8 @@ def main() -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     summaries: list[pd.DataFrame] = []
+    # store events_df + prices per category for post-loop analyses
+    category_data: dict[str, dict] = {}
 
     for category, cfg in CATEGORIES.items():
         print(f"\n{'='*60}", file=sys.stderr)
@@ -90,6 +94,10 @@ def main() -> None:
         # 2. Fetch prices
         price_start, price_end = _price_range(event_dates, estimation_window, event_window)
         prices = fetch_prices(cfg["asset_id"], cfg["target"], price_start, price_end)
+        category_data[category] = {
+            "events_df": events_df, "prices": prices,
+            "event_window": event_window, "estimation_window": estimation_window,
+        }
 
         # 3. Compute event study
         result = compute_event_study(
@@ -177,6 +185,25 @@ def main() -> None:
         comparison = compare_categories(summaries)
         comparison.to_csv(RESULTS_DIR / "all_categories_summary.csv", index=False)
         plot_category_comparison(comparison, RESULTS_DIR / "category_comparison.png")
+
+    # 10. Surprise analysis (FOMC only — requires Δ2yr as expectation proxy)
+    if "fomc" in category_data:
+        cd = category_data["fomc"]
+        all_dates = sorted(cd["events_df"]["date"].tolist())
+        price_start, price_end = _price_range(all_dates, cd["estimation_window"], cd["event_window"])
+        try:
+            yields = fetch_2yr_yield(price_start, price_end)
+            run_surprise_analysis(
+                category="fomc",
+                events_df=cd["events_df"],
+                prices=cd["prices"],
+                yields=yields,
+                results_dir=RESULTS_DIR,
+                event_window=cd["event_window"],
+                estimation_window=cd["estimation_window"],
+            )
+        except RuntimeError as e:
+            print(f"\n[main] surprise 분석 건너뜀 (FRED 연결 실패): {e}")
 
     print(f"\n[main] 결과 저장 위치: {RESULTS_DIR.resolve()}")
 
