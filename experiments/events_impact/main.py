@@ -37,6 +37,12 @@ CATEGORIES = {
         "loader": fomc.get_events,
         "target": "^GSPC",
         "asset_id": "US_IDX_SP500",
+        # magnitude > 0 = hike, == 0 (or NaN) = hold, < 0 = cut
+        "subgroups": {
+            "hike": lambda df: df[df["magnitude"].fillna(0) > 0],
+            "hold": lambda df: df[df["magnitude"].fillna(0) == 0],
+            "cut":  lambda df: df[df["magnitude"].fillna(0) < 0],
+        },
     },
     "dummy_macro": {
         "loader": dummy_macro.get_events,
@@ -122,7 +128,51 @@ def main() -> None:
         print(f"  p-value         : {row['p_value']:.4f}")
         print(f"  분산 코멘트     : {comment}")
 
-    # 8. Cross-category comparison
+        # 8. Subgroup analysis (optional — only if 'subgroups' defined in cfg)
+        subgroups = cfg.get("subgroups", {})
+        if subgroups:
+            sg_summaries: list[pd.DataFrame] = []
+            for sg_name, filter_fn in subgroups.items():
+                sg_events = filter_fn(events_df)
+                sg_dates = sorted(sg_events["date"].tolist())
+                if not sg_dates:
+                    print(f"[main] subgroup {sg_name}: 0 events, skip", file=sys.stderr)
+                    continue
+                print(f"[main] subgroup {sg_name}: {len(sg_dates)} events", file=sys.stderr)
+
+                sg_result = compute_event_study(
+                    sg_dates, prices,
+                    event_window=event_window,
+                    estimation_window=estimation_window,
+                )
+                sg_per_day = sg_result["per_day"]
+                sg_per_event = sg_result["per_event"]
+
+                prefix = f"{category}_{sg_name}"
+                sg_per_event.to_csv(RESULTS_DIR / f"{prefix}_per_event.csv", index=False)
+                sg_per_day.to_csv(RESULTS_DIR / f"{prefix}_per_day.csv", index=False)
+
+                sg_day_stats = per_day_stats(sg_per_day)
+                plot_avg_ar_bar(sg_day_stats, f"{category} [{sg_name}]", RESULTS_DIR / f"{prefix}_avg_ar_bar.png")
+                plot_cumulative_car(sg_per_day, f"{category} [{sg_name}]", RESULTS_DIR / f"{prefix}_cumulative_car.png")
+                plot_car_histogram(sg_per_event, f"{category} [{sg_name}]", RESULTS_DIR / f"{prefix}_car_histogram.png")
+
+                sg_summary = summarize_category(sg_per_event, sg_per_day, sg_name)
+                sg_summaries.append(sg_summary)
+
+                sg_row = sg_summary.iloc[0]
+                print(f"\n  ┌── {sg_name.upper()} (n={int(sg_row['n'])})")
+                print(f"  │   평균 CAR      : {sg_row['mean_CAR']*100:.4f}%")
+                print(f"  │   std           : {sg_row['std_CAR']*100:.4f}%")
+                print(f"  │   t-stat        : {sg_row['t_stat']:.3f}  p={sg_row['p_value']:.4f}")
+                print(f"  └── {variance_comment(sg_row)}")
+
+            if sg_summaries:
+                sg_comparison = compare_categories(sg_summaries)
+                sg_comparison.to_csv(RESULTS_DIR / f"{category}_subgroup_summary.csv", index=False)
+                plot_category_comparison(sg_comparison, RESULTS_DIR / f"{category}_subgroup_comparison.png")
+
+    # 9. Cross-category comparison
     if summaries:
         comparison = compare_categories(summaries)
         comparison.to_csv(RESULTS_DIR / "all_categories_summary.csv", index=False)
