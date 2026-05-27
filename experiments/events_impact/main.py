@@ -54,8 +54,8 @@ CATEGORIES = {
 }
 
 # Shared window defaults (can be overridden per-category in CATEGORIES dict)
-DEFAULT_EVENT_WINDOW = (-1, 5)
-DEFAULT_ESTIMATION_WINDOW = (-31, -2)
+DEFAULT_EVENT_WINDOW = (-14, 10)
+DEFAULT_ESTIMATION_WINDOW = (-80, -15)  # must end before event_window starts (-14)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
