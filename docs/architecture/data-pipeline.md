@@ -9,14 +9,22 @@ The pipeline should be reliable before it is sophisticated. The first version sh
 ## Pipeline Stages
 
 ```text
+[Macro Pipeline]
+Macro Source Download (FRED / yfinance / scrapers)
+  -> Normalization
+  -> Macro Score Computation (3-Layer)
+  -> MacroState Storage
+  -> Macro Report Generation
+
+[Asset Pipeline]
 Source Discovery
   -> Data Download
   -> Normalization
   -> Validation
   -> Storage
   -> Factor Computation
-  -> Screening
-  -> Report Generation
+  -> Screening (MacroState로 파라미터 조정)
+  -> Research Report Generation
 ```
 
 ## Initial Data Types
@@ -79,7 +87,23 @@ Examples:
 - Quality.
 - Growth.
 
-### 5. Qualitative research data
+### 5. Macro indicators
+
+Stored in `macro_scores`.
+
+Sources:
+
+- FRED API: 금리, 인플레이션, 고용, 유동성, 신용 스프레드 등 (무료).
+- yfinance: VIX, S&P 500, DXY, 원자재(구리·금·WTI) (무료).
+- 웹 스크래핑: AAII Sentiment, NAAIM Exposure (무료, 불안정 가능).
+
+갱신 주기:
+
+- 일간: VIX, 금리, Credit Spread, RRP, S&P 500, FX, 원자재.
+- 주간: AAII, NAAIM, Jobless Claims, Fed Balance Sheet, TGA.
+- 월간: CPI, PCE, PMI, GDP, 실업률, M2, 임금상승률.
+
+### 6. Qualitative research data
 
 Stored later in separate tables or document stores.
 
@@ -153,6 +177,24 @@ CREATE TABLE IF NOT EXISTS factor_values (
 );
 ```
 
+### macro_scores
+
+```sql
+CREATE TABLE IF NOT EXISTS macro_scores (
+  date                DATE PRIMARY KEY,
+  regime              TEXT NOT NULL,
+  regime_confidence   DOUBLE,
+  growth_direction    TEXT,
+  inflation_direction TEXT,
+  amplifier_score     DOUBLE,
+  confirmation_score  DOUBLE,
+  positioning         TEXT,
+  raw_indicators      JSON,
+  warnings            JSON,
+  opportunities       JSON
+);
+```
+
 ### screening_results
 
 ```sql
@@ -188,17 +230,24 @@ data_sources/
 - Manual seed for assets.
 - yfinance for daily prices.
 
-### Phase 2
+### Phase 2 (Sprint 002)
+
+- FRED API for macro indicators (금리·인플레·고용·유동성·신용).
+- yfinance for macro indicators (VIX, S&P 500, FX, 원자재).
+- AAII, NAAIM 웹 스크래핑 for sentiment.
+- Macro Score Engine 구현 및 `macro_scores` 테이블 저장.
+
+### Phase 3
 
 - NASDAQ/NYSE/AMEX listed-symbol ingestion.
 - yfinance or another provider for expanded daily prices.
 
-### Phase 3
+### Phase 4
 
 - SEC EDGAR for company metadata and fundamentals.
 - News/RSS ingestion for qualitative research.
 
-### Phase 4
+### Phase 5
 
 - Paid or higher-quality providers if the free data layer becomes insufficient.
 
@@ -217,18 +266,30 @@ The ingestion pipeline should validate:
 
 ## Update Pattern
 
-Initial jobs:
-
 ```text
 bootstrap
-  -> migrate schema
+  -> migrate schema (macro_scores 테이블 포함)
   -> seed initial assets
 
-daily_run
+daily_macro_run         ← 매일
+  -> ingest daily macro indicators (FRED, yfinance)
+  -> compute MacroState
+  -> store macro_scores
+  -> generate macro report
+
+weekly_macro_run        ← 주 1회
+  -> ingest weekly indicators (AAII, NAAIM, Jobless Claims, TGA)
+  -> update MacroState
+
+monthly_macro_run       ← 월 1회
+  -> ingest monthly indicators (CPI, PCE, PMI, GDP, 실업률, M2)
+  -> update MacroState
+
+daily_run               ← 매일 (daily_macro_run 이후 실행)
   -> ingest prices
   -> compute common factors
-  -> run screening
-  -> generate report
+  -> run screening (MacroState로 파라미터 조정)
+  -> generate research report
 ```
 
 ## Data Provenance

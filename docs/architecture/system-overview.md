@@ -7,17 +7,42 @@ Croesus is a Python-first investment research system. Its initial purpose is to 
 ## High-Level Architecture
 
 ```text
-Asset Universe
-  -> Data Ingestion
-  -> Data Store
-  -> Factor Engine
-  -> Screening Engine
-  -> Research Agent
-  -> Portfolio Engine
-  -> Report Generator
+Macro Data Ingestion (FRED, yfinance, scrapers)
+  -> Macro Score Engine (3-Layer: Regime / Amplifier / Confirmation)
+  -> MacroState ──────────────────────────────────┐
+                                                   │ (파라미터 조정)
+Asset Universe                                     ▼
+  -> Data Ingestion               Factor Engine -> Screening Engine
+  -> Data Store                                    |
+                                                   ▼
+                                           Research Agent
+                                                   |
+                                                   ▼
+                                           Portfolio Engine
+                                                   |
+                                                   ▼
+                                           Report Generator
 ```
 
 ## Components
+
+### 0. Macro Score Engine
+
+시장 전체의 거시 환경을 분석하여 `MacroState`를 산출한다.
+종목 스크리닝 전에 실행되는 선행 단계로, "지금 주식 시장에 투자해도 되는가?"를 판단한다.
+
+3개 레이어로 구성된다:
+
+- **Layer 1 — Regime**: Growth × Inflation 방향으로 4개 국면 분류 (Goldilocks / Reflation / Stagflation / Deflation).
+- **Layer 2 — Risk Amplifier**: 유동성·신용·금리 지표로 국면 내 강도 조정 (0~100점).
+- **Layer 3 — Confirmation**: 변동성·추세·심리·FX 지표로 국면 신호 확인 또는 경고 (-1~+1).
+
+`MacroState`는 Screening Engine의 팩터 가중치, 종목 필터 임계값, 후보군 크기를 조정하는 데 사용된다.
+
+데이터 소스: FRED API, yfinance, 웹 스크래핑(AAII, NAAIM).
+갱신 주기: 일간(`daily_macro_run`), 주간(`weekly_macro_run`), 월간(`monthly_macro_run`).
+
+자세한 내용은 `docs/superpowers/specs/2026-05-28-macro-analysis-design.md` 참조.
 
 ### 1. Asset Universe
 
@@ -56,6 +81,7 @@ Core tables:
 - `prices_daily`
 - `fundamentals`
 - `factor_values`
+- `macro_scores`
 - `screening_results`
 - `reports`
 
@@ -145,6 +171,9 @@ Later report formats:
 ```text
 python -m croesus.jobs.bootstrap
 python -m croesus.jobs.daily_run
+python -m croesus.jobs.daily_macro_run
+python -m croesus.jobs.weekly_macro_run   # 주 1회
+python -m croesus.jobs.monthly_macro_run  # 월 1회
 ```
 
 Expected initial behavior:
@@ -152,8 +181,10 @@ Expected initial behavior:
 1. Create or migrate the local DuckDB schema.
 2. Seed initial assets.
 3. Ingest daily prices.
-4. Compute common factors.
-5. Generate screening outputs.
+4. Compute macro scores (MacroState).
+5. Compute common factors.
+6. Run screening with macro-adjusted parameters.
+7. Generate screening and macro research outputs.
 
 ## Design Constraints
 
@@ -189,6 +220,21 @@ croesus/
     common.py
     compute_common_factors.py
 
+  macro/
+    data_sources/
+      fred_source.py
+      yfinance_macro.py
+      sentiment_scraper.py
+    indicators/
+      growth.py
+      inflation.py
+      amplifier.py
+      confirmation.py
+    engine.py
+    screening_adapter.py
+    report.py
+    templates.py
+
   screening/
     run_screening.py
 
@@ -198,4 +244,7 @@ croesus/
   jobs/
     bootstrap.py
     daily_run.py
+    daily_macro_run.py
+    weekly_macro_run.py
+    monthly_macro_run.py
 ```
