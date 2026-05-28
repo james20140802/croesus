@@ -38,33 +38,35 @@ above_200d_ma
 
 ### Equity factors
 
-Equity-specific factors should be added after the common factor pipeline works.
+Equity-specific factors are added after the common factor pipeline works (Sprint 003+).
 
-Examples:
+**Sprint 003 — Valuation:**
 
-- Valuation.
-- Quality.
-- Growth.
-- Profitability.
-- Leverage.
-- Capital efficiency.
+Relative valuation (sector-percentile ranked) and absolute valuation (2-stage DCF). Requires `fundamentals` table populated by `quarterly_run`.
 
-Potential metrics:
+Scalar outputs to `factor_values`:
 
 ```text
-pe_ratio
-forward_pe
-ev_to_ebitda
-price_to_book
-roe
-roic
-gross_margin
-operating_margin
-revenue_growth
-eps_growth
-debt_to_equity
-free_cash_flow_yield
+pe_ratio              -- price / annual EPS
+pb_ratio              -- price / book value per share
+ev_to_ebitda          -- enterprise value / EBITDA
+fcf_yield             -- free cash flow / market cap
+pe_vs_sector_pct      -- PE percentile within sector (0 = cheapest)
+pb_vs_sector_pct      -- PB percentile within sector
+ev_ebitda_vs_sector_pct
+price_to_intrinsic    -- current price / DCF intrinsic value (<1 = undervalued)
 ```
+
+DCF detail output to `valuation_snapshots` (WACC, growth rate, intrinsic value per share, assumptions JSON).
+
+See `docs/superpowers/specs/2026-05-28-valuation-analysis-design.md` for full methodology.
+
+**Future sprints:**
+
+- Quality: ROE, ROIC, gross margin, operating margin.
+- Growth: revenue growth, EPS growth.
+- Leverage: debt-to-equity, interest coverage.
+- Capital efficiency: ROIC, asset turnover.
 
 ### ETF factors
 
@@ -211,9 +213,9 @@ factors/
     onchain.py
 ```
 
-## MVP Scope
+## Sprint Scope
 
-The first version should include only:
+### Sprint 001 — Common factors
 
 - `momentum_1m`
 - `momentum_3m`
@@ -222,13 +224,21 @@ The first version should include only:
 - `liquidity_1m`
 - `above_200d_ma`
 
-## Out of Scope for MVP
+### Sprint 003 — Equity valuation factors
 
-- Full multi-factor equity model.
+- `pe_ratio`, `pb_ratio`, `ev_to_ebitda`, `fcf_yield`
+- `pe_vs_sector_pct`, `pb_vs_sector_pct`, `ev_ebitda_vs_sector_pct`
+- `price_to_intrinsic` (DCF-based)
+
+## Out of Scope (deferred)
+
+- Full multi-factor equity model (quality, growth, leverage — future sprints).
 - Portfolio optimization.
 - Factor backtesting.
 - Machine-learned alpha model.
 - LLM-generated factor values.
+- Debt-weighted WACC (Sprint 003 uses all-equity CAPM).
+- TTM EPS from quarterly data (Sprint 003 uses annual EPS).
 
 ## Quality Requirements
 

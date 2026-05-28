@@ -80,6 +80,7 @@ Core tables:
 - `assets`
 - `prices_daily`
 - `fundamentals`
+- `valuation_snapshots`
 - `factor_values`
 - `macro_scores`
 - `screening_results`
@@ -100,13 +101,12 @@ Initial common factors:
 - 1-month liquidity.
 - 200-day moving-average signal.
 
-Later equity-specific factors:
+Equity-specific factors (Sprint 003):
 
-- Valuation.
-- Quality.
-- Growth.
-- Profitability.
-- Leverage.
+- Valuation: P/E, P/B, EV/EBITDA, FCF yield, DCF intrinsic value, sector percentile ranking.
+- Quality, Growth, Profitability, Leverage (future sprints).
+
+Valuation factor outputs go to both `factor_values` (scalar screening metrics) and `valuation_snapshots` (full DCF record). See `docs/superpowers/specs/2026-05-28-valuation-analysis-design.md`.
 
 ### 5. Screening Engine
 
@@ -172,8 +172,9 @@ Later report formats:
 python -m croesus.jobs.bootstrap
 python -m croesus.jobs.daily_run
 python -m croesus.jobs.daily_macro_run
-python -m croesus.jobs.weekly_macro_run   # 주 1회
-python -m croesus.jobs.monthly_macro_run  # 월 1회
+python -m croesus.jobs.weekly_macro_run    # 주 1회
+python -m croesus.jobs.monthly_macro_run   # 월 1회
+python -m croesus.jobs.quarterly_run       # 분기 1회 (Sprint 003+)
 ```
 
 Expected initial behavior:
@@ -185,6 +186,8 @@ Expected initial behavior:
 5. Compute common factors.
 6. Run screening with macro-adjusted parameters.
 7. Generate screening and macro research outputs.
+
+`quarterly_run` (Sprint 003): ingest fundamentals via yfinance, recompute valuation factors and DCF snapshots.
 
 ## Design Constraints
 
@@ -211,14 +214,23 @@ croesus/
   data_sources/
     base.py
     yfinance_source.py
+    fundamentals/
+      base.py
+      yfinance_fundamentals.py
 
   prices/
     ingest_prices.py
     repository.py
 
+  fundamentals/
+    ingest_fundamentals.py
+    repository.py
+
   factors/
     common.py
     compute_common_factors.py
+    equity/
+      valuation.py
 
   macro/
     data_sources/
@@ -247,4 +259,5 @@ croesus/
     daily_macro_run.py
     weekly_macro_run.py
     monthly_macro_run.py
+    quarterly_run.py
 ```
