@@ -62,17 +62,25 @@ Examples:
 
 ### 3. Fundamentals
 
-Stored in `fundamentals` later.
+Stored in `fundamentals`. Ingested quarterly via `FundamentalsProvider` (Sprint 003).
 
-Examples:
+Long-format schema consistent with `factor_values`:
 
-- Revenue.
-- Net income.
-- EPS.
-- Book value.
-- Free cash flow.
-- Debt.
-- Shares outstanding.
+```sql
+CREATE TABLE IF NOT EXISTS fundamentals (
+  asset_id     TEXT NOT NULL,
+  period_end   DATE NOT NULL,
+  period_type  TEXT NOT NULL,   -- 'annual' | 'quarterly'
+  metric_name  TEXT NOT NULL,
+  value        DOUBLE,
+  source       TEXT,
+  PRIMARY KEY (asset_id, period_end, period_type, metric_name)
+);
+```
+
+Initial `metric_name` values: `revenue`, `operating_income`, `net_income`, `eps`,
+`free_cash_flow`, `total_debt`, `total_equity`, `cash_and_equivalents`,
+`shares_outstanding`, `ebitda`, `capex`, `book_value_per_share`.
 
 ### 4. Factor values
 
@@ -195,6 +203,29 @@ CREATE TABLE IF NOT EXISTS macro_scores (
 );
 ```
 
+### fundamentals
+
+See Section 3 above for the full schema.
+
+### valuation_snapshots
+
+DCF output and assumptions record. One row per asset per date.
+
+```sql
+CREATE TABLE IF NOT EXISTS valuation_snapshots (
+  asset_id                  TEXT NOT NULL,
+  date                      DATE NOT NULL,
+  intrinsic_value_per_share DOUBLE,
+  current_price             DOUBLE,
+  upside_pct                DOUBLE,
+  wacc                      DOUBLE,
+  fcf_growth_rate           DOUBLE,
+  terminal_growth_rate      DOUBLE,
+  assumptions_json          TEXT,
+  PRIMARY KEY (asset_id, date)
+);
+```
+
 ### screening_results
 
 ```sql
@@ -237,17 +268,25 @@ data_sources/
 - AAII, NAAIM 웹 스크래핑 for sentiment.
 - Macro Score Engine 구현 및 `macro_scores` 테이블 저장.
 
-### Phase 3
+### Phase 3 (Sprint 003)
+
+- yfinance for quarterly fundamentals (income statement, balance sheet, cash flow).
+- `fundamentals` 테이블 저장.
+- Valuation factor computation: P/E, P/B, EV/EBITDA, FCF yield, sector percentiles.
+- 2-stage DCF with CAPM WACC → `valuation_snapshots` 테이블 저장.
+- `quarterly_run` 잡 추가.
+
+### Phase 4
 
 - NASDAQ/NYSE/AMEX listed-symbol ingestion.
 - yfinance or another provider for expanded daily prices.
 
-### Phase 4
+### Phase 5
 
-- SEC EDGAR for company metadata and fundamentals.
+- SEC EDGAR for company metadata and higher-quality fundamentals.
 - News/RSS ingestion for qualitative research.
 
-### Phase 5
+### Phase 6
 
 - Paid or higher-quality providers if the free data layer becomes insufficient.
 
@@ -288,8 +327,15 @@ monthly_macro_run       ← 월 1회
 daily_run               ← 매일 (daily_macro_run 이후 실행)
   -> ingest prices
   -> compute common factors
+  -> compute valuation multiples (pe_ratio, pb_ratio 등, fundamentals 캐시 사용)
   -> run screening (MacroState로 파라미터 조정)
   -> generate research report
+
+quarterly_run           ← 분기 1회 (Sprint 003+)
+  -> fetch fundamentals via FundamentalsProvider (yfinance)
+  -> store in fundamentals table
+  -> recompute DCF → store in valuation_snapshots
+  -> update price_to_intrinsic in factor_values
 ```
 
 ## Data Provenance
