@@ -76,6 +76,34 @@ A 3-layer macro score engine sits above individual screening:
 - Factor computation must skip assets with insufficient data without crashing the run
 - Keep `factor_name` strings stable — they are primary key components
 
+## Git Workflow
+
+All work happens on a dedicated branch — never commit directly to `main`.
+
+**Branch naming:**
+
+```
+feat/<short-description>     # new functionality
+fix/<short-description>      # bug fixes
+chore/<short-description>    # tooling, deps, config
+docs/<short-description>     # documentation only
+```
+
+**Commits:** Commit frequently and atomically — one logical change per commit. Do not batch unrelated changes into a single commit.
+
+**Commit messages use gitmoji:**
+
+```
+✨ feat: add yfinance price ingestion
+🐛 fix: skip assets with missing OHLCV rows
+♻️ refactor: extract factor normalization into helper
+📝 docs: add factor engine architecture
+🔧 chore: add duckdb to pyproject.toml
+🗃️ chore: add initial DuckDB schema migration
+```
+
+Common gitmoji for this project: `✨` new feature · `🐛` bugfix · `♻️` refactor · `📝` docs · `🔧` config/tooling · `🗃️` database · `🧪` tests · `⚡️` performance · `🔥` remove code/files
+
 ## Dependency Management
 
 Use `uv` (preferred) or `poetry`. Core runtime dependencies: `duckdb`, `pandas`, `yfinance`, `pydantic`, `pyyaml`, `python-dotenv`.

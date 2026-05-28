@@ -71,6 +71,25 @@ The pipeline must not crash when a single asset fails. Wrap per-asset operations
 
 `experiments/` is for standalone research prototypes. Code there is not part of the main `croesus/` package and should not import from it. Promote validated patterns from experiments to the main package; do not import from experiments in production code.
 
+## Git Workflow
+
+Follow the same workflow as documented in `CLAUDE.md`.
+
+- **Never commit to `main` directly.** Always create a branch first.
+- **Branch prefixes:** `feat/`, `fix/`, `chore/`, `docs/`
+- **Atomic commits:** one logical change per commit — do not batch unrelated changes
+- **Commit messages use gitmoji.** Examples for this codebase:
+
+  ```
+  ✨ feat: add asset registry seed for AAPL, MSFT, NVDA
+  🗃️ chore: create prices_daily and factor_values tables
+  🐛 fix: continue pipeline when single ticker fetch fails
+  ♻️ refactor: move factor normalization to common helper
+  📝 docs: update sprint 001 acceptance criteria
+  ```
+
+When an agent completes a logical unit of work (e.g., one module, one schema change, one bug fix), commit immediately rather than accumulating all changes.
+
 ## Safety
 
 - **No trade execution** — the Portfolio Engine may propose but must require explicit user confirmation before any trade is submitted to a broker or trading API
