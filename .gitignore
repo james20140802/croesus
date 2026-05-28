@@ -157,6 +157,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# Croesus local store
+storage/*.duckdb
+storage/*.duckdb.wal
+
 # Spyder project settings
 .spyderproject
 .spyproject
