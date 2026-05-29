@@ -28,7 +28,7 @@ def main() -> None:
     state = compute_macro_state(today, raw)
 
     store_macro_state(state)
-    md_path, csv_path = save_report(state)
+    md_path, csv_path = save_report(state, raw_indicators=state.raw_indicators)
 
     logger.info(
         "MacroState: regime=%s positioning=%s amp=%.1f conf=%.2f",

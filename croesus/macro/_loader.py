@@ -67,7 +67,7 @@ def store_macro_state(state, db_path=None) -> None:
                 state.amplifier_score,
                 state.confirmation_score,
                 state.positioning,
-                json.dumps({}),  # raw_indicators stored at report level
+                json.dumps(state.raw_indicators),
                 json.dumps(state.warnings),
                 json.dumps(state.opportunities),
             ],

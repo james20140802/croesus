@@ -90,15 +90,6 @@ def compute_amplifier_score(
         + weights["rates"] * rates
     )
 
-    # Store percentiles for raw_indicators
-    def _pct(key: str, higher_is_riskier: bool) -> float | None:
-        s = raw.get(key)
-        cur = last(key)
-        if s is None or cur is None:
-            return None
-        pct = _percentile(s, cur)
-        return round(pct if higher_is_riskier else 100 - pct, 2)
-
     category_scores = {
         "liquidity": round(liq, 2),
         "credit": round(cred, 2),

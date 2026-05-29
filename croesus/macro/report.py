@@ -43,15 +43,26 @@ def generate_markdown(state: MacroState, params: dict | None = None) -> str:
         "",
         f"## Layer 2: Risk Amplifier — Score {state.amplifier_score:.1f}/100",
         "",
-        "| Metric | Value |",
-        "|--------|-------|",
-        f"| Amplifier Score | {state.amplifier_score:.2f} |",
+        "| Category | Risk Score (0–100) |",
+        "|----------|--------------------|",
+        f"| Liquidity | {state.raw_indicators.get('amp_liquidity', 'N/A')} |",
+        f"| Credit | {state.raw_indicators.get('amp_credit', 'N/A')} |",
+        f"| Rates | {state.raw_indicators.get('amp_rates', 'N/A')} |",
+        f"| **Overall Amplifier** | **{state.amplifier_score:.2f}** |",
         "",
         f"## Layer 3: Confirmation — Score {state.confirmation_score:+.2f}",
         "",
-        "| Metric | Value |",
-        "|--------|-------|",
-        f"| Confirmation Score | {state.confirmation_score:+.4f} |",
+        "| Indicator | Last Value |",
+        "|-----------|------------|",
+    ]
+
+    for key in ("^VIX", "^VIX3M", "^GSPC", "DX-Y.NYB", "HG=F", "GC=F", "CL=F", "aaii_bull_bear", "naaim_exposure"):
+        val = state.raw_indicators.get(key)
+        if val is not None:
+            lines.append(f"| {key} | {val:.4f} |")
+
+    lines += [
+        f"| **Confirmation Score** | **{state.confirmation_score:+.4f}** |",
         "",
     ]
 

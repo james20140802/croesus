@@ -26,3 +26,6 @@ class MacroState:
     # Rule-based alerts
     warnings: list[dict] = field(default_factory=list)
     opportunities: list[dict] = field(default_factory=list)
+
+    # Last values of each indicator series + amplifier category sub-scores
+    raw_indicators: dict = field(default_factory=dict)

@@ -6,11 +6,17 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "duckdb>=1.0",
+  "numpy>=1.24",
   "pandas>=2.0",
   "pydantic>=2.0",
   "python-dotenv>=1.0",
   "pyyaml>=6.0",
+  "requests>=2.28",
   "yfinance>=0.2",
+  # macro data sources
+  "fredapi>=0.5",
+  "lxml>=4.9",
+  "xlrd>=2.0",
 ]
 
 [dependency-groups]

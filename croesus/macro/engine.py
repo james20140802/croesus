@@ -82,7 +82,7 @@ def compute_macro_state(
     regime_confidence = round((growth_conf + inflation_conf) / 2.0, 4)
 
     # Layer 2
-    amp_score, _ = compute_amplifier_score(
+    amp_score, category_scores = compute_amplifier_score(
         raw,
         weights=cfg["amplifier"]["category_weights"],
     )
@@ -93,12 +93,14 @@ def compute_macro_state(
     # Positioning
     positioning = _determine_positioning(regime, amp_score, conf_score, cfg)
 
-    # Raw indicator snapshot for storage/report
+    # Raw indicator snapshot: last value of each series + amplifier category sub-scores
     raw_snapshot: dict = {}
     for key, series in raw.items():
         vals = series.dropna()
         if len(vals):
             raw_snapshot[key] = round(float(vals.iloc[-1]), 6)
+    for k, v in category_scores.items():
+        raw_snapshot[f"amp_{k}"] = v
 
     warnings = generate_warnings(raw_snapshot)
     opportunities = generate_opportunities(raw_snapshot)
@@ -114,4 +116,5 @@ def compute_macro_state(
         positioning=positioning,
         warnings=warnings,
         opportunities=opportunities,
+        raw_indicators=raw_snapshot,
     )
