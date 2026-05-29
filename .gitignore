@@ -220,3 +220,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Event study experiment outputs
+storage/
+experiments/*/results/*.csv
+experiments/*/results/*.png
