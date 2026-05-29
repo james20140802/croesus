@@ -103,13 +103,22 @@ def get_events() -> pd.DataFrame:
         df["magnitude"] = float("nan")
         df["scope"] = "US"
         df["metadata"] = None
-        # merge magnitude/metadata from curated CSV where available
+        df["regime"] = None
+        df["is_emergency"] = False
+        # merge magnitude/metadata/regime/is_emergency from curated CSV where available
         csv_df = load_events_csv(_CSV_PATH, "fomc")
-        csv_lookup = csv_df.set_index("date")[["magnitude", "metadata"]]
+        merge_cols = [c for c in ["magnitude", "metadata", "regime", "is_emergency"]
+                      if c in csv_df.columns]
+        csv_lookup = csv_df.set_index("date")[merge_cols]
         df["date_key"] = df["date"]
         df = df.set_index("date_key")
         df.update(csv_lookup)
         df = df.reset_index(drop=True)
+        if "regime" not in df.columns:
+            df["regime"] = None
+        if "is_emergency" not in df.columns:
+            df["is_emergency"] = False
+        df["is_emergency"] = df["is_emergency"].fillna(False).astype(bool)
     else:
         if scraped:
             print(
