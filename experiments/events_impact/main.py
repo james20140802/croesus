@@ -24,6 +24,8 @@ from data.rates import fetch_2yr_yield
 from analysis.event_study import compute_event_study
 from analysis.stats import summarize_category, per_day_stats, compare_categories, variance_comment
 from analysis.surprise import run_surprise_analysis
+from data.intraday import fetch_intraday_fomc
+from analysis.intraday_study import compute_intraday_impact
 from analysis.viz import (
     plot_avg_ar_bar,
     plot_cumulative_car,
@@ -278,6 +280,42 @@ def main() -> None:
             )
         except RuntimeError as e:
             print(f"\n[main] surprise 분석 건너뜀 (FRED 연결 실패): {e}")
+
+    # === INTRADAY ANALYSIS (SPY 2pm→4pm ET, yfinance 730일 이내만) ===
+    if "fomc" in category_data:
+        print("\n" + "="*60)
+        print("[main] INTRADAY ANALYSIS — SPY 2pm→4pm ET")
+        cd = category_data["fomc"]
+        fomc_base_dates = sorted(
+            cd["base_df"]["date"].tolist()
+        )
+        try:
+            intraday_df = fetch_intraday_fomc(fomc_base_dates)
+            if intraday_df.empty:
+                print("[main] intraday 데이터 없음 (730일 범위 밖)")
+            else:
+                intraday_result = compute_intraday_impact(fomc_base_dates, intraday_df)
+                per_ev = intraday_result["per_event"]
+                summary = intraday_result["summary"]
+
+                per_ev.to_csv(RESULTS_DIR / "fomc_intraday_per_event.csv", index=False)
+                summary.to_csv(RESULTS_DIR / "fomc_intraday_summary.csv", index=False)
+
+                row = summary.iloc[0]
+                print(f"\n─── FOMC INTRADAY (2pm→4pm) 결과 ───")
+                print(f"  이벤트 수  : {int(row['n'])}")
+                print(f"  평균 수익률: {row['mean']*100:.4f}%")
+                print(f"  표준편차   : {row['std']*100:.4f}%")
+                print(f"  t-statistic: {row['t_stat']:.3f}")
+                print(f"  p-value    : {row['p_value']:.4f}")
+
+                print("\n  이벤트별 2pm→4pm 수익률:")
+                for _, r in per_ev.iterrows():
+                    sign = "+" if r["return_2pm_4pm"] >= 0 else ""
+                    print(f"    {r['event_date']}: {sign}{r['return_2pm_4pm']*100:.2f}%")
+
+        except Exception as e:
+            print(f"[main] intraday 분석 건너뜀: {e}")
 
     print(f"\n[main] 결과 저장 위치: {RESULTS_DIR.resolve()}")
 

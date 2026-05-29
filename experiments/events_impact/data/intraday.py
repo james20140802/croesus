@@ -129,7 +129,9 @@ def fetch_intraday_fomc(
             print(f"[intraday] no data for {ed}, skip", file=sys.stderr)
             continue
 
-        day_data["dt_et"] = pd.to_datetime(day_data["datetime"], utc=True).dt.tz_convert(ET)
+        # Timestamps stored in DuckDB are already ET (yfinance converts before insert).
+        # Localise as ET directly — do NOT treat as UTC first.
+        day_data["dt_et"] = pd.to_datetime(day_data["datetime"]).dt.tz_localize(ET)
         day_data["hour"] = day_data["dt_et"].dt.hour
 
         bar_14 = day_data[day_data["hour"] == 14]
