@@ -17,5 +17,5 @@ def load_events_csv(path: str | Path, category: str) -> pd.DataFrame:
     df["category"] = df["category"].fillna(category).astype(str)
     df["magnitude"] = pd.to_numeric(df["magnitude"], errors="coerce")
     df["is_emergency"] = df["is_emergency"].fillna(False).astype(bool)
-    df["regime"] = df["regime"].astype(str).replace("nan", None)
+    df["regime"] = df["regime"].where(df["regime"].notna())
     return df.sort_values("date").reset_index(drop=True)
