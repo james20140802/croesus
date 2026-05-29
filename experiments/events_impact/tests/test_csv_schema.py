@@ -47,3 +47,21 @@ def test_2024_sep_is_easing(fomc_df):
 
 def test_no_null_regime(fomc_df):
     assert fomc_df["regime"].isna().sum() == 0, "Null regime values found"
+
+
+from events.schema import load_events_csv
+
+
+def test_load_events_csv_includes_regime(fomc_df):
+    df = load_events_csv(CSV_PATH, "fomc")
+    assert "regime" in df.columns
+
+
+def test_load_events_csv_includes_is_emergency(fomc_df):
+    df = load_events_csv(CSV_PATH, "fomc")
+    assert "is_emergency" in df.columns
+
+
+def test_load_events_csv_regime_not_null(fomc_df):
+    df = load_events_csv(CSV_PATH, "fomc")
+    assert df["regime"].isna().sum() == 0
