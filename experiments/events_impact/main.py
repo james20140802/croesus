@@ -39,12 +39,25 @@ CATEGORIES = {
         "loader": fomc.get_events,
         "target": "^GSPC",
         "asset_id": "US_IDX_SP500",
-        # magnitude > 0 = hike, == 0 (or NaN) = hold, < 0 = cut
+        "exclude_emergency": True,
         "subgroups": {
+            # decision type (existing)
             "hike": lambda df: df[df["magnitude"].fillna(0) > 0],
             "hold": lambda df: df[df["magnitude"].fillna(0) == 0],
             "cut":  lambda df: df[df["magnitude"].fillna(0) < 0],
+            # regime (new)
+            "tightening": lambda df: df[df["regime"] == "tightening"],
+            "easing":     lambda df: df[df["regime"] == "easing"],
+            # crisis uses full_df — handled specially in main()
+            "crisis":     lambda df: df[df["regime"] == "crisis"],
         },
+        "extra_windows": [
+            {
+                "name": "short",
+                "event_window": (-1, 1),
+                "estimation_window": (-30, -2),
+            }
+        ],
     },
     "dummy_macro": {
         "loader": dummy_macro.get_events,
@@ -88,15 +101,31 @@ def main() -> None:
 
         # 1. Load events
         events_df = cfg["loader"]()
-        event_dates = sorted(events_df["date"].tolist())
-        print(f"[main] {len(event_dates)} event dates loaded", file=sys.stderr)
+        print(f"[main] {len(events_df)} event dates loaded", file=sys.stderr)
+
+        # Emergency split: base_df excludes emergency events for main analysis
+        full_df = events_df.copy()
+        if cfg.get("exclude_emergency"):
+            base_df = events_df[events_df.get("is_emergency", pd.Series(False, index=events_df.index)) != True].copy()
+            n_excluded = len(events_df) - len(base_df)
+            if n_excluded:
+                print(f"[main] excluded {n_excluded} emergency events", file=sys.stderr)
+        else:
+            base_df = events_df
+
+        event_dates = sorted(base_df["date"].tolist())
+        print(f"[main] {len(event_dates)} events after emergency exclusion", file=sys.stderr)
 
         # 2. Fetch prices
         price_start, price_end = _price_range(event_dates, estimation_window, event_window)
         prices = fetch_prices(cfg["asset_id"], cfg["target"], price_start, price_end)
         category_data[category] = {
-            "events_df": events_df, "prices": prices,
-            "event_window": event_window, "estimation_window": estimation_window,
+            "events_df": events_df,
+            "base_df": base_df,
+            "full_df": full_df,
+            "prices": prices,
+            "event_window": event_window,
+            "estimation_window": estimation_window,
         }
 
         # 3. Compute event study
@@ -141,7 +170,8 @@ def main() -> None:
         if subgroups:
             sg_summaries: list[pd.DataFrame] = []
             for sg_name, filter_fn in subgroups.items():
-                sg_events = filter_fn(events_df)
+                src_df = full_df if sg_name == "crisis" else base_df
+                sg_events = filter_fn(src_df)
                 sg_dates = sorted(sg_events["date"].tolist())
                 if not sg_dates:
                     print(f"[main] subgroup {sg_name}: 0 events, skip", file=sys.stderr)
@@ -168,6 +198,14 @@ def main() -> None:
                 sg_summary = summarize_category(sg_per_event, sg_per_day, sg_name)
                 sg_summaries.append(sg_summary)
 
+                if sg_name == "crisis":
+                    sg_row = sg_summary.iloc[0]
+                    print(f"\n  ┌── {sg_name.upper()} (n={int(sg_row['n'])}) — descriptive only")
+                    for _, ev_row in sg_per_event.iterrows():
+                        print(f"  │   {ev_row['event_date']}: CAR={ev_row['CAR']*100:.2f}%")
+                    print(f"  └── t-test skipped (n<5)")
+                    continue  # skip the normal print block
+
                 sg_row = sg_summary.iloc[0]
                 print(f"\n  ┌── {sg_name.upper()} (n={int(sg_row['n'])})")
                 print(f"  │   평균 CAR      : {sg_row['mean_CAR']*100:.4f}%")
@@ -179,6 +217,42 @@ def main() -> None:
                 sg_comparison = compare_categories(sg_summaries)
                 sg_comparison.to_csv(RESULTS_DIR / f"{category}_subgroup_summary.csv", index=False)
                 plot_category_comparison(sg_comparison, RESULTS_DIR / f"{category}_subgroup_comparison.png")
+
+        # 8b. Extra window passes (e.g. short window T-1~T+1)
+        for w in cfg.get("extra_windows", []):
+            w_name = w["name"]
+            w_event_window = w["event_window"]
+            w_estimation_window = w["estimation_window"]
+            prefix = f"{category}_{w_name}"
+            print(f"\n[main] extra_window: {prefix} {w_event_window}", file=sys.stderr)
+
+            w_result = compute_event_study(
+                sorted(base_df["date"].tolist()),
+                prices,
+                event_window=w_event_window,
+                estimation_window=w_estimation_window,
+            )
+            w_per_day = w_result["per_day"]
+            w_per_event = w_result["per_event"]
+
+            w_per_event.to_csv(RESULTS_DIR / f"{prefix}_per_event.csv", index=False)
+            w_per_day.to_csv(RESULTS_DIR / f"{prefix}_per_day.csv", index=False)
+
+            w_summary = summarize_category(w_per_event, w_per_day, prefix)
+            w_day_stats = per_day_stats(w_per_day)
+            w_day_stats.to_csv(RESULTS_DIR / f"{prefix}_day_stats.csv", index=False)
+
+            plot_avg_ar_bar(w_day_stats, prefix, RESULTS_DIR / f"{prefix}_avg_ar_bar.png")
+            plot_cumulative_car(w_per_day, prefix, RESULTS_DIR / f"{prefix}_cumulative_car.png")
+            plot_car_histogram(w_per_event, prefix, RESULTS_DIR / f"{prefix}_car_histogram.png")
+
+            w_row = w_summary.iloc[0]
+            print(f"\n─── {prefix.upper()} 결과 ───")
+            print(f"  이벤트 수       : {int(w_row['n'])}")
+            print(f"  평균 CAR        : {w_row['mean_CAR']*100:.4f}%")
+            print(f"  t-statistic     : {w_row['t_stat']:.3f}")
+            print(f"  p-value         : {w_row['p_value']:.4f}")
+            print(f"  분산 코멘트     : {variance_comment(w_row)}")
 
     # 9. Cross-category comparison
     if summaries:
