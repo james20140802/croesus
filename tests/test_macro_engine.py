@@ -13,6 +13,12 @@ from croesus.macro.engine import (
     compute_macro_state,
 )
 from croesus.macro.indicators.amplifier import compute_amplifier_score
+from croesus.macro.indicators.multi_method import (
+    aqr_momentum_method,
+    blackrock_method,
+    get_all_methods,
+    level_method,
+)
 from croesus.macro.indicators.confirmation import compute_confirmation_score
 from croesus.macro.indicators.growth import compute_growth_direction
 from croesus.macro.indicators.inflation import compute_inflation_direction
@@ -280,3 +286,187 @@ class TestScreeningAdapter:
         )
         params = get_screening_params(state)
         assert params["filters"] == {}
+
+
+# ── Multi-method regime classification ────────────────────────────────────────
+
+class TestMultiMethod:
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _pmi_expanding(n: int = 60) -> pd.Series:
+        """PMI series firmly in expansion territory (>50, rising)."""
+        idx = pd.date_range("2020-01-01", periods=n, freq="M")
+        return pd.Series(52.0 + np.arange(n) * 0.05, index=idx)
+
+    @staticmethod
+    def _pmi_contracting(n: int = 60) -> pd.Series:
+        """PMI series firmly in contraction territory (<50, falling)."""
+        idx = pd.date_range("2020-01-01", periods=n, freq="M")
+        return pd.Series(48.0 - np.arange(n) * 0.05, index=idx)
+
+    @staticmethod
+    def _cfnai_above_zero(n: int = 60) -> pd.Series:
+        """CFNAI rising from positive base (above-trend growth)."""
+        idx = pd.date_range("2020-01-01", periods=n, freq="M")
+        return pd.Series(0.2 + np.arange(n) * 0.01, index=idx)
+
+    @staticmethod
+    def _cfnai_below_zero(n: int = 60) -> pd.Series:
+        """CFNAI declining through negative territory."""
+        idx = pd.date_range("2020-01-01", periods=n, freq="M")
+        return pd.Series(-0.1 - np.arange(n) * 0.01, index=idx)
+
+    @staticmethod
+    def _cpi_low(n: int = 60) -> pd.Series:
+        """CPI level rising slowly (<3% YoY after warm-up)."""
+        idx = pd.date_range("2020-01-01", periods=n, freq="M")
+        return pd.Series(100.0 + np.arange(n) * 0.15, index=idx)
+
+    @staticmethod
+    def _cpi_high(n: int = 60) -> pd.Series:
+        """CPI level rising fast (>3% YoY after warm-up)."""
+        idx = pd.date_range("2020-01-01", periods=n, freq="M")
+        return pd.Series(100.0 + np.arange(n) * 0.35, index=idx)
+
+    # ── BlackRock method ──────────────────────────────────────────────────────
+
+    def test_blackrock_expanding_when_cfnai_accelerating(self):
+        raw = {"CFNAI": self._cfnai_above_zero()}
+        result = blackrock_method(raw)
+        # Rising CFNAI: 3M avg > 6M avg → Expanding
+        assert result["growth"] == "Expanding"
+        assert result["type"] == "direction_momentum"
+        assert "regime" in result
+        assert 0.0 <= result["confidence"] <= 1.0
+
+    def test_blackrock_contracting_when_cfnai_decelerating(self):
+        raw = {"CFNAI": self._cfnai_below_zero()}
+        result = blackrock_method(raw)
+        # Falling CFNAI: 3M avg < 6M avg → Contracting
+        assert result["growth"] == "Contracting"
+
+    def test_blackrock_uses_ism_pmi_over_cfnai(self):
+        # When ism_mfg_pmi is present it takes priority over CFNAI
+        raw = {
+            "ism_mfg_pmi": self._pmi_expanding(),
+            "CFNAI": self._cfnai_below_zero(),  # contradicts PMI
+        }
+        result = blackrock_method(raw)
+        assert result["growth"] == "Expanding"
+
+    def test_blackrock_inflation_falling_when_cpi_decelerating(self):
+        # CPI level falling → YoY: 3M avg < 6M avg → Falling
+        raw = {"CFNAI": self._cfnai_above_zero(), "CPILFESL": _falling(60, start=110.0, slope=0.1)}
+        result = blackrock_method(raw)
+        assert result["inflation"] == "Falling"
+
+    # ── Level threshold method ────────────────────────────────────────────────
+
+    def test_level_expanding_when_pmi_above_50(self):
+        raw = {"ism_mfg_pmi": self._pmi_expanding()}
+        result = level_method(raw)
+        assert result["growth"] == "Expanding"
+        assert result["type"] == "level"
+
+    def test_level_contracting_when_pmi_below_50(self):
+        raw = {"ism_mfg_pmi": self._pmi_contracting()}
+        result = level_method(raw)
+        assert result["growth"] == "Contracting"
+
+    def test_level_cfnai_fallback_above_zero(self):
+        # No PMI available → falls back to CFNAI ≥ 0
+        raw = {"CFNAI": self._cfnai_above_zero()}
+        result = level_method(raw)
+        assert result["growth"] == "Expanding"
+
+    def test_level_cfnai_fallback_below_zero(self):
+        raw = {"CFNAI": self._cfnai_below_zero()}
+        result = level_method(raw)
+        assert result["growth"] == "Contracting"
+
+    def test_level_inflation_rising_when_cpi_above_3pct(self):
+        # slope=0.35/month → YoY ≈ 4.2% after warm-up
+        raw = {"CFNAI": self._cfnai_above_zero(), "CPILFESL": self._cpi_high()}
+        result = level_method(raw)
+        assert result["inflation"] == "Rising"
+
+    def test_level_inflation_falling_when_cpi_below_3pct(self):
+        # slope=0.15/month → YoY ≈ 1.8% after warm-up
+        raw = {"CFNAI": self._cfnai_above_zero(), "CPILFESL": self._cpi_low()}
+        result = level_method(raw)
+        assert result["inflation"] == "Falling"
+
+    # ── AQR momentum method ───────────────────────────────────────────────────
+
+    def test_aqr_expanding_when_cfnai_up_from_year_ago(self):
+        raw = {"CFNAI": self._cfnai_above_zero()}
+        result = aqr_momentum_method(raw)
+        # Rising CFNAI: current > 12 months ago → Expanding
+        assert result["growth"] == "Expanding"
+        assert result["type"] == "yearly_momentum"
+
+    def test_aqr_contracting_when_cfnai_down_from_year_ago(self):
+        raw = {"CFNAI": self._cfnai_below_zero()}
+        result = aqr_momentum_method(raw)
+        assert result["growth"] == "Contracting"
+
+    def test_aqr_uses_pmi_over_cfnai(self):
+        raw = {
+            "ism_mfg_pmi": self._pmi_contracting(),
+            "CFNAI": self._cfnai_above_zero(),  # contradicts PMI
+        }
+        result = aqr_momentum_method(raw)
+        assert result["growth"] == "Contracting"
+
+    def test_aqr_insufficient_data_returns_fallback(self):
+        # Only 6 observations — not enough for 1-year comparison
+        idx = pd.date_range("2024-01-01", periods=6, freq="M")
+        raw = {"CFNAI": pd.Series([0.1] * 6, index=idx)}
+        result = aqr_momentum_method(raw)
+        assert result["growth"] in ("Expanding", "Contracting")
+        assert result["confidence"] == 0.5  # fallback confidence
+
+    # ── get_all_methods aggregator ────────────────────────────────────────────
+
+    def test_get_all_methods_returns_three_keys(self):
+        raw = {"CFNAI": self._cfnai_above_zero()}
+        methods = get_all_methods(raw)
+        assert set(methods.keys()) == {"blackrock", "level", "aqr_momentum"}
+
+    def test_all_methods_have_required_fields(self):
+        raw = {"CFNAI": self._cfnai_above_zero(), "CPILFESL": self._cpi_low()}
+        for name, m in get_all_methods(raw).items():
+            assert "growth" in m, f"{name} missing 'growth'"
+            assert "inflation" in m, f"{name} missing 'inflation'"
+            assert "regime" in m, f"{name} missing 'regime'"
+            assert "confidence" in m, f"{name} missing 'confidence'"
+            assert "type" in m, f"{name} missing 'type'"
+            assert m["regime"] in ("Goldilocks", "Reflation", "Stagflation", "Deflation")
+            assert 0.0 <= m["confidence"] <= 1.0
+
+    def test_empty_raw_does_not_crash(self):
+        for fn in (blackrock_method, level_method, aqr_momentum_method):
+            result = fn({})
+            assert "regime" in result
+
+    # ── Engine integration ────────────────────────────────────────────────────
+
+    def test_engine_populates_regime_methods(self):
+        raw = {
+            "CFNAI": self._cfnai_above_zero(),
+            "CPILFESL": _falling(60, start=110.0, slope=0.1),
+            "UNRATE": _flat(60, val=4.0),
+        }
+        state = compute_macro_state(date(2024, 1, 1), raw)
+        assert "vote" in state.regime_methods
+        assert "blackrock" in state.regime_methods
+        assert "level" in state.regime_methods
+        assert "aqr_momentum" in state.regime_methods
+
+    def test_engine_vote_entry_matches_primary_regime(self):
+        raw = {"CFNAI": self._cfnai_above_zero()}
+        state = compute_macro_state(date(2024, 6, 1), raw)
+        assert state.regime_methods["vote"]["regime"] == state.regime
+        assert state.regime_methods["vote"]["growth"] == state.growth_direction
+        assert state.regime_methods["vote"]["inflation"] == state.inflation_direction

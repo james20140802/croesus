@@ -29,3 +29,8 @@ class MacroState:
 
     # Last values of each indicator series + amplifier category sub-scores
     raw_indicators: dict = field(default_factory=dict)
+
+    # Alternative regime classification methods for cross-validation.
+    # Keys: "vote" (primary), "blackrock", "level", "aqr_momentum"
+    # Each value: {growth, inflation, regime, confidence, type, description}
+    regime_methods: dict = field(default_factory=dict)

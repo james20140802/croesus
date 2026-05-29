@@ -10,6 +10,7 @@ from croesus.macro.indicators.amplifier import compute_amplifier_score
 from croesus.macro.indicators.confirmation import compute_confirmation_score
 from croesus.macro.indicators.growth import compute_growth_direction
 from croesus.macro.indicators.inflation import compute_inflation_direction
+from croesus.macro.indicators.multi_method import get_all_methods
 from croesus.macro.models import MacroState
 from croesus.macro.templates import generate_opportunities, generate_warnings
 
@@ -105,6 +106,20 @@ def compute_macro_state(
     warnings = generate_warnings(raw_snapshot)
     opportunities = generate_opportunities(raw_snapshot)
 
+    # Regime cross-validation: run 3 alternative methods alongside the primary vote
+    alt_methods = get_all_methods(raw)
+    regime_methods: dict = {
+        "vote": {
+            "growth": growth_dir,
+            "inflation": inflation_dir,
+            "regime": regime,
+            "confidence": regime_confidence,
+            "type": "ensemble_vote",
+            "description": "Ensemble Vote: majority across all available indicators",
+        },
+        **alt_methods,
+    }
+
     return MacroState(
         date=as_of,
         regime=regime,
@@ -117,4 +132,5 @@ def compute_macro_state(
         warnings=warnings,
         opportunities=opportunities,
         raw_indicators=raw_snapshot,
+        regime_methods=regime_methods,
     )

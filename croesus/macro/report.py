@@ -66,6 +66,47 @@ def generate_markdown(state: MacroState, params: dict | None = None) -> str:
         "",
     ]
 
+    # Regime method comparison table
+    if state.regime_methods:
+        from collections import Counter
+        regimes = [v["regime"] for v in state.regime_methods.values()]
+        top_regime, top_count = Counter(regimes).most_common(1)[0]
+        total = len(regimes)
+        primary_marker = " ★" if top_count == total else ""
+
+        lines += [
+            "## Regime Method Comparison",
+            "",
+            f"**Consensus: {top_count}/{total} methods → {top_regime}**"
+            + (f"  (unanimous)" if top_count == total else ""),
+            "",
+            "| Method | Type | Growth | Inflation | Regime | Confidence |",
+            "|--------|------|--------|-----------|--------|------------|",
+        ]
+        type_labels = {
+            "ensemble_vote":   "Ensemble Vote",
+            "direction_momentum": "Direction Momentum",
+            "level":           "Level Threshold",
+            "yearly_momentum": "1Y Momentum",
+        }
+        for method_key, m in state.regime_methods.items():
+            is_primary = method_key == "vote"
+            name = m.get("description", method_key)
+            # Shorten description for table
+            short_names = {
+                "vote":         "**Ensemble Vote** (primary)",
+                "blackrock":    "BlackRock 3M/6M MA",
+                "level":        "Level Threshold",
+                "aqr_momentum": "AQR 1-Year Momentum",
+            }
+            display = short_names.get(method_key, method_key)
+            mtype = type_labels.get(m.get("type", ""), m.get("type", "—"))
+            conf_pct = f"{m['confidence'] * 100:.0f}%"
+            lines.append(
+                f"| {display} | {mtype} | {m['growth']} | {m['inflation']} | {m['regime']} | {conf_pct} |"
+            )
+        lines.append("")
+
     if state.warnings:
         lines += ["## Warnings", ""]
         lines += ["| Indicator | Current | Percentile | Code |", "|-----------|---------|------------|------|"]

@@ -18,7 +18,8 @@ def compute_growth_direction(raw: dict[str, pd.Series]) -> tuple[str, float]:
     """
     Determine Growth direction and confidence from available series.
 
-    raw keys (all optional): MANEAPUSA, UNRATE, ICSA, RSXFS, INDPRO, GDPC1.
+    raw keys (all optional): ism_mfg_pmi, ism_svc_pmi, CFNAI,
+    MANEAPUSA (FRED-removed 2016), UNRATE, ICSA, RSXFS, INDPRO, GDPC1.
 
     Returns (direction, confidence):
         direction  — "Expanding" or "Contracting"
@@ -26,15 +27,41 @@ def compute_growth_direction(raw: dict[str, pd.Series]) -> tuple[str, float]:
     """
     votes: list[int] = []  # +1 = Expanding, -1 = Contracting
 
-    # ISM PMI: rising slope → Expanding
-    if (pmi := raw.get("MANEAPUSA")) is not None:
+    # ISM Manufacturing PMI (from ism_scraper, 30-70 range)
+    # slope vote + level vote (≥50 = expansionary)
+    if (mfg_pmi := raw.get("ism_mfg_pmi")) is not None:
+        s = _trailing_slope(mfg_pmi, 3)
+        if s is not None:
+            votes.append(1 if s > 0 else -1)
+        last = mfg_pmi.dropna()
+        if len(last):
+            votes.append(1 if float(last.iloc[-1]) >= 50 else -1)
+    elif (pmi := raw.get("MANEAPUSA")) is not None:
+        # MANEAPUSA: removed from FRED in 2016, kept as fallback
         s = _trailing_slope(pmi, 3)
         if s is not None:
             votes.append(1 if s > 0 else -1)
-        # Level above 50 is expansionary
-        last = pmi.dropna().iloc[-1] if len(pmi.dropna()) else None
-        if last is not None:
-            votes.append(1 if last >= 50 else -1)
+        last = pmi.dropna()
+        if len(last):
+            votes.append(1 if float(last.iloc[-1]) >= 50 else -1)
+
+    # ISM Services PMI (from ism_scraper) — adds services-sector signal
+    if (svc_pmi := raw.get("ism_svc_pmi")) is not None:
+        s = _trailing_slope(svc_pmi, 3)
+        if s is not None:
+            votes.append(1 if s > 0 else -1)
+        last = svc_pmi.dropna()
+        if len(last):
+            votes.append(1 if float(last.iloc[-1]) >= 50 else -1)
+
+    # Chicago Fed NAI (CFNAI): composite of 85 indicators; level ≥ 0 = above-trend
+    if (cfnai := raw.get("CFNAI")) is not None:
+        s = _trailing_slope(cfnai, 3)
+        if s is not None:
+            votes.append(1 if s > 0 else -1)
+        last = cfnai.dropna()
+        if len(last):
+            votes.append(1 if float(last.iloc[-1]) >= 0 else -1)
 
     # Unemployment: falling → Expanding
     if (unrate := raw.get("UNRATE")) is not None:

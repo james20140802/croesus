@@ -55,5 +55,9 @@ CREATE TABLE IF NOT EXISTS macro_scores (
   positioning         TEXT,
   raw_indicators      JSON,
   warnings            JSON,
-  opportunities       JSON
+  opportunities       JSON,
+  regime_methods      JSON
 );
+
+-- Add regime_methods column to existing databases that predate this migration
+ALTER TABLE macro_scores ADD COLUMN IF NOT EXISTS regime_methods JSON;

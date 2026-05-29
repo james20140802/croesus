@@ -28,14 +28,17 @@ WEEKLY_SERIES = [
     "NFCI",    # NFCI
 ]
 MONTHLY_SERIES = [
-    "MANEAPUSA",    # ISM PMI
-    "UNRATE",       # Unemployment Rate
-    "RSXFS",        # Retail Sales
-    "INDPRO",       # Industrial Production
-    "CPILFESL",     # Core CPI
-    "PCEPILFE",     # Core PCE
-    "CES0500000003",# Wage Growth
-    "M2SL",         # M2
+    # MANEAPUSA (ISM Manufacturing PMI) was removed from FRED in June 2016
+    # due to a licensing dispute. Use croesus.macro.data_sources.ism_scraper
+    # for ISM PMI data. CFNAI is the reliable FRED-based activity proxy.
+    "CFNAI",         # Chicago Fed National Activity Index (85-indicator composite)
+    "UNRATE",        # Unemployment Rate
+    "RSXFS",         # Retail Sales
+    "INDPRO",        # Industrial Production
+    "CPILFESL",      # Core CPI
+    "PCEPILFE",      # Core PCE
+    "CES0500000003", # Wage Growth
+    "M2SL",          # M2
 ]
 QUARTERLY_SERIES = [
     "GDPC1",    # Real GDP

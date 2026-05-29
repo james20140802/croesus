@@ -32,6 +32,17 @@ def load_raw(
     yf_data = yf_source.fetch(lookback_years=lookback_years)
     raw.update(yf_data)
 
+    # ISM PMI scrapers (manufacturing + services)
+    # ISM data was removed from FRED in June 2016; CFNAI is the FRED-based fallback.
+    try:
+        from croesus.macro.data_sources.ism_scraper import ISMScraper
+        ism_data = ISMScraper().fetch()
+        raw.update(ism_data)
+        if ism_data:
+            logger.info("ISM scraper: loaded %s", list(ism_data.keys()))
+    except Exception as exc:
+        logger.warning("ISM scraper failed: %s", exc)
+
     # Sentiment scrapers (weekly, slow — skip if not needed)
     if include_sentiment:
         try:
@@ -55,8 +66,9 @@ def store_macro_state(state, db_path=None) -> None:
             """
             INSERT OR REPLACE INTO macro_scores
             (date, regime, regime_confidence, growth_direction, inflation_direction,
-             amplifier_score, confirmation_score, positioning, raw_indicators, warnings, opportunities)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             amplifier_score, confirmation_score, positioning, raw_indicators,
+             warnings, opportunities, regime_methods)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 str(state.date),
@@ -70,5 +82,6 @@ def store_macro_state(state, db_path=None) -> None:
                 json.dumps(state.raw_indicators),
                 json.dumps(state.warnings),
                 json.dumps(state.opportunities),
+                json.dumps(state.regime_methods),
             ],
         )
