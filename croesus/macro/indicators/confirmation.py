@@ -46,15 +46,15 @@ def compute_confirmation_score(
         else:
             sub_scores.append(vix_pct / 50.0 - 1.0)   # high VIX confirms stress
 
-    # VIX3M/VIX term structure: ratio > 1 = backwardation = calm (confirms Goldilocks)
+    # VIX3M/VIX term structure: ratio > 1 = contango = calm (confirms Goldilocks)
     vix_cur = last("^VIX")
     vix3m_cur = last("^VIX3M")
     if vix_cur is not None and vix3m_cur is not None and vix_cur > 0:
         ratio = vix3m_cur / vix_cur
         if regime in ("Goldilocks",):
-            sub_scores.append(min(1.0, (ratio - 1.0) * 2))
+            sub_scores.append(max(-1.0, min(1.0, (ratio - 1.0) * 2)))
         elif regime in ("Stagflation", "Deflation"):
-            sub_scores.append(min(1.0, (1.0 - ratio) * 2))
+            sub_scores.append(max(-1.0, min(1.0, (1.0 - ratio) * 2)))
 
     # ── Market Trend ──────────────────────────────────────────────────────────
     # S&P 500 above 200-day MA confirms risk-on (Goldilocks/Reflation)
@@ -71,7 +71,6 @@ def compute_confirmation_score(
 
     # ── Sentiment ─────────────────────────────────────────────────────────────
     # AAII Bull-Bear spread: extreme bullishness in Goldilocks = contrarian warning
-    aaii = raw.get("aaii_bull_bear")
     aaii_pct = pct("aaii_bull_bear")
     if aaii_pct is not None:
         if regime in ("Goldilocks",):
@@ -81,7 +80,6 @@ def compute_confirmation_score(
             sub_scores.append(aaii_pct / 50.0 - 1.0)
 
     # NAAIM: high exposure in Goldilocks is slightly bullish; extreme = warning
-    naaim = raw.get("naaim_exposure")
     naaim_pct = pct("naaim_exposure")
     if naaim_pct is not None:
         if regime in ("Goldilocks",):

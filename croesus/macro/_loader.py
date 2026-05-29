@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
 
 import pandas as pd
 
@@ -58,7 +57,6 @@ def load_raw(
 
 def store_macro_state(state, db_path=None) -> None:
     """Persist MacroState to DuckDB macro_scores table."""
-    import json
     from croesus.db.connection import get_connection
 
     with get_connection(db_path) as conn:

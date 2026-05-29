@@ -72,7 +72,6 @@ def generate_markdown(state: MacroState, params: dict | None = None) -> str:
         regimes = [v["regime"] for v in state.regime_methods.values()]
         top_regime, top_count = Counter(regimes).most_common(1)[0]
         total = len(regimes)
-        primary_marker = " ★" if top_count == total else ""
 
         lines += [
             "## Regime Method Comparison",
@@ -90,9 +89,6 @@ def generate_markdown(state: MacroState, params: dict | None = None) -> str:
             "yearly_momentum": "1Y Momentum",
         }
         for method_key, m in state.regime_methods.items():
-            is_primary = method_key == "vote"
-            name = m.get("description", method_key)
-            # Shorten description for table
             short_names = {
                 "vote":         "**Ensemble Vote** (primary)",
                 "blackrock":    "BlackRock 3M/6M MA",
@@ -173,7 +169,6 @@ def save_report(
     md_path = reports_dir / f"macro_{date_str}.md"
     md_path.write_text(md_content, encoding="utf-8")
 
-    # CSV — append to cumulative file if present, else create
     csv_path = reports_dir / f"macro_scores_{date_str}.csv"
     row = {
         "date": str(state.date),

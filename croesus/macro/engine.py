@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -102,6 +103,35 @@ def compute_macro_state(
             raw_snapshot[key] = round(float(vals.iloc[-1]), 6)
     for k, v in category_scores.items():
         raw_snapshot[f"amp_{k}"] = v
+
+    # Compute percentile rankings so templates.py warning/opportunity checks can fire.
+    # generate_warnings/generate_opportunities look for e.g. "BAMLH0A0HYM2_pct" keys.
+    _PCT_KEYS = ["BAMLH0A0HYM2", "^VIX", "T10Y2Y", "NFCI"]
+    for _key in _PCT_KEYS:
+        _series = raw.get(_key)
+        _cur = raw_snapshot.get(_key)
+        if _series is not None and _cur is not None:
+            _vals = _series.dropna().values
+            if len(_vals):
+                raw_snapshot[f"{_key}_pct"] = round(
+                    float(np.sum(_vals <= _cur) / len(_vals) * 100), 2
+                )
+
+    # Copper/gold ratio and its percentile for STRONG_GROWTH_SIGNAL opportunity.
+    _hg_s = raw.get("HG=F")
+    _gc_s = raw.get("GC=F")
+    if _hg_s is not None and _gc_s is not None:
+        _aligned = pd.concat({"hg": _hg_s, "gc": _gc_s}, axis=1).dropna()
+        if len(_aligned) > 0:
+            _cg_series = _aligned["hg"] / _aligned["gc"]
+            _hg_cur = raw_snapshot.get("HG=F")
+            _gc_cur = raw_snapshot.get("GC=F")
+            if _hg_cur is not None and _gc_cur is not None and _gc_cur > 0:
+                _cg_cur = _hg_cur / _gc_cur
+                raw_snapshot["copper_gold_ratio"] = round(_cg_cur, 6)
+                raw_snapshot["copper_gold_ratio_pct"] = round(
+                    float(np.sum(_cg_series.values <= _cg_cur) / len(_cg_series) * 100), 2
+                )
 
     warnings = generate_warnings(raw_snapshot)
     opportunities = generate_opportunities(raw_snapshot)
