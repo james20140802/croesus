@@ -38,9 +38,9 @@ above_200d_ma
 
 ### Equity factors
 
-Equity-specific factors are added after the common factor pipeline works (Sprint 003+).
+Equity-specific factors are added after the common factor pipeline and portfolio-profile foundations work.
 
-**Sprint 003 — Valuation:**
+**Valuation layer:**
 
 Relative valuation (sector-percentile ranked) and absolute valuation (2-stage DCF). Requires `fundamentals` table populated by `quarterly_run`.
 
@@ -224,7 +224,7 @@ factors/
 - `liquidity_1m`
 - `above_200d_ma`
 
-### Sprint 003 — Equity valuation factors
+### Equity valuation factors
 
 - `pe_ratio`, `pb_ratio`, `ev_to_ebitda`, `fcf_yield`
 - `pe_vs_sector_pct`, `pb_vs_sector_pct`, `ev_ebitda_vs_sector_pct`
@@ -237,8 +237,8 @@ factors/
 - Factor backtesting.
 - Machine-learned alpha model.
 - LLM-generated factor values.
-- Debt-weighted WACC (Sprint 003 uses all-equity CAPM).
-- TTM EPS from quarterly data (Sprint 003 uses annual EPS).
+- Debt-weighted WACC (initial valuation layer uses all-equity CAPM).
+- TTM EPS from quarterly data (initial valuation layer uses annual EPS).
 
 ## Quality Requirements
 

@@ -9,6 +9,13 @@ The pipeline should be reliable before it is sophisticated. The first version sh
 ## Pipeline Stages
 
 ```text
+[Portfolio Pipeline]
+Investor Profile
+  -> Policy Targets
+  -> Holdings Snapshot
+  -> Exposure and Drift Computation
+  -> Rebalancing Proposal
+
 [Macro Pipeline]
 Macro Source Download (FRED / yfinance / scrapers)
   -> Normalization
@@ -24,12 +31,52 @@ Source Discovery
   -> Storage
   -> Factor Computation
   -> Screening (MacroState로 파라미터 조정)
-  -> Research Report Generation
+  -> Candidate Set
+  -> Portfolio-aware Rebalancing Proposal
 ```
 
 ## Initial Data Types
 
-### 1. Asset metadata
+### 1. Investor profiles
+
+Stored in `investor_profiles`.
+
+Examples:
+
+- Expected annual return.
+- Maximum tolerable drawdown.
+- Investment horizon.
+- Concentration limits.
+- Rebalance band.
+- Trade mode.
+
+### 2. Policy targets
+
+Stored in `policy_targets`.
+
+Examples:
+
+- Core equity target.
+- Satellite equity target.
+- Bond or defensive sleeve target.
+- Cash target.
+- Minimum and maximum sleeve weights.
+
+### 3. Portfolio holdings
+
+Stored in `portfolio_holdings`.
+
+Examples:
+
+- Asset ID.
+- Quantity.
+- Market value.
+- Currency.
+- Cost basis.
+- Snapshot date.
+- Source.
+
+### 4. Asset metadata
 
 Stored in `assets`.
 
@@ -45,7 +92,7 @@ Examples:
 - Industry.
 - Source.
 
-### 2. Daily prices
+### 5. Daily prices
 
 Stored in `prices_daily`.
 
@@ -60,9 +107,9 @@ Examples:
 - Volume.
 - Source.
 
-### 3. Fundamentals
+### 6. Fundamentals
 
-Stored in `fundamentals`. Ingested quarterly via `FundamentalsProvider` (Sprint 003).
+Stored in `fundamentals`. Ingested quarterly via `FundamentalsProvider` in the valuation layer.
 
 Long-format schema consistent with `factor_values`:
 
@@ -82,7 +129,7 @@ Initial `metric_name` values: `revenue`, `operating_income`, `net_income`, `eps`
 `free_cash_flow`, `total_debt`, `total_equity`, `cash_and_equivalents`,
 `shares_outstanding`, `ebitda`, `capex`, `book_value_per_share`.
 
-### 4. Factor values
+### 7. Factor values
 
 Stored in `factor_values`.
 
@@ -95,7 +142,7 @@ Examples:
 - Quality.
 - Growth.
 
-### 5. Macro indicators
+### 8. Macro indicators
 
 Stored in `macro_scores`.
 
@@ -111,7 +158,7 @@ Sources:
 - 주간: AAII, NAAIM, Jobless Claims, Fed Balance Sheet, TGA.
 - 월간: CPI, PCE, PMI, GDP, 실업률, M2, 임금상승률.
 
-### 6. Qualitative research data
+### 9. Qualitative research data
 
 Stored later in separate tables or document stores.
 
@@ -170,6 +217,45 @@ CREATE TABLE IF NOT EXISTS prices_daily (
   volume BIGINT,
   source TEXT,
   PRIMARY KEY (asset_id, date)
+);
+```
+
+### investor_profiles
+
+See `docs/architecture/investor-profile.md` for the full schema.
+
+### policy_targets
+
+See `docs/architecture/investor-profile.md` for the full schema.
+
+### portfolios
+
+```sql
+CREATE TABLE IF NOT EXISTS portfolios (
+  portfolio_id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  name TEXT,
+  base_currency TEXT,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  metadata JSON
+);
+```
+
+### portfolio_holdings
+
+```sql
+CREATE TABLE IF NOT EXISTS portfolio_holdings (
+  portfolio_id TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  as_of_date DATE NOT NULL,
+  quantity DOUBLE,
+  market_value DOUBLE,
+  currency TEXT,
+  cost_basis DOUBLE,
+  source TEXT,
+  metadata JSON,
+  PRIMARY KEY (portfolio_id, asset_id, as_of_date)
 );
 ```
 
@@ -240,6 +326,42 @@ CREATE TABLE IF NOT EXISTS screening_results (
 );
 ```
 
+### rebalance_runs
+
+```sql
+CREATE TABLE IF NOT EXISTS rebalance_runs (
+  run_id TEXT PRIMARY KEY,
+  portfolio_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  date DATE NOT NULL,
+  macro_regime TEXT,
+  macro_positioning TEXT,
+  decision TEXT,
+  summary TEXT,
+  metadata JSON
+);
+```
+
+### proposed_actions
+
+```sql
+CREATE TABLE IF NOT EXISTS proposed_actions (
+  action_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  asset_id TEXT,
+  sleeve_name TEXT,
+  action_type TEXT NOT NULL,
+  current_weight DOUBLE,
+  target_weight DOUBLE,
+  proposed_weight DOUBLE,
+  estimated_trade_value DOUBLE,
+  reason_codes JSON,
+  human_readable_reason TEXT,
+  requires_research BOOLEAN,
+  requires_user_approval BOOLEAN
+);
+```
+
 ## Source Interface
 
 Each source should be wrapped behind an interface. Downstream logic should not depend directly on source-specific response formats.
@@ -268,7 +390,34 @@ data_sources/
 - AAII, NAAIM 웹 스크래핑 for sentiment.
 - Macro Score Engine 구현 및 `macro_scores` 테이블 저장.
 
-### Phase 3 (Sprint 003)
+### Phase 3
+
+- Investor profile schema.
+- Policy target schema.
+- Profile validation.
+- Default advanced profile seed.
+- `profile_init` job.
+
+### Phase 4
+
+- Portfolio holdings schema.
+- Manual holdings import.
+- Portfolio exposure and drift computation.
+- `portfolio_snapshot` job.
+
+### Phase 5
+
+- Screening engine.
+- Sector and theme aggregation.
+- Profile-aware candidate filtering.
+
+### Phase 6
+
+- Rebalancing proposal engine.
+- Portfolio action report.
+- No trade execution.
+
+### Phase 7
 
 - yfinance for quarterly fundamentals (income statement, balance sheet, cash flow).
 - `fundamentals` 테이블 저장.
@@ -276,17 +425,17 @@ data_sources/
 - 2-stage DCF with CAPM WACC → `valuation_snapshots` 테이블 저장.
 - `quarterly_run` 잡 추가.
 
-### Phase 4
+### Phase 8
 
 - NASDAQ/NYSE/AMEX listed-symbol ingestion.
 - yfinance or another provider for expanded daily prices.
 
-### Phase 5
+### Phase 9
 
 - SEC EDGAR for company metadata and higher-quality fundamentals.
 - News/RSS ingestion for qualitative research.
 
-### Phase 6
+### Phase 10
 
 - Paid or higher-quality providers if the free data layer becomes insufficient.
 
@@ -310,6 +459,16 @@ bootstrap
   -> migrate schema (macro_scores 테이블 포함)
   -> seed initial assets
 
+profile_init            ← 초기 설정 / profile 변경 시
+  -> validate investor profile
+  -> store investor_profiles
+  -> store policy_targets
+
+portfolio_snapshot      ← holdings 변경 / 가격 갱신 후
+  -> load holdings
+  -> compute current weights
+  -> compute exposure and drift
+
 daily_macro_run         ← 매일
   -> ingest daily macro indicators (FRED, yfinance)
   -> compute MacroState
@@ -329,9 +488,18 @@ daily_run               ← 매일 (daily_macro_run 이후 실행)
   -> compute common factors
   -> compute valuation multiples (pe_ratio, pb_ratio 등, fundamentals 캐시 사용)
   -> run screening (MacroState로 파라미터 조정)
-  -> generate research report
+  -> store candidate results
 
-quarterly_run           ← 분기 1회 (Sprint 003+)
+rebalance_check         ← 매일 또는 사용자 요청 시
+  -> load investor profile
+  -> load policy targets
+  -> load latest portfolio snapshot
+  -> load latest MacroState
+  -> load candidate results
+  -> generate proposed_actions
+  -> generate portfolio action report
+
+quarterly_run           ← 분기 1회 (valuation layer)
   -> fetch fundamentals via FundamentalsProvider (yfinance)
   -> store in fundamentals table
   -> recompute DCF → store in valuation_snapshots
