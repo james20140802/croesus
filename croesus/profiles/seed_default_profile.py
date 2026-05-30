@@ -57,8 +57,7 @@ def seed_default_profile(conn: duckdb.DuckDBPyConnection) -> None:
     if not result.is_valid:
         raise ValueError(f"invalid default policy targets: {result.errors}")
 
-    repo = ProfileRepository(conn)
-    repo.upsert_profile(DEFAULT_PROFILE)
-    # Replace (not merge): the default set is the complete source of truth, so a
-    # re-seed after a custom --config run does not leave stale sleeves behind.
-    repo.replace_policy_targets(DEFAULT_PROFILE.profile_id, DEFAULT_POLICY_TARGETS)
+    # save_profile writes profile + targets in one transaction and replaces
+    # (not merges) targets, so a re-seed after a custom --config run leaves no
+    # stale sleeves behind.
+    ProfileRepository(conn).save_profile(DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS)

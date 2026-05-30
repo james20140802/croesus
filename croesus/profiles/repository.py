@@ -62,6 +62,25 @@ class ProfileRepository:
             self._profile_to_params(profile),
         )
 
+    def save_profile(self, profile: InvestorProfile, targets: list[PolicyTarget]) -> None:
+        """Persist a profile and its complete policy-target set atomically.
+
+        The profile upsert, removal of stale sleeves, and new target inserts
+        share one transaction, so a failure leaves the prior state intact
+        rather than a half-applied "new profile with old targets".
+        """
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.upsert_profile(profile)
+            self.conn.execute(
+                "DELETE FROM policy_targets WHERE profile_id = ?", [profile.profile_id]
+            )
+            self.upsert_policy_targets(targets)
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
     def get_profile(self, profile_id: str) -> InvestorProfile | None:
         row = self.conn.execute(
             "SELECT * FROM investor_profiles WHERE profile_id = ?",

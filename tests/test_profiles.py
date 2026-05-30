@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.profiles.models import (
@@ -197,3 +199,37 @@ def test_replace_policy_targets_removes_stale_sleeves(tmp_path: Path) -> None:
     assert {t.sleeve_name for t in loaded} == {"core_us_equity", "defensive_bonds"}
     core = next(t for t in loaded if t.sleeve_name == "core_us_equity")
     assert core.target_weight == 0.60
+
+
+def test_save_profile_persists_profile_and_targets(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+    profile = _valid_profile(profile_id="p")
+    targets = [
+        PolicyTarget("p", "core_us_equity", 0.6, 0.5, 0.7),
+        PolicyTarget("p", "defensive_bonds", 0.4, 0.3, 0.5),
+    ]
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        repo.save_profile(profile, targets)
+        loaded = repo.get_profile("p")
+        sleeves = {t.sleeve_name for t in repo.get_policy_targets("p")}
+
+    assert loaded == profile
+    assert sleeves == {"core_us_equity", "defensive_bonds"}
+
+
+def test_save_profile_rolls_back_profile_when_targets_fail(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+    profile = _valid_profile(profile_id="p")
+    # target_weight is NOT NULL: None forces the target insert to fail.
+    bad_targets = [PolicyTarget("p", "core_us_equity", None, None, None)]  # type: ignore[arg-type]
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        with pytest.raises(Exception):
+            repo.save_profile(profile, bad_targets)
+        # the profile write must roll back too — not a half-applied save
+        assert repo.get_profile("p") is None
