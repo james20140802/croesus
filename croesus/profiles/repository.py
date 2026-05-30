@@ -68,7 +68,20 @@ class ProfileRepository:
         The profile upsert, removal of stale sleeves, and new target inserts
         share one transaction, so a failure leaves the prior state intact
         rather than a half-applied "new profile with old targets".
+
+        Raises ValueError (before any write) if a target's ``profile_id`` does
+        not match the profile being saved, which would otherwise misattribute
+        targets to a different profile.
         """
+        mismatched = [
+            t.sleeve_name for t in targets if t.profile_id != profile.profile_id
+        ]
+        if mismatched:
+            raise ValueError(
+                f"policy targets {mismatched} have a profile_id that does not "
+                f"match the profile being saved ({profile.profile_id!r})"
+            )
+
         self.conn.execute("BEGIN TRANSACTION")
         try:
             self.upsert_profile(profile)

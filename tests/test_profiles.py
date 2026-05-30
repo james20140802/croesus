@@ -233,3 +233,20 @@ def test_save_profile_rolls_back_profile_when_targets_fail(tmp_path: Path) -> No
             repo.save_profile(profile, bad_targets)
         # the profile write must roll back too — not a half-applied save
         assert repo.get_profile("p") is None
+
+
+def test_save_profile_rejects_mismatched_target_profile_id(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+    profile = _valid_profile(profile_id="p")
+    # target belongs to a different profile ("q") than the one being saved ("p")
+    mismatched = [PolicyTarget("q", "core_us_equity", 1.0, None, None)]
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        with pytest.raises(ValueError):
+            repo.save_profile(profile, mismatched)
+        # guard runs before any write: nothing persisted for either id
+        assert repo.get_profile("p") is None
+        assert repo.get_policy_targets("p") == []
+        assert repo.get_policy_targets("q") == []
