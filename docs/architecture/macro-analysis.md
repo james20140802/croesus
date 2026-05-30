@@ -130,19 +130,22 @@ Positioning 결정  (5단계)
 
 #### Growth 방향 판단
 
-PMI, 실업률, 실업수당, 소매판매, 산업생산, GDP 등 각 지표가 **독립적으로 한 표씩 투표**한다.
+ISM 제조업 PMI, ISM 서비스 PMI, CFNAI, 실업률, 실업수당, 소매판매, 산업생산, GDP 등
+각 지표가 **독립적으로 한 표씩 투표**한다. (ISM PMI는 스크래핑으로, CFNAI는 FRED로 수급하며,
+스크래핑 실패 시 CFNAI가 경기 활동 프록시를 보완한다 — 위 1-2/1-3 및 ADR 0006 참조.)
 
 ```
 각 지표의 최근 N개월 데이터에 선형회귀를 적용 → 기울기(slope) 계산
   기울기 > 0 (상승 추세)  → Expanding 한 표
   기울기 < 0 (하락 추세)  → Contracting 한 표
-  (PMI는 추가로 50 기준선도 별도 투표)
+  (PMI는 추가로 50 기준선, CFNAI는 0 기준선도 별도 투표)
 
 다수결 → Expanding / Contracting
 Confidence = 다수 측 표 수 / 전체 표 수
 ```
 
-예시: PMI 상승(1표) + PMI≥50(1표) + 실업률 하락(1표) + 소매판매 상승(1표) = 4표 중 4표 Expanding → Confidence 1.0
+예시: 제조업 PMI 상승(1표) + 제조업 PMI≥50(1표) + 실업률 하락(1표) + 소매판매 상승(1표)
+= 4표 중 4표 Expanding → Confidence 1.0
 
 #### Inflation 방향 판단
 
