@@ -62,14 +62,15 @@ daily_run  ───────────────────────
 `store_macro_state`의 짝. 같은 파일에 두어 저장/복원 로직의 응집도를 유지한다.
 
 ```python
-def load_latest_macro_state(db_path=None) -> MacroState | None:
+def load_latest_macro_state(conn) -> MacroState | None:
     """macro_scores에서 가장 최근 date의 row를 MacroState로 복원. 없으면 None."""
 ```
 
+- 호출자의 **connection을 재사용**한다 (db_path로 두 번째 핸들을 열지 않음). `run_daily_pipeline(conn)`이 DI 스타일로 conn을 받으므로 같은 핸들을 넘겨 DuckDB 파일 락 충돌을 피한다.
 - `SELECT ... FROM macro_scores ORDER BY date DESC LIMIT 1`.
-- JSON 컬럼(`warnings`, `opportunities`, `raw_indicators`, `regime_methods`)은 `json.loads`로 역직렬화.
+- JSON 컬럼(`warnings`, `opportunities`, `raw_indicators`, `regime_methods`)은 `json.loads`로 역직렬화 (이미 파싱된 경우는 그대로).
 - `date`는 DuckDB DATE → `datetime.date`로 복원.
-- 테이블이 없거나(마이그레이션 전) row가 0개면 `None` 반환.
+- 테이블이 없거나(마이그레이션 전) row가 0개면 `None` 반환 (예외는 흡수).
 
 ### 2. `croesus/jobs/daily_run.py` — 배선
 
@@ -80,7 +81,7 @@ def load_latest_macro_state(db_path=None) -> MacroState | None:
   - 매크로 데이터 부재 시 `log(...)`로 "daily_macro_run 미실행 — 중립 파라미터 사용" 경고.
 - `main()`: regime / positioning / factor_weights / candidate_count를 출력.
 
-중립 fallback은 `screening_adapter`에서 config를 읽어 구성한다 (하드코딩 금지, CLAUDE.md 원칙).
+중립 fallback은 `screening_adapter.neutral_screening_params()`가 config를 읽어 구성한다 (하드코딩 금지, CLAUDE.md 원칙).
 
 ---
 
