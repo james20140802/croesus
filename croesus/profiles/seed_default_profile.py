@@ -59,4 +59,6 @@ def seed_default_profile(conn: duckdb.DuckDBPyConnection) -> None:
 
     repo = ProfileRepository(conn)
     repo.upsert_profile(DEFAULT_PROFILE)
-    repo.upsert_policy_targets(DEFAULT_POLICY_TARGETS)
+    # Replace (not merge): the default set is the complete source of truth, so a
+    # re-seed after a custom --config run does not leave stale sleeves behind.
+    repo.replace_policy_targets(DEFAULT_PROFILE.profile_id, DEFAULT_POLICY_TARGETS)
