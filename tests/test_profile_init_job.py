@@ -53,7 +53,7 @@ def test_profile_init_main_uses_configured_db_path(tmp_path: Path, monkeypatch) 
     db_path = tmp_path / "configured.duckdb"
     monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
 
-    profile_init_main()
+    profile_init_main([])
 
     with get_connection(db_path) as conn:
         profile_count = conn.execute("SELECT COUNT(*) FROM investor_profiles").fetchone()[0]
