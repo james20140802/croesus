@@ -9,6 +9,8 @@ from croesus.profiles.models import (
     InvestorProfile,
     TradeMode,
 )
+from croesus.profiles.models import PolicyTarget
+from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.validation import validate_profile
 
 
@@ -98,3 +100,75 @@ def test_validate_warns_on_unrealistic_return_drawdown_combo() -> None:
     assert result.is_valid
     assert result.errors == []
     assert result.warnings != []
+
+
+def test_profile_repository_round_trips_json_fields(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+    profile = _valid_profile(metadata={"note": "test", "tags": ["a", "b"]})
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        repo.upsert_profile(profile)
+        loaded = repo.get_profile("default")
+
+    assert loaded == profile
+    assert loaded.base_currency is Currency.USD
+    assert loaded.trade_mode is TradeMode.PROPOSE_ONLY
+    assert loaded.allowed_asset_types == [
+        AssetType.EQUITY,
+        AssetType.ETF,
+        AssetType.REIT,
+        AssetType.CASH,
+    ]
+    assert loaded.metadata == {"note": "test", "tags": ["a", "b"]}
+
+
+def test_profile_repository_get_missing_profile_returns_none(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+
+    with get_connection(db_path) as conn:
+        assert ProfileRepository(conn).get_profile("missing") is None
+
+
+def test_profile_repository_upsert_preserves_created_at(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        repo.upsert_profile(_valid_profile())
+        created_first = conn.execute(
+            "SELECT created_at FROM investor_profiles WHERE profile_id = 'default'"
+        ).fetchone()[0]
+        repo.upsert_profile(_valid_profile(name="renamed"))
+        created_again, name = conn.execute(
+            "SELECT created_at, name FROM investor_profiles WHERE profile_id = 'default'"
+        ).fetchone()
+
+    assert created_again == created_first
+    assert name == "renamed"
+
+
+def test_profile_repository_round_trips_policy_targets(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+    targets = [
+        PolicyTarget("default", "core_us_equity", 0.55, 0.45, 0.65),
+        PolicyTarget("default", "satellite_equity", 0.15, 0.00, 0.20),
+        PolicyTarget("default", "defensive_bonds", 0.20, 0.10, 0.30),
+        PolicyTarget("default", "cash", 0.10, 0.05, 0.20),
+    ]
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        repo.upsert_policy_targets(targets)
+        loaded = repo.get_policy_targets("default")
+
+    assert {t.sleeve_name for t in loaded} == {t.sleeve_name for t in targets}
+    assert len(loaded) == 4
+    core = next(t for t in loaded if t.sleeve_name == "core_us_equity")
+    assert core.target_weight == 0.55
+    assert core.min_weight == 0.45
+    assert core.max_weight == 0.65
