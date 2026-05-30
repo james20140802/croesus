@@ -68,7 +68,7 @@ monthly_macro_run  → CPI, PCE, PMI, GDP, 실업률, M2, 임금상승률
 | 범주 | 지표 | FRED 코드 | 주기 |
 |------|------|-----------|------|
 | **Growth** | GDP 성장률 | `GDPC1` | 분기 |
-| | ISM Manufacturing PMI | `MANEAPUSA` | 월 |
+| | ISM Manufacturing PMI | `MANEAPUSA` ⚠️ | 월 |
 | | 실업률 | `UNRATE` | 월 |
 | | 신규 실업수당 청구 | `ICSA` | 주 |
 | | 소매판매 | `RSXFS` | 월 |
@@ -94,6 +94,13 @@ monthly_macro_run  → CPI, PCE, PMI, GDP, 실업률, M2, 임금상승률
 | | IG Spread | `BAMLC0A0CM` | 일 |
 | | 대출태도지수 | `DRTSCILM` | 분기 |
 | **Earnings** | 기업이익률 | `CPATAX` | 분기 |
+
+> ⚠️ **구현 노트 (2026-05-30):** `MANEAPUSA`(ISM 제조업 PMI)는 2016년 6월 FRED에서 제거되어
+> 사실상 빈 시계열을 반환한다. 실제 구현에서는 ISM PMI를 **웹 스크래핑**으로 수집하고,
+> 실패 시 **`CFNAI`(FRED)** 로 대체한다. 또한 국면 분류는 앙상블 투표를 1차로 하되 BlackRock /
+> Level / AQR 3가지 방법으로 **교차검증(출력 전용)** 한다. 자세한 내용은 ADR 0006 및
+> `docs/architecture/macro-analysis.md` 참조. `CPATAX`(기업이익률)는 분기 후행성이 커 현재 어느
+> 레이어에도 편입되지 않았다.
 
 ### yfinance (무료)
 

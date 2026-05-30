@@ -43,3 +43,21 @@ CREATE TABLE IF NOT EXISTS screening_results (
   reason TEXT,
   PRIMARY KEY (run_id, asset_id)
 );
+
+CREATE TABLE IF NOT EXISTS macro_scores (
+  date                DATE PRIMARY KEY,
+  regime              TEXT NOT NULL,
+  regime_confidence   DOUBLE,
+  growth_direction    TEXT,
+  inflation_direction TEXT,
+  amplifier_score     DOUBLE,
+  confirmation_score  DOUBLE,
+  positioning         TEXT,
+  raw_indicators      JSON,
+  warnings            JSON,
+  opportunities       JSON,
+  regime_methods      JSON
+);
+
+-- Add regime_methods column to existing databases that predate this migration
+ALTER TABLE macro_scores ADD COLUMN IF NOT EXISTS regime_methods JSON;

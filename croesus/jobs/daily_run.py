@@ -13,6 +13,8 @@ from croesus.factors.compute_common_factors import (
     FactorComputationResult,
     compute_and_store_common_factors,
 )
+from croesus.macro._loader import load_latest_macro_state
+from croesus.macro.screening_adapter import get_screening_params, neutral_screening_params
 from croesus.prices.ingest_prices import IngestionResult, ingest_daily_prices
 
 
@@ -20,6 +22,7 @@ from croesus.prices.ingest_prices import IngestionResult, ingest_daily_prices
 class DailyRunResult:
     price_result: IngestionResult
     factor_result: FactorComputationResult
+    screening_params: dict
 
 
 def run_daily_pipeline(
@@ -31,18 +34,38 @@ def run_daily_pipeline(
     seed_us_equities(conn)
     price_result = ingest_daily_prices(conn, source=source, log=log)
     factor_result = compute_and_store_common_factors(conn)
-    return DailyRunResult(price_result=price_result, factor_result=factor_result)
+
+    # Consume the latest MacroState (from daily_macro_run) to adjust screening
+    # parameters. Falls back to neutral defaults if no macro data is available.
+    macro_state = load_latest_macro_state(conn)
+    if macro_state is None:
+        log("no MacroState found — run daily_macro_run first; using neutral params")
+        screening_params = neutral_screening_params()
+    else:
+        screening_params = get_screening_params(macro_state)
+
+    return DailyRunResult(
+        price_result=price_result,
+        factor_result=factor_result,
+        screening_params=screening_params,
+    )
 
 
 def main() -> None:
     migrate()
     with get_connection() as conn:
         result = run_daily_pipeline(conn)
+    sp = result.screening_params
     print(
         "daily run complete: "
         f"{len(result.price_result.succeeded)} price downloads succeeded, "
         f"{len(result.price_result.failed)} failed, "
         f"{len(result.factor_result.computed)} assets with factors"
+    )
+    print(
+        "macro-adjusted screening params: "
+        f"regime={sp['regime']} positioning={sp['positioning']} "
+        f"candidate_count={sp['candidate_count']} weights={sp['factor_weights']}"
     )
 
 

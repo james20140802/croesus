@@ -52,7 +52,7 @@ croesus/macro/data_sources/
 
 | 범주 | 코드 | 주기 |
 |------|------|------|
-| Growth | `MANEAPUSA`, `UNRATE`, `ICSA`, `RSXFS`, `INDPRO`, `GDPC1` | 월/주/분기 |
+| Growth | `CFNAI`, `UNRATE`, `ICSA`, `RSXFS`, `INDPRO`, `GDPC1` (+ ISM PMI 스크래핑) | 월/주/분기 |
 | Inflation | `CPILFESL`, `PCEPILFE`, `T5YIE`, `DCOILWTICO`, `CES0500000003` | 월/일 |
 | Rates | `EFFR`, `DGS2`, `DGS10`, `T10Y2Y`, `DFII10` | 일 |
 | Liquidity | `WALCL`, `M2SL`, `WTREGEN`, `RRPONTSYD`, `NFCI` | 주/월 |
@@ -229,3 +229,12 @@ Amplifier Score 범주 가중치(Liquidity 35%, Credit 40%, Rates 25%)와
 Positioning 임계값은 초기 경험적 추정값이다.
 충분한 히스토리가 쌓인 후 실증적으로 검증하고 조정한다.
 가중치와 임계값은 코드에 하드코딩하지 않고 config 파일로 분리한다.
+
+### 구현 중 변경 사항 (2026-05-30, ADR 0006)
+
+- **ISM PMI 수급 경로 변경:** `MANEAPUSA`는 2016년 FRED에서 제거되어 빈 시계열을 반환한다.
+  ISM 제조업·서비스 PMI는 웹 스크래핑(`ism_scraper.py`)으로 수집하고, 실패 시 `CFNAI`로 대체한다.
+- **Regime 교차검증 추가:** 앙상블 투표를 1차 국면으로 유지하되, BlackRock(3M/6M MA) ·
+  Level Threshold · AQR(1Y momentum) 3가지 방법을 **출력 전용 참고 신호**로 함께 계산한다
+  (`multi_method.py`, `MacroState.regime_methods`, `macro_scores.regime_methods` 컬럼).
+  스크리닝은 여전히 앙상블 투표만 소비한다 (단방향 의존 유지).

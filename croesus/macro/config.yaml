@@ -1,0 +1,56 @@
+# Macro Score Engine configuration
+# Weights and thresholds are empirical initial estimates; validate empirically after sufficient history.
+
+amplifier:
+  category_weights:
+    liquidity: 0.35
+    credit: 0.40
+    rates: 0.25
+
+positioning_thresholds:
+  # Rules evaluated in order; first match wins.
+  # Most-specific stress cases first, then best-case growth, then defaults.
+  - condition: {regime: Stagflation, amplifier_min: 61}
+    positioning: Defensive
+  - condition: {confirmation_max: -0.5}
+    positioning: Defensive
+  - condition: {regime: Stagflation}
+    positioning: Cautious
+  - condition: {amplifier_min: 61}
+    positioning: Cautious
+  - condition: {regime: Goldilocks, amplifier_max: 30, confirmation_min: 0.3}
+    positioning: Aggressive
+  - condition: {regime: Goldilocks, amplifier_max: 60}
+    positioning: Moderately Aggressive
+  - condition: {regime: Reflation}
+    positioning: Neutral
+  - condition: {amplifier_min: 31, amplifier_max: 60}
+    positioning: Neutral
+  - condition: {}
+    positioning: Neutral
+
+screening:
+  base_candidate_count: 20
+  base_weights:
+    momentum: 0.35
+    liquidity: 0.25
+    trend: 0.25
+    volatility_penalty: 0.15
+  regime_overrides:
+    Goldilocks:
+      momentum: 0.10
+      volatility_penalty: -0.05
+    Reflation:
+      momentum: -0.05
+      liquidity: 0.10
+    Stagflation:
+      momentum: -0.15
+      volatility_penalty: 0.15
+    Deflation:
+      momentum: -0.10
+      liquidity: 0.05
+  amplifier_stress_threshold: 60
+  amplifier_stress_filters:
+    min_liquidity_multiplier: 1.5
+    max_volatility_multiplier: 0.8
+    min_market_cap_multiplier: 2.0
