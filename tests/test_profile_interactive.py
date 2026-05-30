@@ -1,12 +1,16 @@
 from pathlib import Path
+from typing import Any
 
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.jobs.profile_init import main as profile_init_main
 from croesus.jobs.profile_init import run_profile_interactive
 from croesus.profiles.config_io import read_profile_config
-from croesus.profiles.interactive import ask, build_profile_interactively
-from croesus.profiles.models import Currency, TradeMode
+from croesus.profiles.interactive import (
+    QuestionaryPrompter,
+    build_profile_interactively,
+)
+from croesus.profiles.models import AssetType, Currency, TradeMode
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
     DEFAULT_POLICY_TARGETS,
@@ -14,63 +18,49 @@ from croesus.profiles.seed_default_profile import (
 )
 
 
-def _scripted(answers: dict[str, str]):
-    """Return inputs by matching a substring of the prompt; '' (default) otherwise."""
+class ScriptedPrompter:
+    """Test double: returns scripted answers by key, records what was shown."""
 
-    def _fn(prompt: str) -> str:
-        for key, value in answers.items():
-            if key in prompt:
-                return value
-        return ""
+    def __init__(self, answers: dict[str, Any] | None = None) -> None:
+        self.answers = answers or {}
+        self.seen: list[dict[str, Any]] = []
 
-    return _fn
+    def info(self, message: str) -> None:
+        self.seen.append({"kind": "info", "message": message, "description": ""})
 
+    def text(self, key, message, description, default, parse) -> Any:
+        self.seen.append({"kind": "text", "key": key, "description": description})
+        return self.answers.get(key, default)
 
-def _silent(_msg: str) -> None:
-    return None
+    def select(self, key, message, description, choices, default) -> Any:
+        self.seen.append({"kind": "select", "key": key, "description": description})
+        return self.answers.get(key, default)
 
-
-def test_ask_reprompts_until_valid() -> None:
-    values = iter(["abc", "0.12"])
-    out: list[str] = []
-
-    result = ask(lambda _p: next(values), out.append, "expected_annual_return", 0.1, float)
-
-    assert result == 0.12
-    assert any("invalid" in line.lower() for line in out)
+    def checkbox(self, key, message, description, choices, default) -> Any:
+        self.seen.append({"kind": "checkbox", "key": key, "description": description})
+        return self.answers.get(key, list(default))
 
 
-def test_ask_returns_default_on_empty_input() -> None:
-    result = ask(lambda _p: "", _silent, "name", "Default Name", str)
-    assert result == "Default Name"
-
-
-def test_interactive_all_defaults_yields_default_profile() -> None:
+def test_build_uses_defaults_when_unanswered() -> None:
     profile, targets = build_profile_interactively(
-        DEFAULT_PROFILE,
-        DEFAULT_POLICY_TARGETS,
-        input_fn=lambda _p: "",
-        output_fn=_silent,
+        DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS, prompter=ScriptedPrompter()
     )
 
     assert profile == DEFAULT_PROFILE
     assert targets == DEFAULT_POLICY_TARGETS
 
 
-def test_interactive_applies_user_overrides() -> None:
+def test_build_applies_user_overrides() -> None:
     answers = {
         "profile_id": "chase",
         "name": "My account",
-        "base_currency": "EUR",
-        "max_tolerable_drawdown": "-0.30",
-        "trade_mode": "approval_required",
+        "base_currency": Currency.EUR,
+        "max_tolerable_drawdown": -0.30,
+        "trade_mode": TradeMode.APPROVAL_REQUIRED,
     }
 
     profile, _targets = build_profile_interactively(
-        DEFAULT_PROFILE,
-        DEFAULT_POLICY_TARGETS,
-        input_fn=_scripted(answers),
-        output_fn=_silent,
+        DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS, prompter=ScriptedPrompter(answers)
     )
 
     assert profile.profile_id == "chase"
@@ -80,6 +70,37 @@ def test_interactive_applies_user_overrides() -> None:
     assert profile.trade_mode is TradeMode.APPROVAL_REQUIRED
 
 
+def test_asset_type_fields_use_checkbox() -> None:
+    prompter = ScriptedPrompter({"allowed_asset_types": [AssetType.EQUITY]})
+
+    profile, _targets = build_profile_interactively(
+        DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS, prompter=prompter
+    )
+
+    assert profile.allowed_asset_types == [AssetType.EQUITY]
+    checkbox_keys = {e["key"] for e in prompter.seen if e["kind"] == "checkbox"}
+    assert {"allowed_asset_types", "disallowed_asset_types"} <= checkbox_keys
+
+
+def test_enum_scalar_fields_use_select() -> None:
+    prompter = ScriptedPrompter()
+
+    build_profile_interactively(DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS, prompter=prompter)
+
+    select_keys = {e["key"] for e in prompter.seen if e["kind"] == "select"}
+    assert {"base_currency", "trade_mode"} <= select_keys
+
+
+def test_every_prompt_has_a_description() -> None:
+    prompter = ScriptedPrompter()
+
+    build_profile_interactively(DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS, prompter=prompter)
+
+    field_prompts = [e for e in prompter.seen if e["kind"] in {"text", "select", "checkbox"}]
+    assert field_prompts  # sanity: prompts were emitted
+    assert all(e["description"].strip() for e in field_prompts)
+
+
 def test_run_profile_interactive_upserts_to_db(tmp_path: Path) -> None:
     db_path = tmp_path / "i.duckdb"
     migrate(db_path)
@@ -87,8 +108,7 @@ def test_run_profile_interactive_upserts_to_db(tmp_path: Path) -> None:
     with get_connection(db_path) as conn:
         pid = run_profile_interactive(
             conn,
-            input_fn=_scripted({"profile_id": "chase", "name": "My account"}),
-            output_fn=_silent,
+            prompter=ScriptedPrompter({"profile_id": "chase", "name": "My account"}),
         )
         loaded = ProfileRepository(conn).get_profile("chase")
 
@@ -105,8 +125,7 @@ def test_run_profile_interactive_optionally_saves_yaml(tmp_path: Path) -> None:
     with get_connection(db_path) as conn:
         run_profile_interactive(
             conn,
-            input_fn=_scripted({"profile_id": "chase"}),
-            output_fn=_silent,
+            prompter=ScriptedPrompter({"profile_id": "chase"}),
             save_path=cfg,
         )
 
@@ -115,14 +134,18 @@ def test_run_profile_interactive_optionally_saves_yaml(tmp_path: Path) -> None:
     assert saved.profile_id == "chase"
 
 
-def test_interactive_main_wires_stdin(tmp_path: Path, monkeypatch) -> None:
+def test_interactive_main_uses_injected_prompter(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "configured.duckdb"
     monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
-    monkeypatch.setattr("builtins.input", _scripted({"profile_id": "chase"}))
 
-    profile_init_main(["--interactive"])
+    profile_init_main(["--interactive"], prompter=ScriptedPrompter({"profile_id": "chase"}))
 
     with get_connection(db_path) as conn:
         loaded = ProfileRepository(conn).get_profile("chase")
 
     assert loaded is not None
+
+
+def test_questionary_prompter_constructs() -> None:
+    # Smoke: the real prompter imports questionary and builds without a TTY.
+    assert QuestionaryPrompter() is not None

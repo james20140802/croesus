@@ -10,7 +10,11 @@ import duckdb
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.profiles.config_io import read_profile_config, write_profile_config
-from croesus.profiles.interactive import InputFn, OutputFn, build_profile_interactively
+from croesus.profiles.interactive import (
+    Prompter,
+    QuestionaryPrompter,
+    build_profile_interactively,
+)
 from croesus.profiles.models import InvestorProfile, PolicyTarget
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
@@ -73,8 +77,7 @@ def run_profile_interactive(
     profile_defaults: InvestorProfile = DEFAULT_PROFILE,
     target_defaults: list[PolicyTarget] | None = None,
     *,
-    input_fn: InputFn | None = None,
-    output_fn: OutputFn | None = None,
+    prompter: Prompter | None = None,
     save_path: str | Path | None = None,
 ) -> str:
     """Prompt the user for profile values, validate, and upsert.
@@ -82,17 +85,15 @@ def run_profile_interactive(
     Expects an already-migrated connection. Optionally also writes the result
     to ``save_path`` as a reusable YAML config. Returns the profile_id.
     """
-    # Resolve at call time so tests can monkeypatch builtins.input / print.
-    input_fn = input_fn or input
-    output_fn = output_fn or print
+    if prompter is None:
+        prompter = QuestionaryPrompter()
     if target_defaults is None:
         target_defaults = DEFAULT_POLICY_TARGETS
 
     profile, targets = build_profile_interactively(
         profile_defaults,
         target_defaults,
-        input_fn=input_fn,
-        output_fn=output_fn,
+        prompter=prompter,
     )
 
     profile_result = validate_profile(profile)
@@ -101,7 +102,7 @@ def run_profile_interactive(
     if errors:
         raise ValueError(f"invalid profile: {errors}")
     for warning in profile_result.warnings:
-        output_fn(f"warning: {warning}")
+        prompter.info(f"warning: {warning}")
 
     repo = ProfileRepository(conn)
     repo.upsert_profile(profile)
@@ -109,9 +110,9 @@ def run_profile_interactive(
 
     if save_path is not None:
         write_profile_config(save_path, profile, targets, overwrite=True)
-        output_fn(f"saved config to {save_path}")
+        prompter.info(f"saved config to {save_path}")
 
-    _log_summary(profile.profile_id, profile.name, targets, output_fn)
+    _log_summary(profile.profile_id, profile.name, targets, prompter.info)
     return profile.profile_id
 
 
@@ -170,7 +171,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None, *, prompter: Prompter | None = None) -> None:
     args = _build_parser().parse_args(argv)
 
     if args.init_config:
@@ -199,6 +200,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     conn,
                     profile_defaults,
                     target_defaults,
+                    prompter=prompter,
                     save_path=args.save,
                 )
             except (ValueError, FileNotFoundError) as exc:
