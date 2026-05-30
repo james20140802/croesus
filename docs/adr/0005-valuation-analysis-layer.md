@@ -37,7 +37,7 @@ DCF 가정값(WACC, 성장률)은 코드가 자동 계산(CAPM + 과거 FCF CAGR
 - 기술적 팩터만으로는 "좋은 비즈니스를 싸게 사는" 원칙을 구현할 수 없다.
 - `factor_values` 롱포맷은 새 팩터를 스키마 변경 없이 행 추가로 흡수한다. Screening Engine 변경 불필요.
 - DCF 결과를 `valuation_snapshots`에 별도 저장하면 LLM이 나중에 "왜 이 종목이 저평가인가"를 구조화된 데이터로 설명할 수 있다.
-- `FundamentalsProvider` 추상화는 Sprint 003에서 yfinance를 쓰고, 이후 FMP 등 유료 소스로 교체할 때 다운스트림 코드를 건드리지 않는다.
+- `FundamentalsProvider` 추상화는 Valuation sprint에서 yfinance를 쓰고, 이후 FMP 등 유료 소스로 교체할 때 다운스트림 코드를 건드리지 않는다.
 - WACC의 `overrides` 파라미터는 구현 비용 없이 LLM 확장 포인트를 열어둔다.
 
 ## Alternatives Considered

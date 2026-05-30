@@ -1,4 +1,4 @@
-# Sprint 003: Valuation Analysis Layer
+# Sprint 007: Valuation Analysis Layer
 
 ## Goal
 
@@ -13,7 +13,7 @@ Fundamentals Ingestion (yfinance)
   -> valuation_snapshots (DCF 상세 기록)
 ```
 
-Sprint 001(Asset Registry + Price Ingestion)과 Sprint 002(Macro Analysis Layer)가 완료된 이후를 전제로 한다.
+Sprint 001~006이 완료되어 profile-first portfolio workflow와 Level 1 rebalancing proposal engine이 준비된 이후를 전제로 한다.
 
 ---
 

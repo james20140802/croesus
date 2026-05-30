@@ -33,7 +33,7 @@ Level 1 does not execute trades.
 | 009 | Approval-based execution | Prepare orders after explicit user approval |
 | 010 | Bounded automation | Long-horizon automated rebalancing with strict guardrails |
 
-Sprint numbers after Sprint 002 intentionally differ from older planning docs. Existing Sprint 003 valuation work remains important, but portfolio-profile infrastructure should come first so valuation outputs have a portfolio decision context.
+Valuation work remains important, but portfolio-profile infrastructure should come first so valuation outputs have a portfolio decision context.
 
 ## Sprint 001: Data Foundation
 
@@ -393,4 +393,4 @@ The system should be able to:
 
 - `docs/planning/sprint-001-asset-registry.md` remains valid for data foundation.
 - `docs/planning/sprint-002-macro-analysis.md` remains valid for MacroState.
-- `docs/planning/sprint-003-valuation-analysis.md` remains valid technically, but valuation should be sequenced after profile and portfolio foundations for product coherence.
+- `docs/planning/sprint-007-valuation-analysis.md` contains the valuation implementation plan and is sequenced after profile and portfolio foundations for product coherence.
