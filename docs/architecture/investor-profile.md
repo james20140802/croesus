@@ -51,6 +51,16 @@ bounded_auto       -- future mode; execute only within strict guardrails
 
 Level 1 MVP should support `propose_only` only.
 
+### Type Representation (ADR 0008)
+
+Closed-value fields are modeled as `str`-based enums in code (members remain `str` instances, so DuckDB storage stays TEXT / JSON):
+
+- `base_currency` → `Currency` (pragmatic ISO 4217 subset)
+- `trade_mode` → `TradeMode`
+- `allowed_asset_types` / `disallowed_asset_types` → `list[AssetType]`
+
+The repository serializes via `.value` at the DB boundary and reconstructs enums on read.
+
 ## Example Profile
 
 ```yaml
