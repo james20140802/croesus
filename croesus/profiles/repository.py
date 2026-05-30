@@ -90,6 +90,24 @@ class ProfileRepository:
             [self._target_to_params(target) for target in targets],
         )
 
+    def replace_policy_targets(self, profile_id: str, targets: list[PolicyTarget]) -> None:
+        """Make ``profile_id``'s policy targets exactly ``targets``.
+
+        Deletes any sleeves no longer present so a reloaded config does not
+        leave stale rows behind. Atomic: the delete and inserts share one
+        transaction.
+        """
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.conn.execute(
+                "DELETE FROM policy_targets WHERE profile_id = ?", [profile_id]
+            )
+            self.upsert_policy_targets(targets)
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
     def get_policy_targets(self, profile_id: str) -> list[PolicyTarget]:
         rows = self.conn.execute(
             "SELECT * FROM policy_targets WHERE profile_id = ? ORDER BY sleeve_name",

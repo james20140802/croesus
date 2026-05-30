@@ -172,3 +172,28 @@ def test_profile_repository_round_trips_policy_targets(tmp_path: Path) -> None:
     assert core.target_weight == 0.55
     assert core.min_weight == 0.45
     assert core.max_weight == 0.65
+
+
+def test_replace_policy_targets_removes_stale_sleeves(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+    original = [
+        PolicyTarget("default", "core_us_equity", 0.55, 0.45, 0.65),
+        PolicyTarget("default", "satellite_equity", 0.15, 0.00, 0.20),
+        PolicyTarget("default", "defensive_bonds", 0.20, 0.10, 0.30),
+        PolicyTarget("default", "cash", 0.10, 0.05, 0.20),
+    ]
+    replacement = [
+        PolicyTarget("default", "core_us_equity", 0.60, 0.50, 0.70),
+        PolicyTarget("default", "defensive_bonds", 0.40, 0.30, 0.50),
+    ]
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        repo.upsert_policy_targets(original)
+        repo.replace_policy_targets("default", replacement)
+        loaded = repo.get_policy_targets("default")
+
+    assert {t.sleeve_name for t in loaded} == {"core_us_equity", "defensive_bonds"}
+    core = next(t for t in loaded if t.sleeve_name == "core_us_equity")
+    assert core.target_weight == 0.60

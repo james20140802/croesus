@@ -66,7 +66,7 @@ def run_profile_load(
 
     repo = ProfileRepository(conn)
     repo.upsert_profile(profile)
-    repo.upsert_policy_targets(targets)
+    repo.replace_policy_targets(profile.profile_id, targets)
 
     _log_summary(profile.profile_id, profile.name, targets, log)
     return profile.profile_id
@@ -119,7 +119,7 @@ def run_profile_interactive(
 
     repo = ProfileRepository(conn)
     repo.upsert_profile(profile)
-    repo.upsert_policy_targets(targets)
+    repo.replace_policy_targets(profile.profile_id, targets)
 
     if save_path is not None:
         write_profile_config(save_path, profile, targets, overwrite=True)

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ from croesus.db.migrate import migrate
 from croesus.jobs.profile_init import main as profile_init_main
 from croesus.jobs.profile_init import run_profile_load
 from croesus.profiles.config_io import read_profile_config, write_profile_config
-from croesus.profiles.models import AssetType, Currency, TradeMode
+from croesus.profiles.models import AssetType, Currency, PolicyTarget, TradeMode
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
     DEFAULT_POLICY_TARGETS,
@@ -82,6 +83,36 @@ def test_config_cli_loads_existing_file_and_upserts(tmp_path: Path, monkeypatch)
 
     assert loaded is not None
     assert loaded.name == "My account"
+
+
+def test_config_reload_replaces_stale_policy_targets(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "configured.duckdb"
+    monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
+    profile_p = replace(DEFAULT_PROFILE, profile_id="p")
+
+    # First load: the default four sleeves.
+    cfg1 = tmp_path / "first.yaml"
+    write_profile_config(cfg1, profile_p, DEFAULT_POLICY_TARGETS, overwrite=True)
+    profile_init_main(["--config", str(cfg1)])
+
+    # Reload with a different, smaller sleeve set (still sums to 1.0).
+    two_sleeves = [
+        PolicyTarget("p", "core_us_equity", 0.60, 0.50, 0.70),
+        PolicyTarget("p", "defensive_bonds", 0.40, 0.30, 0.50),
+    ]
+    cfg2 = tmp_path / "second.yaml"
+    write_profile_config(cfg2, profile_p, two_sleeves, overwrite=True)
+    profile_init_main(["--config", str(cfg2)])
+
+    with get_connection(db_path) as conn:
+        sleeves = {
+            row[0]
+            for row in conn.execute(
+                "SELECT sleeve_name FROM policy_targets WHERE profile_id = 'p'"
+            ).fetchall()
+        }
+
+    assert sleeves == {"core_us_equity", "defensive_bonds"}
 
 
 def test_run_profile_load_rejects_invalid_profile(tmp_path: Path) -> None:
