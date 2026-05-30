@@ -10,6 +10,8 @@ import duckdb
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.profiles.config_io import read_profile_config, write_profile_config
+from croesus.profiles.interactive import InputFn, OutputFn, build_profile_interactively
+from croesus.profiles.models import InvestorProfile, PolicyTarget
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
     DEFAULT_POLICY_TARGETS,
@@ -66,6 +68,53 @@ def run_profile_load(
     return profile.profile_id
 
 
+def run_profile_interactive(
+    conn: duckdb.DuckDBPyConnection,
+    profile_defaults: InvestorProfile = DEFAULT_PROFILE,
+    target_defaults: list[PolicyTarget] | None = None,
+    *,
+    input_fn: InputFn | None = None,
+    output_fn: OutputFn | None = None,
+    save_path: str | Path | None = None,
+) -> str:
+    """Prompt the user for profile values, validate, and upsert.
+
+    Expects an already-migrated connection. Optionally also writes the result
+    to ``save_path`` as a reusable YAML config. Returns the profile_id.
+    """
+    # Resolve at call time so tests can monkeypatch builtins.input / print.
+    input_fn = input_fn or input
+    output_fn = output_fn or print
+    if target_defaults is None:
+        target_defaults = DEFAULT_POLICY_TARGETS
+
+    profile, targets = build_profile_interactively(
+        profile_defaults,
+        target_defaults,
+        input_fn=input_fn,
+        output_fn=output_fn,
+    )
+
+    profile_result = validate_profile(profile)
+    target_result = validate_policy_targets(targets)
+    errors = profile_result.errors + target_result.errors
+    if errors:
+        raise ValueError(f"invalid profile: {errors}")
+    for warning in profile_result.warnings:
+        output_fn(f"warning: {warning}")
+
+    repo = ProfileRepository(conn)
+    repo.upsert_profile(profile)
+    repo.upsert_policy_targets(targets)
+
+    if save_path is not None:
+        write_profile_config(save_path, profile, targets, overwrite=True)
+        output_fn(f"saved config to {save_path}")
+
+    _log_summary(profile.profile_id, profile.name, targets, output_fn)
+    return profile.profile_id
+
+
 def _log_summary(profile_id: str, name: str, targets, log: Callable[[str], None]) -> None:
     log(f"profile: {profile_id} ({name})")
     log("policy targets:")
@@ -87,6 +136,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="set up the profile interactively in the terminal (prompts for each field)",
+    )
+    group.add_argument(
         "--init-config",
         metavar="PATH",
         help="write an editable profile template to PATH (does not touch the database)",
@@ -95,6 +150,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--config",
         metavar="PATH",
         help="load a profile config YAML from PATH, validate it, and upsert it",
+    )
+    parser.add_argument(
+        "--from",
+        dest="from_path",
+        metavar="PATH",
+        help="with --interactive, pre-fill prompts from an existing YAML config",
+    )
+    parser.add_argument(
+        "--save",
+        metavar="PATH",
+        help="with --interactive, also write the result to PATH as a YAML config",
     )
     parser.add_argument(
         "--force",
@@ -124,7 +190,21 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     migrate()
     with get_connection() as conn:
-        if args.config:
+        if args.interactive:
+            profile_defaults, target_defaults = DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS
+            if args.from_path:
+                profile_defaults, target_defaults = read_profile_config(args.from_path)
+            try:
+                run_profile_interactive(
+                    conn,
+                    profile_defaults,
+                    target_defaults,
+                    save_path=args.save,
+                )
+            except (ValueError, FileNotFoundError) as exc:
+                print(exc, file=sys.stderr)
+                raise SystemExit(1) from exc
+        elif args.config:
             try:
                 run_profile_load(conn, args.config)
             except (ValueError, FileNotFoundError) as exc:
