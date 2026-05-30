@@ -72,6 +72,13 @@ def run_profile_load(
     return profile.profile_id
 
 
+def _new_profile_id() -> str:
+    """Generate a fresh system-managed profile key (never user-typed)."""
+    import uuid
+
+    return f"profile_{uuid.uuid4().hex[:8]}"
+
+
 def run_profile_interactive(
     conn: duckdb.DuckDBPyConnection,
     profile_defaults: InvestorProfile = DEFAULT_PROFILE,
@@ -79,9 +86,12 @@ def run_profile_interactive(
     *,
     prompter: Prompter | None = None,
     save_path: str | Path | None = None,
+    profile_id: str | None = None,
 ) -> str:
     """Prompt the user for profile values, validate, and upsert.
 
+    ``profile_id`` is system-managed: pass an existing id to update it in place
+    (e.g. when editing a loaded config), or leave it None to generate a new one.
     Expects an already-migrated connection. Optionally also writes the result
     to ``save_path`` as a reusable YAML config. Returns the profile_id.
     """
@@ -89,11 +99,14 @@ def run_profile_interactive(
         prompter = QuestionaryPrompter()
     if target_defaults is None:
         target_defaults = DEFAULT_POLICY_TARGETS
+    resolved_id = profile_id if profile_id is not None else _new_profile_id()
+    prompter.info(f"profile id: {resolved_id}")
 
     profile, targets = build_profile_interactively(
         profile_defaults,
         target_defaults,
         prompter=prompter,
+        profile_id=resolved_id,
     )
 
     profile_result = validate_profile(profile)
@@ -193,8 +206,10 @@ def main(argv: Sequence[str] | None = None, *, prompter: Prompter | None = None)
     with get_connection() as conn:
         if args.interactive:
             profile_defaults, target_defaults = DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS
+            keep_id = None  # fresh run -> generate a new id
             if args.from_path:
                 profile_defaults, target_defaults = read_profile_config(args.from_path)
+                keep_id = profile_defaults.profile_id  # editing -> update same row
             try:
                 run_profile_interactive(
                     conn,
@@ -202,6 +217,7 @@ def main(argv: Sequence[str] | None = None, *, prompter: Prompter | None = None)
                     target_defaults,
                     prompter=prompter,
                     save_path=args.save,
+                    profile_id=keep_id,
                 )
             except (ValueError, FileNotFoundError) as exc:
                 print(exc, file=sys.stderr)

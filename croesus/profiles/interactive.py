@@ -13,8 +13,8 @@ from croesus.profiles.models import (
 _VALID_TRADE_MODES = (TradeMode.PROPOSE_ONLY, TradeMode.APPROVAL_REQUIRED)
 
 # Per-field help shown next to each prompt (Korean — adjust freely).
+# profile_id is intentionally absent: it is a system-managed key, never prompted.
 FIELD_DESCRIPTIONS: dict[str, str] = {
-    "profile_id": "프로필 고유 ID (여러 프로필을 구분하는 키)",
     "name": "프로필 이름 (사람이 읽는 설명)",
     "base_currency": "기준 통화 (모든 금액·비중의 기준)",
     "expected_annual_return": "기대 연수익률 (예: 0.10 = 연 10%)",
@@ -123,8 +123,13 @@ def build_profile_interactively(
     target_defaults: list[PolicyTarget],
     *,
     prompter: Prompter,
+    profile_id: str,
 ) -> tuple[InvestorProfile, list[PolicyTarget]]:
-    """Walk the user through every profile field, then the policy targets."""
+    """Walk the user through every profile field, then the policy targets.
+
+    ``profile_id`` is supplied by the caller (system-generated or preserved
+    from an existing config) — it is never prompted for.
+    """
     prompter.info("투자자 프로필 설정 — 각 항목을 입력하세요 (Enter = 기본값).")
     p = profile_defaults
 
@@ -132,7 +137,7 @@ def build_profile_interactively(
         return prompter.text(field, field, FIELD_DESCRIPTIONS[field], default, parse)
 
     profile = InvestorProfile(
-        profile_id=txt("profile_id", p.profile_id, str),
+        profile_id=profile_id,
         name=txt("name", p.name, str),
         base_currency=prompter.select(
             "base_currency", "base_currency", FIELD_DESCRIPTIONS["base_currency"],
