@@ -13,6 +13,25 @@ def _load_config() -> dict:
     return yaml.safe_load(_CONFIG_PATH.read_text(encoding="utf-8"))
 
 
+def neutral_screening_params() -> dict:
+    """
+    Default screening parameters used when no MacroState is available
+    (e.g. daily_macro_run has not run yet). Base weights from config,
+    base candidate count, no stress filters, regime unknown.
+    """
+    cfg = _load_config()
+    scr = cfg["screening"]
+    return {
+        "factor_weights": dict(scr["base_weights"]),
+        "filters": {},
+        "candidate_count": scr["base_candidate_count"],
+        "positioning": None,
+        "regime": None,
+        "amplifier_score": None,
+        "confirmation_score": None,
+    }
+
+
 def get_screening_params(state: MacroState) -> dict:
     """
     Convert MacroState into a screening parameter dict.
