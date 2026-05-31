@@ -330,3 +330,15 @@ def test_load_holdings_csv_skips_missing_market_value(tmp_path: Path) -> None:
     assert result.holdings == []
     assert result.skipped == 1
     assert any("market_value" in w for w in result.warnings)
+
+
+def test_default_policy_targets_carry_sleeve_mapping_metadata() -> None:
+    # the default seed must carry sleeve->holding mapping metadata, or drift
+    # would be uncomputable for the out-of-the-box profile.
+    from croesus.profiles.seed_default_profile import DEFAULT_POLICY_TARGETS
+
+    by_name = {t.sleeve_name: t for t in DEFAULT_POLICY_TARGETS}
+    assert by_name["cash"].metadata.get("asset_ids") == ["CASH_USD"]
+    assert "equity" in by_name["satellite_equity"].metadata.get("asset_types", [])
+    assert "etf" in by_name["core_us_equity"].metadata.get("asset_types", [])
+    assert "bond_etf" in by_name["defensive_bonds"].metadata.get("asset_types", [])

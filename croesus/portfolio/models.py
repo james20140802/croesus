@@ -28,6 +28,23 @@ class Holding:
 
 
 @dataclass(frozen=True)
+class AssetAttrs:
+    """Classification attributes for one asset, used by exposure/drift math.
+
+    Built from the ``assets`` table (and a synthetic entry for cash). Decoupled
+    from the persisted ``Asset`` model so the computation functions stay pure
+    and trivially testable.
+    """
+
+    asset_type: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    country: str | None = None
+    currency: str | None = None
+    theme_tags: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Exposure:
     portfolio_id: str
     as_of_date: date
