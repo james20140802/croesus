@@ -51,6 +51,30 @@ def _write_csv(path: Path, text: str) -> Path:
     return path
 
 
+def _seed_snapshot_assets(conn: duckdb.DuckDBPyConnection) -> None:
+    """Assets whose types/themes exercise every default sleeve and theme exposure."""
+    AssetRepository(conn).upsert_many(
+        [
+            Asset(
+                asset_id="US_EQ_AAPL", symbol="AAPL", name="Apple Inc.",
+                asset_type="equity", country="US", currency="USD",
+                sector="Technology", industry="Consumer Electronics",
+            ),
+            Asset(
+                asset_id="ETF_VOO", symbol="VOO", name="Vanguard S&P 500 ETF",
+                asset_type="etf", country="US", currency="USD",
+                sector="Diversified", industry="Index Fund",
+                metadata={"theme_tags": ["broad_market"]},
+            ),
+            Asset(
+                asset_id="ETF_BND", symbol="BND", name="Vanguard Total Bond ETF",
+                asset_type="bond_etf", country="US", currency="USD",
+                sector="Fixed Income", industry="Bond Fund",
+            ),
+        ]
+    )
+
+
 def _portfolio(**overrides) -> Portfolio:
     fields = dict(
         portfolio_id="default",
@@ -342,3 +366,110 @@ def test_default_policy_targets_carry_sleeve_mapping_metadata() -> None:
     assert "equity" in by_name["satellite_equity"].metadata.get("asset_types", [])
     assert "etf" in by_name["core_us_equity"].metadata.get("asset_types", [])
     assert "bond_etf" in by_name["defensive_bonds"].metadata.get("asset_types", [])
+
+
+# -- Task 5: portfolio_snapshot job --------------------------------------------
+
+
+def test_run_portfolio_snapshot_writes_all_tables(tmp_path: Path) -> None:
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.profiles.seed_default_profile import seed_default_profile
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency,cost_basis\n"
+        "default,US_EQ_AAPL,10,1900,USD,1500\n"
+        "default,ETF_VOO,5,2100,USD,1800\n"
+        "default,ETF_BND,3,1000,USD,1000\n"
+        "default,CASH_USD,1,1000,USD,1000\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)
+        _seed_snapshot_assets(conn)
+        result = run_portfolio_snapshot(
+            conn, csv_path, portfolio_id="default", as_of_date=AS_OF, log=lambda m: None
+        )
+
+        repo = PortfolioRepository(conn)
+        snap = repo.get_snapshot("default", AS_OF)
+        exposures = repo.get_exposures("default", AS_OF)
+        drifts = repo.get_drifts("default", AS_OF)
+
+    # result summary
+    assert result.holdings_imported == 4
+    assert result.holdings_skipped == 0
+    assert result.total_market_value == 6000.0
+
+    # portfolio_snapshots
+    assert snap is not None
+    assert snap["total_market_value"] == 6000.0
+    assert snap["cash_value"] == 1000.0
+
+    # portfolio_exposures: position weights sum to 1, theme tag was read
+    positions = [e for e in exposures if e.exposure_type == "position"]
+    assert abs(sum(e.weight for e in positions) - 1.0) < 1e-9
+    themes = {e.exposure_name for e in exposures if e.exposure_type == "theme"}
+    assert "broad_market" in themes
+
+    # policy_drifts: one row per default sleeve, each holding mapped cleanly
+    assert {d.sleeve_name for d in drifts} == {
+        "core_us_equity", "satellite_equity", "defensive_bonds", "cash"
+    }
+    sat = next(d for d in drifts if d.sleeve_name == "satellite_equity")
+    assert abs(sat.current_weight - (1900.0 / 6000.0)) < 1e-9
+    assert result.warnings == []
+
+
+def test_run_portfolio_snapshot_survives_unknown_asset(tmp_path: Path) -> None:
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.profiles.seed_default_profile import seed_default_profile
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\n"
+        "default,US_EQ_AAPL,10,1900,USD\n"
+        "default,US_EQ_GHOST,1,500,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)
+        _seed_snapshot_assets(conn)
+        result = run_portfolio_snapshot(
+            conn, csv_path, portfolio_id="default", as_of_date=AS_OF, log=lambda m: None
+        )
+        snap = PortfolioRepository(conn).get_snapshot("default", AS_OF)
+
+    # unknown asset is skipped, run still completes and persists a snapshot
+    assert result.holdings_imported == 1
+    assert result.holdings_skipped == 1
+    assert any("US_EQ_GHOST" in w for w in result.warnings)
+    assert snap is not None
+    assert snap["total_market_value"] == 1900.0
+
+
+def test_run_portfolio_snapshot_creates_portfolio_row(tmp_path: Path) -> None:
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.profiles.seed_default_profile import seed_default_profile
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\ndefault,US_EQ_AAPL,10,1900,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)
+        _seed_snapshot_assets(conn)
+        run_portfolio_snapshot(
+            conn, csv_path, portfolio_id="default", as_of_date=AS_OF, log=lambda m: None
+        )
+        portfolio = PortfolioRepository(conn).get_portfolio("default")
+
+    assert portfolio is not None
+    assert portfolio.profile_id == "default"
