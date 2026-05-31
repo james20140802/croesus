@@ -105,19 +105,21 @@ Behavior:
 
 ### `InvestorProfile`
 
+Closed-value fields use `str`-based enums (`Currency`, `AssetType`, `TradeMode`) — see ADR 0008.
+
 ```python
 @dataclass(frozen=True)
 class InvestorProfile:
     profile_id: str
     name: str
-    base_currency: str
+    base_currency: Currency
     expected_annual_return: float
     max_tolerable_drawdown: float
     investment_horizon_years: int
     monthly_contribution: float
     liquidity_buffer_months: float
-    allowed_asset_types: list[str]
-    disallowed_asset_types: list[str]
+    allowed_asset_types: list[AssetType]
+    disallowed_asset_types: list[AssetType]
     max_single_position_weight: float
     max_sector_weight: float
     max_industry_weight: float
@@ -126,7 +128,7 @@ class InvestorProfile:
     max_currency_weight: float
     max_monthly_turnover: float
     rebalance_band: float
-    trade_mode: str
+    trade_mode: TradeMode
     metadata: dict[str, Any] = field(default_factory=dict)
 ```
 
