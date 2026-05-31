@@ -27,20 +27,30 @@ def load_holdings_csv(
     path: str | Path,
     conn: duckdb.DuckDBPyConnection,
     as_of_date: date,
+    *,
+    portfolio_id: str = _DEFAULT_PORTFOLIO_ID,
+    base_currency: str | None = None,
 ) -> HoldingsImport:
     """Parse a manual holdings CSV into validated :class:`Holding` rows.
 
+    ``portfolio_id`` is the portfolio being imported: rows that omit the
+    ``portfolio_id`` column adopt it, and rows that explicitly name a *different*
+    portfolio are skipped (counted + warned) since they belong to another book.
+    ``base_currency`` is the governing profile's base currency, used to default
+    rows that omit ``currency``; when not supplied it is resolved from the DB.
+
     Rules (Level 1):
-    - ``portfolio_id`` defaults to ``default`` when the column is absent/blank.
+    - ``portfolio_id`` defaults to the target portfolio when absent/blank.
     - ``market_value`` is required; rows without it are skipped with a warning.
-    - ``currency`` defaults to the active profile's base currency, else ``USD``.
+    - ``currency`` defaults to the governing profile's base currency, else ``USD``.
     - Unknown ``asset_id`` is reported and skipped, unless it is ``CASH_USD``.
 
     Unknown or malformed rows never raise — they are skipped so the broader
     snapshot run survives partial input.
     """
     known_asset_ids = _known_asset_ids(conn)
-    base_currency = _resolve_base_currency(conn)
+    if base_currency is None:
+        base_currency = _resolve_base_currency(conn)
 
     holdings: list[Holding] = []
     warnings: list[str] = []
@@ -52,6 +62,15 @@ def load_holdings_csv(
             asset_id = _clean(row.get("asset_id"))
             if not asset_id:
                 warnings.append(f"row {line_no}: missing asset_id, skipped")
+                skipped += 1
+                continue
+
+            row_portfolio_id = _clean(row.get("portfolio_id")) or portfolio_id
+            if row_portfolio_id != portfolio_id:
+                warnings.append(
+                    f"row {line_no}: {asset_id} belongs to portfolio "
+                    f"{row_portfolio_id!r}, not {portfolio_id!r}; skipped"
+                )
                 skipped += 1
                 continue
 
@@ -68,7 +87,6 @@ def load_holdings_csv(
                 skipped += 1
                 continue
 
-            portfolio_id = _clean(row.get("portfolio_id")) or _DEFAULT_PORTFOLIO_ID
             currency = _clean(row.get("currency")) or base_currency
             quantity = _to_float(_clean(row.get("quantity"))) or 0.0
             cost_basis = _to_float(_clean(row.get("cost_basis")))

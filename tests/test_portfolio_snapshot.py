@@ -473,3 +473,126 @@ def test_run_portfolio_snapshot_creates_portfolio_row(tmp_path: Path) -> None:
 
     assert portfolio is not None
     assert portfolio.profile_id == "default"
+
+
+# -- PR review fixes: portfolio/profile context for the holdings import --------
+
+
+def test_load_holdings_csv_uses_given_portfolio_id_as_default(tmp_path: Path) -> None:
+    # rows omitting portfolio_id adopt the caller's target, not a hardcoded "default"
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "asset_id,quantity,market_value,currency\nUS_EQ_AAPL,10,1900,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF, portfolio_id="ira")
+
+    assert result.holdings[0].portfolio_id == "ira"
+
+
+def test_load_holdings_csv_uses_explicit_base_currency(tmp_path: Path) -> None:
+    # the caller's base currency wins over the DB default-profile lookup
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "asset_id,quantity,market_value\nUS_EQ_AAPL,10,1900\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        # a USD default profile exists, but the caller-supplied KRW must win
+        conn.execute(
+            "INSERT INTO investor_profiles (profile_id, base_currency) VALUES (?, ?)",
+            ["default", "USD"],
+        )
+        result = load_holdings_csv(csv_path, conn, AS_OF, base_currency="KRW")
+
+    assert result.holdings[0].currency == "KRW"
+
+
+def test_load_holdings_csv_skips_and_counts_other_portfolio_rows(tmp_path: Path) -> None:
+    # rows explicitly naming a different portfolio are skipped + counted (not silent)
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\n"
+        "ira,US_EQ_AAPL,10,1900,USD\n"
+        "other,US_EQ_MSFT,5,2100,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF, portfolio_id="ira")
+
+    assert [h.asset_id for h in result.holdings] == ["US_EQ_AAPL"]
+    assert result.skipped == 1
+    assert any("other" in w for w in result.warnings)
+
+
+def test_run_portfolio_snapshot_defaults_currency_to_portfolio_profile(tmp_path: Path) -> None:
+    # 'ira' is linked to a KRW profile; the default profile is USD. A CSV that
+    # omits currency must store KRW (the governing profile), not USD.
+    from dataclasses import replace
+
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.profiles.models import Currency
+    from croesus.profiles.repository import ProfileRepository
+    from croesus.profiles.seed_default_profile import DEFAULT_PROFILE, seed_default_profile
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value\nira,US_EQ_AAPL,10,1900\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)  # default profile = USD
+        krw_profile = replace(
+            DEFAULT_PROFILE, profile_id="retire_krw", base_currency=Currency.KRW
+        )
+        ProfileRepository(conn).upsert_profile(krw_profile)
+        PortfolioRepository(conn).upsert_portfolio(
+            Portfolio("ira", "retire_krw", "IRA", "KRW")
+        )
+        _seed_snapshot_assets(conn)
+
+        run_portfolio_snapshot(
+            conn, csv_path, portfolio_id="ira", as_of_date=AS_OF, log=lambda m: None
+        )
+        holdings = PortfolioRepository(conn).get_holdings("ira", AS_OF)
+
+    assert holdings[0].currency == "KRW"
+
+
+def test_run_portfolio_snapshot_imports_rows_for_target_portfolio_without_column(
+    tmp_path: Path,
+) -> None:
+    # --portfolio-id ira + CSV without a portfolio_id column must import, not drop
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.profiles.seed_default_profile import seed_default_profile
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "asset_id,quantity,market_value,currency\nUS_EQ_AAPL,10,1900,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)
+        _seed_snapshot_assets(conn)
+        result = run_portfolio_snapshot(
+            conn, csv_path, portfolio_id="ira", as_of_date=AS_OF, log=lambda m: None
+        )
+        holdings = PortfolioRepository(conn).get_holdings("ira", AS_OF)
+
+    assert result.holdings_imported == 1
+    assert result.total_market_value == 1900.0
+    assert [h.asset_id for h in holdings] == ["US_EQ_AAPL"]

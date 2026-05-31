@@ -13,7 +13,7 @@ from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.portfolio.exposure import ExposureLimits, compute_exposures
 from croesus.portfolio.import_holdings import CASH_ASSET_ID, load_holdings_csv
-from croesus.portfolio.models import AssetAttrs, Holding, Portfolio, PortfolioSnapshotResult
+from croesus.portfolio.models import AssetAttrs, Portfolio, PortfolioSnapshotResult
 from croesus.portfolio.policy import compute_policy_drifts
 from croesus.portfolio.repository import PortfolioRepository
 from croesus.profiles.models import InvestorProfile
@@ -48,15 +48,18 @@ def run_portfolio_snapshot(
 
     portfolio = _ensure_portfolio(portfolio_repo, portfolio_id, profile, base_currency)
 
-    imported = load_holdings_csv(holdings_path, conn, as_of)
+    # Pass the target portfolio and its governing base currency down so rows
+    # omitting those columns adopt the right defaults (not the DB default
+    # profile) and rows for other portfolios are skipped + counted honestly.
+    imported = load_holdings_csv(
+        holdings_path,
+        conn,
+        as_of,
+        portfolio_id=portfolio_id,
+        base_currency=base_currency,
+    )
     warnings = list(imported.warnings)
-
-    holdings, ignored = _filter_to_portfolio(imported.holdings, portfolio_id)
-    for asset_id, other in ignored:
-        warnings.append(
-            f"holding {asset_id} belongs to portfolio {other!r}, not "
-            f"{portfolio_id!r}; ignored"
-        )
+    holdings = imported.holdings
 
     portfolio_repo.replace_holdings(portfolio_id, as_of, holdings)
 
@@ -149,19 +152,6 @@ def _ensure_portfolio(
     )
     portfolio_repo.upsert_portfolio(portfolio)
     return portfolio
-
-
-def _filter_to_portfolio(
-    holdings: list[Holding], portfolio_id: str
-) -> tuple[list[Holding], list[tuple[str, str]]]:
-    kept: list[Holding] = []
-    ignored: list[tuple[str, str]] = []
-    for h in holdings:
-        if h.portfolio_id == portfolio_id:
-            kept.append(h)
-        else:
-            ignored.append((h.asset_id, h.portfolio_id))
-    return kept, ignored
 
 
 def _load_asset_attrs(
