@@ -1,8 +1,13 @@
 from datetime import date
 from pathlib import Path
 
+import duckdb
+
+from croesus.assets.models import Asset
+from croesus.assets.repository import AssetRepository
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
+from croesus.portfolio.import_holdings import load_holdings_csv
 from croesus.portfolio.models import (
     Exposure,
     Holding,
@@ -12,6 +17,38 @@ from croesus.portfolio.models import (
 from croesus.portfolio.repository import PortfolioRepository
 
 AS_OF = date(2026, 6, 1)
+
+
+def _seed_assets(conn: duckdb.DuckDBPyConnection) -> None:
+    AssetRepository(conn).upsert_many(
+        [
+            Asset(
+                asset_id="US_EQ_AAPL",
+                symbol="AAPL",
+                name="Apple Inc.",
+                asset_type="equity",
+                country="US",
+                currency="USD",
+                sector="Technology",
+                industry="Consumer Electronics",
+            ),
+            Asset(
+                asset_id="US_EQ_MSFT",
+                symbol="MSFT",
+                name="Microsoft Corporation",
+                asset_type="equity",
+                country="US",
+                currency="USD",
+                sector="Technology",
+                industry="Software",
+            ),
+        ]
+    )
+
+
+def _write_csv(path: Path, text: str) -> Path:
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 def _portfolio(**overrides) -> Portfolio:
@@ -177,3 +214,119 @@ def test_portfolio_repository_round_trips_drifts(tmp_path: Path) -> None:
     core = next(d for d in loaded if d.sleeve_name == "core_us_equity")
     assert core.drift == 0.25
     assert core.is_outside_band is True
+
+
+# -- Task 3: holdings CSV import ------------------------------------------------
+
+
+def test_load_holdings_csv_imports_valid_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency,cost_basis\n"
+        "default,US_EQ_AAPL,10,1900,USD,1500\n"
+        "default,US_EQ_MSFT,5,2100,USD,1800\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.skipped == 0
+    assert {h.asset_id for h in result.holdings} == {"US_EQ_AAPL", "US_EQ_MSFT"}
+    aapl = next(h for h in result.holdings if h.asset_id == "US_EQ_AAPL")
+    assert aapl.market_value == 1900.0
+    assert aapl.cost_basis == 1500.0
+    assert aapl.as_of_date == AS_OF
+
+
+def test_load_holdings_csv_defaults_portfolio_id(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "asset_id,quantity,market_value,currency\nUS_EQ_AAPL,10,1900,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.holdings[0].portfolio_id == "default"
+
+
+def test_load_holdings_csv_accepts_cash_row(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    # CASH_USD is not in the assets table, but must be accepted (not skipped).
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\n"
+        "default,CASH_USD,1,1000,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.skipped == 0
+    assert [h.asset_id for h in result.holdings] == ["CASH_USD"]
+
+
+def test_load_holdings_csv_skips_unknown_asset_with_warning(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\n"
+        "default,US_EQ_AAPL,10,1900,USD\n"
+        "default,US_EQ_GHOST,1,500,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert [h.asset_id for h in result.holdings] == ["US_EQ_AAPL"]
+    assert result.skipped == 1
+    assert any("US_EQ_GHOST" in w for w in result.warnings)
+
+
+def test_load_holdings_csv_defaults_currency_to_profile_base(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value\ndefault,US_EQ_AAPL,10,1900\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        # base currency comes from the active profile, not the trivial USD fallback
+        conn.execute(
+            "INSERT INTO investor_profiles (profile_id, base_currency) VALUES (?, ?)",
+            ["default", "KRW"],
+        )
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.holdings[0].currency == "KRW"
+
+
+def test_load_holdings_csv_skips_missing_market_value(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    # Level 1 requires market_value; quantity-only valuation is future work.
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\n"
+        "default,US_EQ_AAPL,10,,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.holdings == []
+    assert result.skipped == 1
+    assert any("market_value" in w for w in result.warnings)
