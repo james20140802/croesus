@@ -43,11 +43,26 @@ DEFAULT_PROFILE = InvestorProfile(
     trade_mode=TradeMode.PROPOSE_ONLY,
 )
 
+# Sleeve metadata maps held assets to sleeves for portfolio drift (Sprint 004).
+# Without it, every holding would fall through to the satellite fallback and
+# drift would be meaningless for the out-of-the-box profile.
 DEFAULT_POLICY_TARGETS = [
-    PolicyTarget("default", "core_us_equity", 0.55, 0.45, 0.65),
-    PolicyTarget("default", "satellite_equity", 0.15, 0.00, 0.20),
-    PolicyTarget("default", "defensive_bonds", 0.20, 0.10, 0.30),
-    PolicyTarget("default", "cash", 0.10, 0.05, 0.20),
+    PolicyTarget(
+        "default", "core_us_equity", 0.55, 0.45, 0.65,
+        metadata={"asset_types": ["etf"], "theme_tags": ["broad_market"]},
+    ),
+    PolicyTarget(
+        "default", "satellite_equity", 0.15, 0.00, 0.20,
+        metadata={"asset_types": ["equity"]},
+    ),
+    PolicyTarget(
+        "default", "defensive_bonds", 0.20, 0.10, 0.30,
+        metadata={"asset_types": ["bond_etf"]},
+    ),
+    PolicyTarget(
+        "default", "cash", 0.10, 0.05, 0.20,
+        metadata={"asset_ids": ["CASH_USD"]},
+    ),
 ]
 
 

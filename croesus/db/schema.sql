@@ -96,3 +96,60 @@ CREATE TABLE IF NOT EXISTS policy_targets (
   metadata JSON,
   PRIMARY KEY (profile_id, sleeve_name)
 );
+
+CREATE TABLE IF NOT EXISTS portfolios (
+  portfolio_id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  name TEXT,
+  base_currency TEXT,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  metadata JSON
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_holdings (
+  portfolio_id TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  as_of_date DATE NOT NULL,
+  quantity DOUBLE,
+  market_value DOUBLE,
+  currency TEXT,
+  cost_basis DOUBLE,
+  source TEXT,
+  metadata JSON,
+  PRIMARY KEY (portfolio_id, asset_id, as_of_date)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+  portfolio_id TEXT NOT NULL,
+  as_of_date DATE NOT NULL,
+  total_market_value DOUBLE,
+  cash_value DOUBLE,
+  metadata JSON,
+  PRIMARY KEY (portfolio_id, as_of_date)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_exposures (
+  portfolio_id TEXT NOT NULL,
+  as_of_date DATE NOT NULL,
+  exposure_type TEXT NOT NULL,
+  exposure_name TEXT NOT NULL,
+  weight DOUBLE,
+  market_value DOUBLE,
+  limit_weight DOUBLE,
+  is_violation BOOLEAN,
+  PRIMARY KEY (portfolio_id, as_of_date, exposure_type, exposure_name)
+);
+
+CREATE TABLE IF NOT EXISTS policy_drifts (
+  portfolio_id TEXT NOT NULL,
+  as_of_date DATE NOT NULL,
+  sleeve_name TEXT NOT NULL,
+  current_weight DOUBLE,
+  target_weight DOUBLE,
+  min_weight DOUBLE,
+  max_weight DOUBLE,
+  drift DOUBLE,
+  is_outside_band BOOLEAN,
+  PRIMARY KEY (portfolio_id, as_of_date, sleeve_name)
+);
