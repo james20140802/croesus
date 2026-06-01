@@ -26,6 +26,7 @@ Level 1 does not execute trades.
 | 002 | Macro risk posture | MacroState and macro-adjusted screening params |
 | 003 | Investor profile and policy portfolio | Advanced profile input, validation, policy targets |
 | 004 | Portfolio snapshot and exposure | Holdings, weights, drift, concentration checks |
+| 004b | Portfolio mark-to-market and FX | Current-price valuation, multi-currency FX, unrealized P&L |
 | 005 | Screening and sector/theme analysis | Candidate ranking plus sector/theme exposure inputs |
 | 006 | Rebalancing proposal engine | Level 1 MVP: deterministic portfolio action report |
 | 007 | Valuation layer | Fundamentals, valuation factors, DCF snapshots |
@@ -34,6 +35,8 @@ Level 1 does not execute trades.
 | 010 | Bounded automation | Long-horizon automated rebalancing with strict guardrails |
 
 Valuation work remains important, but portfolio-profile infrastructure should come first so valuation outputs have a portfolio decision context.
+
+Sprint 004b is a follow-on to Sprint 004 that promotes its deferred items (quantity-only valuation, multi-currency FX) into current-price mark-to-market with unrealized P&L. It is sequenced before Sprint 006 (rebalancing) because rebalancing needs accurate current portfolio values. It is distinct from Sprint 007 (equity fundamental valuation / DCF). See `sprint-004b-portfolio-mark-to-market-fx.md`.
 
 ## Sprint 001: Data Foundation
 
