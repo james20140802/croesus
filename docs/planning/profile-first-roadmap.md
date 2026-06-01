@@ -396,4 +396,5 @@ The system should be able to:
 
 - `docs/planning/sprint-001-asset-registry.md` remains valid for data foundation.
 - `docs/planning/sprint-002-macro-analysis.md` remains valid for MacroState.
+- `docs/planning/sprint-004b-portfolio-mark-to-market-fx.md` plans current-price mark-to-market, multi-currency FX, and unrealized P&L; it is a follow-on to Sprint 004, sequenced before Sprint 006, and is distinct from the Sprint 007 fundamental valuation work.
 - `docs/planning/sprint-007-valuation-analysis.md` contains the valuation implementation plan and is sequenced after profile and portfolio foundations for product coherence.
