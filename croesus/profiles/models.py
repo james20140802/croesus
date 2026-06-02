@@ -75,6 +75,24 @@ class PolicyTarget:
 
 
 @dataclass(frozen=True)
+class PolicyTemplate:
+    template_id: str
+    name: str
+    description: str
+    targets: list[PolicyTarget]
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PolicyRecommendation:
+    profile_id: str
+    template_id: str
+    targets: list[PolicyTarget]
+    rationale: list[str]
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
 class ProfileValidationResult:
     is_valid: bool
     errors: list[str]

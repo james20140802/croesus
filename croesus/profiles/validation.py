@@ -68,7 +68,60 @@ def validate_policy_targets(targets: list[PolicyTarget]) -> ProfileValidationRes
 
     total = sum(target.target_weight for target in targets)
     if abs(total - 1.0) > _WEIGHT_SUM_TOLERANCE:
-        errors.append(f"policy target weights must sum to 1.0 (got {total})")
+        diff = total - 1.0
+        errors.append(
+            "policy target weights must sum to 1.0 "
+            f"(got {total}; adjust by {-diff:+.6f})"
+        )
+
+    has_cash_sleeve = False
+    for target in targets:
+        if not 0.0 <= target.target_weight <= 1.0:
+            errors.append(
+                f"{target.sleeve_name}: target_weight must be between 0 and 1"
+            )
+        if target.min_weight is not None and not 0.0 <= target.min_weight <= 1.0:
+            errors.append(f"{target.sleeve_name}: min_weight must be between 0 and 1")
+        if target.max_weight is not None and not 0.0 <= target.max_weight <= 1.0:
+            errors.append(f"{target.sleeve_name}: max_weight must be between 0 and 1")
+        if (
+            target.min_weight is not None
+            and target.target_weight < target.min_weight
+        ):
+            errors.append(
+                f"{target.sleeve_name}: min_weight must be <= target_weight"
+            )
+        if (
+            target.max_weight is not None
+            and target.target_weight > target.max_weight
+        ):
+            errors.append(
+                f"{target.sleeve_name}: target_weight must be <= max_weight"
+            )
+        if (
+            target.min_weight is not None
+            and target.max_weight is not None
+            and target.min_weight > target.max_weight
+        ):
+            errors.append(f"{target.sleeve_name}: min_weight must be <= max_weight")
+
+        metadata = target.metadata or {}
+        asset_types = {str(item).lower() for item in metadata.get("asset_types", [])}
+        asset_ids = {str(item).lower() for item in metadata.get("asset_ids", [])}
+        if target.sleeve_name.lower() == "cash" or "cash" in asset_types or any(
+            item == "cash" or item.startswith("cash_") for item in asset_ids
+        ):
+            has_cash_sleeve = True
+        if not any(key in metadata for key in ("asset_types", "asset_ids", "theme_tags")):
+            warnings.append(
+                f"{target.sleeve_name}: metadata should map assets to this sleeve"
+            )
+
+    if not has_cash_sleeve:
+        warnings.append(
+            "policy targets are missing a cash sleeve; templates include one for "
+            "liquidity and drift checks"
+        )
 
     return ProfileValidationResult(
         is_valid=not errors,
