@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 
-from croesus.portfolio.models import AssetAttrs, Holding, PolicyDrift
+from croesus.portfolio.models import AssetAttrs, Holding, PolicyDrift, is_cash
 from croesus.profiles.models import PolicyTarget
 
 _DEFAULT_FALLBACK_SLEEVE = "satellite_equity"
@@ -41,7 +41,7 @@ def compute_policy_drifts(
     and ``is_outside_band`` is true when the current weight leaves the
     ``[min_weight, max_weight]`` band.
     """
-    total = sum(h.market_value for h in holdings)
+    total = sum(_market_value(h) for h in holdings)
     sleeve_mv: dict[str, float] = defaultdict(float)
     warnings: list[str] = []
 
@@ -54,7 +54,7 @@ def compute_policy_drifts(
                 f"holding {h.asset_id} did not match any policy sleeve; "
                 f"classified as {fallback_sleeve}"
             )
-        sleeve_mv[sleeve] += h.market_value
+        sleeve_mv[sleeve] += _market_value(h)
 
     drifts: list[PolicyDrift] = []
     for target in sorted(targets, key=lambda t: t.sleeve_name):
@@ -98,7 +98,9 @@ def _match_sleeve(
 
     for target in sorted(targets, key=lambda t: t.sleeve_name):
         md = target.metadata or {}
-        if holding.asset_id in (md.get("asset_ids") or []):
+        if is_cash(holding.asset_id) and _target_accepts_cash(target):
+            priority = _PRIORITY_ASSET_ID
+        elif holding.asset_id in (md.get("asset_ids") or []):
             priority = _PRIORITY_ASSET_ID
         elif theme_tags and any(t in (md.get("theme_tags") or []) for t in theme_tags):
             priority = _PRIORITY_THEME
@@ -111,3 +113,12 @@ def _match_sleeve(
             best_sleeve = target.sleeve_name
 
     return best_sleeve
+
+
+def _target_accepts_cash(target: PolicyTarget) -> bool:
+    md = target.metadata or {}
+    return target.sleeve_name == "cash" or "cash" in (md.get("asset_types") or [])
+
+
+def _market_value(holding: Holding) -> float:
+    return holding.market_value or 0.0

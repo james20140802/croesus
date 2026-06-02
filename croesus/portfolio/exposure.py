@@ -4,8 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 
-from croesus.portfolio.import_holdings import CASH_ASSET_ID
-from croesus.portfolio.models import AssetAttrs, Exposure, Holding
+from croesus.portfolio.models import AssetAttrs, Exposure, Holding, is_cash
 
 
 @dataclass(frozen=True)
@@ -36,24 +35,23 @@ def compute_exposures(
 ) -> list[Exposure]:
     """Aggregate holdings into position/sector/industry/theme/country/currency rows.
 
-    Position weight is ``market_value / total_market_value``. Cash (asset id
-    ``CASH_USD``) is classified as sector/industry ``Cash`` with the profile's
-    base country and currency. Holdings with no ``theme_tags`` contribute to no
-    theme exposure. Each row is flagged ``is_violation`` when its weight exceeds
-    the matching cap in ``limits``.
+    Position weight is ``market_value / total_market_value``. Cash asset ids
+    (``CASH_<CUR>``) are classified as sector/industry ``Cash``. Holdings with
+    no ``theme_tags`` contribute to no theme exposure. Each row is flagged
+    ``is_violation`` when its weight exceeds the matching cap in ``limits``.
     """
-    total = sum(h.market_value for h in holdings)
+    total = sum(_market_value(h) for h in holdings)
     if total <= 0:
         return []
 
     def attrs_for(holding: Holding) -> AssetAttrs:
-        if holding.asset_id == CASH_ASSET_ID:
+        if is_cash(holding.asset_id):
             return AssetAttrs(
                 asset_type="cash",
                 sector="Cash",
                 industry="Cash",
                 country=base_country,
-                currency=base_currency,
+                currency=holding.currency or base_currency,
                 theme_tags=[],
             )
         found = assets_by_id.get(holding.asset_id)
@@ -66,7 +64,7 @@ def compute_exposures(
     # position: one row per asset (summed if an asset appears more than once)
     position_mv: dict[str, float] = defaultdict(float)
     for h in holdings:
-        position_mv[h.asset_id] += h.market_value
+        position_mv[h.asset_id] += _market_value(h)
     for asset_id in sorted(position_mv):
         exposures.append(
             _exposure(
@@ -85,7 +83,7 @@ def compute_exposures(
     for exposure_type, key_of, cap in dimensions:
         bucket: dict[str, float] = defaultdict(float)
         for h in holdings:
-            bucket[key_of(attrs_for(h))] += h.market_value
+            bucket[key_of(attrs_for(h))] += _market_value(h)
         for name in sorted(bucket):
             exposures.append(
                 _exposure(
@@ -99,7 +97,7 @@ def compute_exposures(
     theme_mv: dict[str, float] = defaultdict(float)
     for h in holdings:
         for tag in attrs_for(h).theme_tags:
-            theme_mv[tag] += h.market_value
+            theme_mv[tag] += _market_value(h)
     for tag in sorted(theme_mv):
         exposures.append(
             _exposure(
@@ -132,3 +130,7 @@ def _exposure(
         limit_weight=cap,
         is_violation=is_violation,
     )
+
+
+def _market_value(holding: Holding) -> float:
+    return holding.market_value or 0.0

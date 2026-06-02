@@ -96,3 +96,39 @@ def test_compute_common_factors_stores_latest_values_and_skips_short_history(tmp
         "volatility_3m",
     }
     assert all(row[0] == "US_EQ_AAPL" for row in rows)
+
+
+def test_price_repository_returns_latest_close_at_or_before_date(tmp_path: Path) -> None:
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    prices = pd.DataFrame(
+        [
+            {
+                "date": date(2026, 5, 29),
+                "open": 180.0,
+                "high": 190.0,
+                "low": 179.0,
+                "close": 188.0,
+                "adjusted_close": 188.0,
+                "volume": 1000,
+            },
+            {
+                "date": date(2026, 6, 1),
+                "open": 189.0,
+                "high": 191.0,
+                "low": 187.0,
+                "close": 190.0,
+                "adjusted_close": 190.0,
+                "volume": 1000,
+            },
+        ]
+    )
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        repo = PriceRepository(conn)
+        repo.upsert_daily_prices("US_EQ_AAPL", prices, source="test")
+
+        assert repo.get_latest_close("US_EQ_AAPL", date(2026, 5, 30)) == 188.0
+        assert repo.get_latest_close("US_EQ_AAPL", date(2026, 6, 2)) == 190.0
+        assert repo.get_latest_close("US_EQ_AAPL", date(2026, 5, 1)) is None
