@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -29,15 +30,26 @@ class ScriptedPrompter:
         self.seen.append({"kind": "info", "message": message, "description": ""})
 
     def text(self, key, message, description, default, parse) -> Any:
-        self.seen.append({"kind": "text", "key": key, "description": description})
+        self.seen.append(
+            {"kind": "text", "key": key, "description": description, "default": default}
+        )
         return self.answers.get(key, default)
 
     def select(self, key, message, description, choices, default) -> Any:
-        self.seen.append({"kind": "select", "key": key, "description": description})
+        self.seen.append(
+            {
+                "kind": "select",
+                "key": key,
+                "description": description,
+                "default": default,
+            }
+        )
         return self.answers.get(key, default)
 
     def checkbox(self, key, message, description, choices, default) -> Any:
-        self.seen.append({"kind": "checkbox", "key": key, "description": description})
+        self.seen.append(
+            {"kind": "checkbox", "key": key, "description": description, "default": default}
+        )
         return self.answers.get(key, list(default))
 
     def prompted_keys(self) -> set:
@@ -106,6 +118,21 @@ def test_enum_scalar_fields_use_select() -> None:
 
     select_keys = {e["key"] for e in prompter.seen if e["kind"] == "select"}
     assert {"base_currency", "trade_mode"} <= select_keys
+
+
+def test_unsupported_trade_mode_default_falls_back_to_supported_choice() -> None:
+    profile_defaults = replace(DEFAULT_PROFILE, trade_mode=TradeMode.BOUNDED_AUTO)
+    prompter = ScriptedPrompter()
+
+    profile, _targets = build_profile_interactively(
+        profile_defaults, DEFAULT_POLICY_TARGETS, prompter=prompter, profile_id="x"
+    )
+
+    trade_prompt = next(
+        e for e in prompter.seen if e["kind"] == "select" and e["key"] == "trade_mode"
+    )
+    assert trade_prompt["default"] is TradeMode.PROPOSE_ONLY
+    assert profile.trade_mode is TradeMode.PROPOSE_ONLY
 
 
 def test_every_prompt_has_a_description() -> None:

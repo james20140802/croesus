@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 import duckdb
 
@@ -134,6 +134,7 @@ def run_profile_guided(
     prompter: Prompter | None = None,
     save_path: str | Path | None = None,
     profile_id: str | None = None,
+    existing_targets: list[PolicyTarget] | None = None,
     auto_confirm: bool = False,
 ) -> str:
     """Prompt for profile fields, recommend policy targets, and save on approval."""
@@ -166,6 +167,18 @@ def run_profile_guided(
     for warning in recommendation.warnings:
         prompter.info(f"warning: {warning}")
 
+    if existing_targets and _targets_differ(existing_targets, recommendation.targets):
+        prompter.info(
+            "warning: guided mode will replace policy targets loaded from --from "
+            "with the recommended template targets"
+        )
+        if not auto_confirm and not prompter.confirm(
+            "replace_policy_targets",
+            "Replace the policy targets loaded from --from with the recommended template?",
+            False,
+        ):
+            raise RuntimeError("guided profile setup cancelled before replacing targets")
+
     if not auto_confirm and not prompter.confirm(
         "save_profile",
         "Save this profile and recommended policy targets?",
@@ -183,14 +196,37 @@ def run_profile_guided(
     return profile.profile_id
 
 
+def _targets_differ(
+    existing_targets: list[PolicyTarget],
+    recommended_targets: list[PolicyTarget],
+) -> bool:
+    return {
+        _target_identity(target) for target in existing_targets
+    } != {_target_identity(target) for target in recommended_targets}
+
+
+def _target_identity(target: PolicyTarget) -> tuple[Any, ...]:
+    return (
+        target.sleeve_name,
+        target.target_weight,
+        target.min_weight,
+        target.max_weight,
+        _freeze_metadata(target.metadata),
+    )
+
+
+def _freeze_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        return tuple(sorted((key, _freeze_metadata(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return tuple(_freeze_metadata(item) for item in value)
+    return value
+
+
 def _log_summary(profile_id: str, name: str, targets, log: Callable[[str], None]) -> None:
     log(f"profile: {profile_id} ({name})")
     log("policy targets:")
-    for target in targets:
-        log(
-            f"  {target.sleeve_name}: target={target.target_weight}"
-            f" min={target.min_weight} max={target.max_weight}"
-        )
+    _log_targets(targets, log)
 
 
 def _log_recommendation(
@@ -203,6 +239,10 @@ def _log_recommendation(
     for reason in rationale:
         log(f"  rationale: {reason}")
     log("proposed policy targets:")
+    _log_targets(targets, log)
+
+
+def _log_targets(targets: list[PolicyTarget], log: Callable[[str], None]) -> None:
     for target in targets:
         log(
             f"  {target.sleeve_name}: target={target.target_weight}"
@@ -288,10 +328,10 @@ def main(argv: Sequence[str] | None = None, *, prompter: Prompter | None = None)
         if args.interactive:
             profile_defaults, target_defaults = DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS
             keep_id = None  # fresh run -> generate a new id
-            if args.from_path:
-                profile_defaults, target_defaults = read_profile_config(args.from_path)
-                keep_id = profile_defaults.profile_id  # editing -> update same row
             try:
+                if args.from_path:
+                    profile_defaults, target_defaults = read_profile_config(args.from_path)
+                    keep_id = profile_defaults.profile_id  # editing -> update same row
                 run_profile_interactive(
                     conn,
                     profile_defaults,
@@ -303,12 +343,16 @@ def main(argv: Sequence[str] | None = None, *, prompter: Prompter | None = None)
             except (ValueError, FileNotFoundError) as exc:
                 print(exc, file=sys.stderr)
                 raise SystemExit(1) from exc
+            except KeyboardInterrupt as exc:
+                print("cancelled", file=sys.stderr)
+                raise SystemExit(130) from exc
         elif args.guided:
             profile_defaults = DEFAULT_PROFILE
+            existing_targets = None
             keep_id = None  # fresh run -> generate a new id
             try:
                 if args.from_path:
-                    profile_defaults, _target_defaults = read_profile_config(args.from_path)
+                    profile_defaults, existing_targets = read_profile_config(args.from_path)
                     keep_id = profile_defaults.profile_id  # editing -> update same row
                 run_profile_guided(
                     conn,
@@ -316,11 +360,15 @@ def main(argv: Sequence[str] | None = None, *, prompter: Prompter | None = None)
                     prompter=prompter,
                     save_path=args.save,
                     profile_id=keep_id,
+                    existing_targets=existing_targets,
                     auto_confirm=args.yes,
                 )
             except (ValueError, FileNotFoundError, RuntimeError) as exc:
                 print(exc, file=sys.stderr)
                 raise SystemExit(1) from exc
+            except KeyboardInterrupt as exc:
+                print("cancelled", file=sys.stderr)
+                raise SystemExit(130) from exc
         elif args.config:
             try:
                 run_profile_load(conn, args.config)

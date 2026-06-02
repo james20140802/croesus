@@ -206,7 +206,8 @@ def build_profile_inputs_interactively(
         rebalance_band=txt("rebalance_band", p.rebalance_band, _positive_float),
         trade_mode=prompter.select(
             "trade_mode", "trade_mode", FIELD_DESCRIPTIONS["trade_mode"],
-            list(_VALID_TRADE_MODES), p.trade_mode,
+            list(_VALID_TRADE_MODES),
+            _supported_default(p.trade_mode, _VALID_TRADE_MODES),
         ),
         metadata=p.metadata,
     )
@@ -254,6 +255,12 @@ def _prompt_policy_targets(
 
 def _label(value: Any) -> str:
     return value.value if hasattr(value, "value") else str(value)
+
+
+def _supported_default(default: Any, choices: tuple) -> Any:
+    if default in choices:
+        return default
+    return choices[0]
 
 
 def _default_str(default: Any) -> str:

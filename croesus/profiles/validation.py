@@ -109,7 +109,7 @@ def validate_policy_targets(targets: list[PolicyTarget]) -> ProfileValidationRes
         asset_types = {str(item).lower() for item in metadata.get("asset_types", [])}
         asset_ids = {str(item).lower() for item in metadata.get("asset_ids", [])}
         if target.sleeve_name.lower() == "cash" or "cash" in asset_types or any(
-            item.startswith("cash") for item in asset_ids
+            item == "cash" or item.startswith("cash_") for item in asset_ids
         ):
             has_cash_sleeve = True
         if not any(key in metadata for key in ("asset_types", "asset_ids", "theme_tags")):

@@ -4,6 +4,7 @@ import pytest
 
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
+from croesus.profiles.config_io import write_profile_config
 from croesus.jobs.profile_init import main as profile_init_main
 from croesus.jobs.profile_init import run_profile_guided
 from croesus.jobs.profile_init import run_profile_init
@@ -18,9 +19,10 @@ from croesus.profiles.validation import validate_policy_targets, validate_profil
 
 
 class GuidedPrompter:
-    def __init__(self, answers=None, *, confirmed=True) -> None:
+    def __init__(self, answers=None, *, confirmed=True, confirm_answers=None) -> None:
         self.answers = answers or {}
         self.confirmed = confirmed
+        self.confirm_answers = confirm_answers or {}
         self.seen: list[dict[str, str]] = []
 
     def info(self, message: str) -> None:
@@ -40,10 +42,15 @@ class GuidedPrompter:
 
     def confirm(self, key, message, default):
         self.seen.append({"kind": "confirm", "key": key, "message": message})
-        return self.confirmed
+        return self.confirm_answers.get(key, self.confirmed)
 
     def prompted_keys(self) -> set[str]:
         return {e["key"] for e in self.seen if e["key"]}
+
+
+class InterruptingPrompter(GuidedPrompter):
+    def confirm(self, key, message, default):
+        raise KeyboardInterrupt
 
 
 def test_default_seed_data_is_valid() -> None:
@@ -200,3 +207,83 @@ def test_profile_init_guided_from_invalid_config_exits_cleanly(
         profile_init_main(["--guided", "--from", str(bad_config)])
 
     assert excinfo.value.code == 1
+
+
+def test_profile_init_interactive_from_missing_file_exits_cleanly(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "interactive.duckdb"
+    missing = tmp_path / "missing.yaml"
+    monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
+
+    with pytest.raises(SystemExit) as excinfo:
+        profile_init_main(["--interactive", "--from", str(missing)])
+
+    assert excinfo.value.code == 1
+
+
+def test_profile_init_interactive_from_invalid_config_exits_cleanly(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "interactive.duckdb"
+    bad_config = tmp_path / "bad.yaml"
+    bad_config.write_text("not_profile: true\n", encoding="utf-8")
+    monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
+
+    with pytest.raises(SystemExit) as excinfo:
+        profile_init_main(["--interactive", "--from", str(bad_config)])
+
+    assert excinfo.value.code == 1
+
+
+def test_profile_init_guided_from_custom_policy_requires_replace_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "guided.duckdb"
+    cfg = tmp_path / "custom.yaml"
+    custom_targets = [
+        PolicyTarget("default", "core_us_equity", 0.50, 0.40, 0.60),
+        PolicyTarget("default", "defensive_bonds", 0.30, 0.20, 0.40),
+        PolicyTarget(
+            "default",
+            "cash",
+            0.20,
+            0.10,
+            0.30,
+            metadata={"asset_ids": ["CASH_USD"]},
+        ),
+    ]
+    write_profile_config(cfg, DEFAULT_PROFILE, custom_targets)
+    monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
+
+    with pytest.raises(SystemExit) as excinfo:
+        profile_init_main(
+            ["--guided", "--from", str(cfg)],
+            prompter=GuidedPrompter(
+                confirm_answers={
+                    "replace_policy_targets": False,
+                    "save_profile": True,
+                }
+            ),
+        )
+
+    assert excinfo.value.code == 1
+
+    with get_connection(db_path) as conn:
+        assert ProfileRepository(conn).get_profile("default") is None
+
+
+def test_profile_init_guided_keyboard_interrupt_exits_cleanly(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "guided.duckdb"
+    monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
+
+    with pytest.raises(SystemExit) as excinfo:
+        profile_init_main(["--guided"], prompter=InterruptingPrompter())
+
+    assert excinfo.value.code == 130

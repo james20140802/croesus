@@ -96,3 +96,21 @@ def test_policy_target_validation_warns_on_missing_cash_and_metadata() -> None:
     assert result.is_valid
     assert any("cash sleeve" in warning for warning in result.warnings)
     assert any("metadata" in warning for warning in result.warnings)
+
+
+def test_policy_target_validation_does_not_treat_cash_prefix_as_cash_sleeve() -> None:
+    result = validate_policy_targets(
+        [
+            PolicyTarget(
+                "p",
+                "rewards_equity",
+                1.0,
+                0.0,
+                1.0,
+                metadata={"asset_ids": ["CASHBACK_ETF"]},
+            ),
+        ]
+    )
+
+    assert result.is_valid
+    assert any("cash sleeve" in warning for warning in result.warnings)
