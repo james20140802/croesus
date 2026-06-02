@@ -14,8 +14,10 @@ from croesus.profiles.interactive import (
     Prompter,
     QuestionaryPrompter,
     build_profile_interactively,
+    build_profile_inputs_interactively,
 )
 from croesus.profiles.models import InvestorProfile, PolicyTarget
+from croesus.profiles.onboarding import recommend_policy
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
     DEFAULT_POLICY_TARGETS,
@@ -61,7 +63,7 @@ def run_profile_load(
     errors = profile_result.errors + target_result.errors
     if errors:
         raise ValueError(f"invalid profile config: {errors}")
-    for warning in profile_result.warnings:
+    for warning in profile_result.warnings + target_result.warnings:
         log(f"warning: {warning}")
 
     ProfileRepository(conn).save_profile(profile, targets)
@@ -112,7 +114,7 @@ def run_profile_interactive(
     errors = profile_result.errors + target_result.errors
     if errors:
         raise ValueError(f"invalid profile: {errors}")
-    for warning in profile_result.warnings:
+    for warning in profile_result.warnings + target_result.warnings:
         prompter.info(f"warning: {warning}")
 
     ProfileRepository(conn).save_profile(profile, targets)
@@ -125,9 +127,82 @@ def run_profile_interactive(
     return profile.profile_id
 
 
+def run_profile_guided(
+    conn: duckdb.DuckDBPyConnection,
+    profile_defaults: InvestorProfile = DEFAULT_PROFILE,
+    *,
+    prompter: Prompter | None = None,
+    save_path: str | Path | None = None,
+    profile_id: str | None = None,
+    auto_confirm: bool = False,
+) -> str:
+    """Prompt for profile fields, recommend policy targets, and save on approval."""
+    if prompter is None:
+        prompter = QuestionaryPrompter()
+    resolved_id = profile_id if profile_id is not None else _new_profile_id()
+    prompter.info(f"profile id: {resolved_id}")
+
+    profile = build_profile_inputs_interactively(
+        profile_defaults,
+        prompter=prompter,
+        profile_id=resolved_id,
+    )
+
+    profile_result = validate_profile(profile)
+    if profile_result.errors:
+        raise ValueError(f"invalid profile: {profile_result.errors}")
+
+    recommendation = recommend_policy(profile)
+    target_result = validate_policy_targets(recommendation.targets)
+    if target_result.errors:
+        raise ValueError(f"invalid recommended policy: {target_result.errors}")
+
+    _log_recommendation(
+        recommendation.template_id,
+        recommendation.rationale,
+        recommendation.targets,
+        prompter.info,
+    )
+    for warning in recommendation.warnings:
+        prompter.info(f"warning: {warning}")
+
+    if not auto_confirm and not prompter.confirm(
+        "save_profile",
+        "Save this profile and recommended policy targets?",
+        True,
+    ):
+        raise RuntimeError("guided profile setup cancelled before save")
+
+    ProfileRepository(conn).save_profile(profile, recommendation.targets)
+
+    if save_path is not None:
+        write_profile_config(save_path, profile, recommendation.targets, overwrite=True)
+        prompter.info(f"saved config to {save_path}")
+
+    _log_summary(profile.profile_id, profile.name, recommendation.targets, prompter.info)
+    return profile.profile_id
+
+
 def _log_summary(profile_id: str, name: str, targets, log: Callable[[str], None]) -> None:
     log(f"profile: {profile_id} ({name})")
     log("policy targets:")
+    for target in targets:
+        log(
+            f"  {target.sleeve_name}: target={target.target_weight}"
+            f" min={target.min_weight} max={target.max_weight}"
+        )
+
+
+def _log_recommendation(
+    template_id: str,
+    rationale: list[str],
+    targets: list[PolicyTarget],
+    log: Callable[[str], None],
+) -> None:
+    log(f"recommended policy template: {template_id}")
+    for reason in rationale:
+        log(f"  rationale: {reason}")
+    log("proposed policy targets:")
     for target in targets:
         log(
             f"  {target.sleeve_name}: target={target.target_weight}"
@@ -152,6 +227,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="set up the profile interactively in the terminal (prompts for each field)",
     )
     group.add_argument(
+        "--guided",
+        action="store_true",
+        help="set up profile fields interactively, then recommend editable policy targets",
+    )
+    group.add_argument(
         "--init-config",
         metavar="PATH",
         help="write an editable profile template to PATH (does not touch the database)",
@@ -165,12 +245,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--from",
         dest="from_path",
         metavar="PATH",
-        help="with --interactive, pre-fill prompts from an existing YAML config",
+        help="with --interactive or --guided, pre-fill prompts from an existing YAML config",
     )
     parser.add_argument(
         "--save",
         metavar="PATH",
-        help="with --interactive, also write the result to PATH as a YAML config",
+        help="with --interactive or --guided, also write the result to PATH as a YAML config",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="with --guided, save the recommended policy without an interactive confirm prompt",
     )
     parser.add_argument(
         "--force",
@@ -216,6 +301,24 @@ def main(argv: Sequence[str] | None = None, *, prompter: Prompter | None = None)
                     profile_id=keep_id,
                 )
             except (ValueError, FileNotFoundError) as exc:
+                print(exc, file=sys.stderr)
+                raise SystemExit(1) from exc
+        elif args.guided:
+            profile_defaults = DEFAULT_PROFILE
+            keep_id = None  # fresh run -> generate a new id
+            if args.from_path:
+                profile_defaults, _target_defaults = read_profile_config(args.from_path)
+                keep_id = profile_defaults.profile_id  # editing -> update same row
+            try:
+                run_profile_guided(
+                    conn,
+                    profile_defaults,
+                    prompter=prompter,
+                    save_path=args.save,
+                    profile_id=keep_id,
+                    auto_confirm=args.yes,
+                )
+            except (ValueError, FileNotFoundError, RuntimeError) as exc:
                 print(exc, file=sys.stderr)
                 raise SystemExit(1) from exc
         elif args.config:

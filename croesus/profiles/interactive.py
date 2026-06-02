@@ -61,6 +61,8 @@ class Prompter(Protocol):
         self, key: str, message: str, description: str, choices: list, default: list
     ) -> list: ...
 
+    def confirm(self, key: str, message: str, default: bool) -> bool: ...
+
 
 class QuestionaryPrompter:
     """Real terminal UI: one item per screen, checkboxes for multi-select."""
@@ -117,6 +119,13 @@ class QuestionaryPrompter:
             raise KeyboardInterrupt
         return answer
 
+    def confirm(self, key, message, default) -> bool:
+        self._clear()
+        answer = self._q.confirm(message, default=default).ask()
+        if answer is None:
+            raise KeyboardInterrupt
+        return bool(answer)
+
 
 def build_profile_interactively(
     profile_defaults: InvestorProfile,
@@ -130,6 +139,22 @@ def build_profile_interactively(
     ``profile_id`` is supplied by the caller (system-generated or preserved
     from an existing config) — it is never prompted for.
     """
+    profile = build_profile_inputs_interactively(
+        profile_defaults,
+        prompter=prompter,
+        profile_id=profile_id,
+    )
+    targets = _prompt_policy_targets(profile.profile_id, target_defaults, prompter)
+    return profile, targets
+
+
+def build_profile_inputs_interactively(
+    profile_defaults: InvestorProfile,
+    *,
+    prompter: Prompter,
+    profile_id: str,
+) -> InvestorProfile:
+    """Walk the user through profile fields only, leaving policy targets to caller."""
     prompter.info("투자자 프로필 설정 — 각 항목을 입력하세요 (Enter = 기본값).")
     p = profile_defaults
 
@@ -185,9 +210,7 @@ def build_profile_interactively(
         ),
         metadata=p.metadata,
     )
-
-    targets = _prompt_policy_targets(profile.profile_id, target_defaults, prompter)
-    return profile, targets
+    return profile
 
 
 def _prompt_policy_targets(
