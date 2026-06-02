@@ -306,10 +306,10 @@ def main(argv: Sequence[str] | None = None, *, prompter: Prompter | None = None)
         elif args.guided:
             profile_defaults = DEFAULT_PROFILE
             keep_id = None  # fresh run -> generate a new id
-            if args.from_path:
-                profile_defaults, _target_defaults = read_profile_config(args.from_path)
-                keep_id = profile_defaults.profile_id  # editing -> update same row
             try:
+                if args.from_path:
+                    profile_defaults, _target_defaults = read_profile_config(args.from_path)
+                    keep_id = profile_defaults.profile_id  # editing -> update same row
                 run_profile_guided(
                     conn,
                     profile_defaults,

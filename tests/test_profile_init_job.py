@@ -171,3 +171,32 @@ def test_profile_init_guided_yes_uses_configured_db_path(tmp_path: Path, monkeyp
     assert len(rows) == 1
     assert rows[0][1] == "Guided CLI"
     assert target_count == 4
+
+
+def test_profile_init_guided_from_missing_file_exits_cleanly(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "guided.duckdb"
+    missing = tmp_path / "missing.yaml"
+    monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
+
+    with pytest.raises(SystemExit) as excinfo:
+        profile_init_main(["--guided", "--from", str(missing)])
+
+    assert excinfo.value.code == 1
+
+
+def test_profile_init_guided_from_invalid_config_exits_cleanly(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "guided.duckdb"
+    bad_config = tmp_path / "bad.yaml"
+    bad_config.write_text("not_profile: true\n", encoding="utf-8")
+    monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
+
+    with pytest.raises(SystemExit) as excinfo:
+        profile_init_main(["--guided", "--from", str(bad_config)])
+
+    assert excinfo.value.code == 1
