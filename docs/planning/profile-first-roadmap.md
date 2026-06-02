@@ -25,10 +25,14 @@ Level 1 does not execute trades.
 | 001 | Data foundation | Asset registry, prices, common factors |
 | 002 | Macro risk posture | MacroState and macro-adjusted screening params |
 | 003 | Investor profile and policy portfolio | Advanced profile input, validation, policy targets |
+| 003b | Guided profile and policy onboarding | Profile-driven policy templates and setup UX |
 | 004 | Portfolio snapshot and exposure | Holdings, weights, drift, concentration checks |
 | 004b | Portfolio mark-to-market and FX | Current-price valuation, multi-currency FX, unrealized P&L |
+| 004c | Holdings onboarding and asset resolver | User-friendly holdings import and automatic asset registry enrichment |
 | 005 | Screening and sector/theme analysis | Candidate ranking plus sector/theme exposure inputs |
 | 006 | Rebalancing proposal engine | Level 1 MVP: deterministic portfolio action report |
+| 006b | Local scheduler and data freshness | Local sync, stale-data status, and run history |
+| 006c | Transaction ledger | Manual execution feedback and holdings derived from transactions |
 | 007 | Valuation layer | Fundamentals, valuation factors, DCF snapshots |
 | 008 | Research Agent | LLM qualitative research for shortlisted candidates |
 | 009 | Approval-based execution | Prepare orders after explicit user approval |
@@ -36,7 +40,29 @@ Level 1 does not execute trades.
 
 Valuation work remains important, but portfolio-profile infrastructure should come first so valuation outputs have a portfolio decision context.
 
-Sprint 004b is a follow-on to Sprint 004 that promotes its deferred items (quantity-only valuation, multi-currency FX) into current-price mark-to-market with unrealized P&L. It is sequenced before Sprint 006 (rebalancing) because rebalancing needs accurate current portfolio values. It is distinct from Sprint 007 (equity fundamental valuation / DCF). See `sprint-004b-portfolio-mark-to-market-fx.md`.
+The `b` and `c` sprints are additive local-OS automation sprints. They should
+not rewrite completed baseline sprints. Instead, they remove manual work that
+would make the product feel like a database or CLI wrapper instead of a local
+portfolio operating system.
+
+Sprint 003b is a retrofit over Sprint 003: it adds guided setup and policy
+templates without invalidating profiles already stored by `profile_init`.
+
+Sprint 004b is a follow-on to Sprint 004 that promotes its deferred items
+(quantity-only valuation, multi-currency FX) into current-price mark-to-market
+with unrealized P&L. It is sequenced before Sprint 006 (rebalancing) because
+rebalancing needs accurate current portfolio values. It is distinct from Sprint
+007 (equity fundamental valuation / DCF). See
+`sprint-004b-portfolio-mark-to-market-fx.md`.
+
+Sprint 004c follows Sprint 004b and should come before Sprint 005. It makes the
+asset registry a behind-the-scenes system registry rather than a table the user
+must manually maintain. See `sprint-004c-holdings-asset-resolver.md`.
+
+Sprint 006b and 006c are not prerequisites for the first deterministic proposal,
+but they are prerequisites for a credible local web/app experience. A dashboard
+should not merely expose manual CLI commands; it should know whether data is
+fresh and how approved/manual actions affected the portfolio.
 
 ## Sprint 001: Data Foundation
 
@@ -157,6 +183,35 @@ Investor Profile
 - Policy targets can be stored and read.
 - `bounded_auto` is rejected in MVP.
 
+## Sprint 003b: Guided Profile and Policy Onboarding
+
+### Goal
+
+Make profile and policy setup usable without requiring the user to hand-design
+all policy sleeves and target ranges.
+
+```text
+Profile Inputs
+  -> Validation
+  -> Policy Template Recommendation
+  -> Editable Policy Targets
+```
+
+### Scope
+
+- Add explicit policy templates.
+- Recommend a template from profile constraints.
+- Extend `profile_init` with guided setup while preserving current modes.
+- Improve policy target validation messages.
+- Treat this as a migration-safe retrofit if Sprint 004 already exists.
+
+### Acceptance Criteria
+
+- A valid profile and policy can be created without hand-writing target weights.
+- Existing `profile_init` flows continue to work.
+- Existing snapshots remain valid; future snapshots use updated policy targets.
+- No screening, rebalancing, or execution logic is introduced.
+
 ## Sprint 004: Portfolio Snapshot and Exposure
 
 ### Goal
@@ -193,6 +248,68 @@ Holdings Input
 - Concentration checks compare current weights to profile limits.
 - Drift checks compare current sleeve weights to policy targets.
 - Missing price for one holding logs the issue and skips or marks that holding without crashing the full snapshot.
+
+## Sprint 004b: Portfolio Mark-to-Market and FX
+
+### Goal
+
+Remove the need for users to manually enter current market values.
+
+```text
+Holdings CSV (quantity + avg_cost)
+  -> Latest Close + FX Lookup
+  -> Base-Currency Market Value
+  -> Cost Basis + Unrealized P&L
+  -> Exposure and Policy Drift
+```
+
+### Scope
+
+- Add `fx_rates`.
+- Add latest-close lookup.
+- Support `quantity` and `avg_cost` inputs.
+- Generalize cash handling to `CASH_<CUR>`.
+- Add mark-to-market and unrealized P&L calculation.
+- Keep `portfolio_snapshot` network-free; it reads from stored prices and FX.
+
+### Acceptance Criteria
+
+- Users do not enter current prices or FX rates.
+- Foreign-currency holdings and cash are converted to base currency.
+- Total cost basis and unrealized P&L are persisted.
+- Existing `market_value` CSV inputs continue to work as a fallback.
+- Missing prices or FX rates warn and continue instead of crashing.
+
+## Sprint 004c: Holdings Onboarding and Asset Resolver
+
+### Goal
+
+Let users import holdings with natural identifiers while Croesus maintains the
+internal asset registry.
+
+```text
+Holdings CSV (symbol / asset_id)
+  -> Asset Resolver
+  -> Asset Registry Upsert
+  -> Price Bootstrap
+  -> Snapshot Input
+```
+
+### Scope
+
+- Accept `symbol` in holdings imports.
+- Resolve symbols into stable `asset_id` rows.
+- Enrich `assets` with name, asset type, country, exchange, currency, sector,
+  and industry where available.
+- Bootstrap price history for newly resolved assets.
+- Keep cash rows such as `CASH_USD` and `CASH_KRW` registry-light.
+
+### Acceptance Criteria
+
+- Users do not need to know internal IDs such as `US_EQ_AAPL`.
+- Unknown but resolvable symbols create asset registry rows automatically.
+- Resolver failures are clear warnings, not full-run crashes.
+- Screening continues to read from `assets`, not ad hoc ticker lists.
 
 ## Sprint 005: Screening and Sector/Theme Analysis
 
@@ -272,6 +389,66 @@ Profile + Policy + Holdings + MacroState + Screening
 - If MacroState is `Cautious` or `Defensive`, new satellite adds are restricted.
 - Proposed actions respect max turnover.
 - No order is submitted.
+
+## Sprint 006b: Local Scheduler and Data Freshness
+
+### Goal
+
+Make the local system maintain and explain its data freshness.
+
+```text
+Run History
+  -> Freshness Rules
+  -> Due Job Selection
+  -> Local Sync
+  -> Dashboard/API Status
+```
+
+### Scope
+
+- Add job run history.
+- Add data freshness status by domain.
+- Add `local_sync` orchestration.
+- Run due jobs in dependency order.
+- Provide local scheduling hooks without installing services automatically.
+
+### Acceptance Criteria
+
+- One command can update due local data in dependency order.
+- Price, FX, macro, snapshot, screening, and report freshness are queryable.
+- Failures are recorded and surfaced.
+- No broker or execution path is invoked.
+
+## Sprint 006c: Transaction Ledger
+
+### Goal
+
+Close the loop after proposals by recording how holdings actually changed.
+
+```text
+Proposed Action
+  -> Manual Execution Record
+  -> Transactions
+  -> Derived Holdings
+  -> Updated Snapshot
+```
+
+### Scope
+
+- Add `portfolio_transactions`.
+- Store buy, sell, deposit, withdrawal, dividend, fee, and manual adjustment
+  transactions.
+- Link manual executions back to proposed actions.
+- Derive holdings from transactions while keeping CSV import for bootstrap and
+  reconciliation.
+- Define realized and unrealized P&L semantics.
+
+### Acceptance Criteria
+
+- Manual execution of a proposed action creates traceable transaction rows.
+- Holdings can be derived from transaction history.
+- Snapshot CSV import remains available.
+- No broker API call or real order placement is introduced.
 
 ## Sprint 007: Valuation Layer
 
@@ -380,7 +557,14 @@ Allow long-horizon automated rebalancing under strict guardrails.
 
 ## MVP Definition
 
-MVP Level 1 is complete when Sprints 001 through 006 are implemented.
+MVP Level 1 is complete when Sprints 001 through 006 are implemented, with
+Sprint 004b included before relying on rebalance proposals for real portfolio
+decisions.
+
+For a credible local portfolio OS, Sprint 003b, 004c, 006b, and 006c should be
+planned before the web/app layer. They are not all required to prove the first
+proposal engine, but they remove the manual work that would otherwise make the
+product feel like a CLI wrapper.
 
 The system should be able to:
 
@@ -396,5 +580,13 @@ The system should be able to:
 
 - `docs/planning/sprint-001-asset-registry.md` remains valid for data foundation.
 - `docs/planning/sprint-002-macro-analysis.md` remains valid for MacroState.
+- `docs/planning/sprint-003b-profile-policy-onboarding.md` adds an onboarding
+  retrofit over the already-implemented profile/policy foundation.
 - `docs/planning/sprint-004b-portfolio-mark-to-market-fx.md` plans current-price mark-to-market, multi-currency FX, and unrealized P&L; it is a follow-on to Sprint 004, sequenced before Sprint 006, and is distinct from the Sprint 007 fundamental valuation work.
+- `docs/planning/sprint-004c-holdings-asset-resolver.md` keeps `assets` as an
+  internal registry by resolving user-provided symbols during holdings import.
+- `docs/planning/sprint-006b-local-scheduler-freshness.md` defines local sync and
+  stale-data status needed before a credible local dashboard.
+- `docs/planning/sprint-006c-transaction-ledger.md` defines the transaction
+  history needed before approval/execution flows can close the loop.
 - `docs/planning/sprint-007-valuation-analysis.md` contains the valuation implementation plan and is sequenced after profile and portfolio foundations for product coherence.
