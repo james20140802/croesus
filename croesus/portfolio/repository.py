@@ -80,9 +80,9 @@ class PortfolioRepository:
                     """
                     INSERT INTO portfolio_holdings (
                       portfolio_id, asset_id, as_of_date, quantity, market_value,
-                      currency, cost_basis, source, metadata
+                      currency, cost_basis, avg_cost, source, metadata
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)
                     """,
                     [self._holding_to_params(h) for h in holdings],
                 )
@@ -111,17 +111,22 @@ class PortfolioRepository:
         as_of_date: date,
         total_market_value: float,
         *,
+        total_cost_basis: float | None = None,
+        unrealized_pnl: float | None = None,
         cash_value: float = 0.0,
         metadata: dict[str, Any] | None = None,
     ) -> None:
         self.conn.execute(
             """
             INSERT INTO portfolio_snapshots (
-              portfolio_id, as_of_date, total_market_value, cash_value, metadata
+              portfolio_id, as_of_date, total_market_value, total_cost_basis,
+              unrealized_pnl, cash_value, metadata
             )
-            VALUES (?, ?, ?, ?, ?::JSON)
+            VALUES (?, ?, ?, ?, ?, ?, ?::JSON)
             ON CONFLICT (portfolio_id, as_of_date) DO UPDATE SET
               total_market_value = excluded.total_market_value,
+              total_cost_basis = excluded.total_cost_basis,
+              unrealized_pnl = excluded.unrealized_pnl,
               cash_value = excluded.cash_value,
               metadata = excluded.metadata
             """,
@@ -129,6 +134,8 @@ class PortfolioRepository:
                 portfolio_id,
                 as_of_date,
                 total_market_value,
+                total_cost_basis,
+                unrealized_pnl,
                 cash_value,
                 json.dumps(metadata or {}),
             ),
@@ -286,6 +293,7 @@ class PortfolioRepository:
             holding.market_value,
             holding.currency,
             holding.cost_basis,
+            holding.avg_cost,
             holding.source,
             json.dumps(holding.metadata),
         )
@@ -300,6 +308,7 @@ class PortfolioRepository:
             market_value=row["market_value"],
             currency=row["currency"],
             cost_basis=row["cost_basis"],
+            avg_cost=row.get("avg_cost"),
             source=row["source"],
             metadata=_to_dict(row.get("metadata")),
         )

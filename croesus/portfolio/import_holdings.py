@@ -7,7 +7,7 @@ from pathlib import Path
 
 import duckdb
 
-from croesus.portfolio.models import Holding
+from croesus.portfolio.models import Holding, is_cash
 
 CASH_ASSET_ID = "CASH_USD"
 _DEFAULT_PORTFOLIO_ID = "default"
@@ -41,9 +41,9 @@ def load_holdings_csv(
 
     Rules (Level 1):
     - ``portfolio_id`` defaults to the target portfolio when absent/blank.
-    - ``market_value`` is required; rows without it are skipped with a warning.
+    - ``market_value`` or ``quantity`` + ``avg_cost`` is required for securities.
     - ``currency`` defaults to the governing profile's base currency, else ``USD``.
-    - Unknown ``asset_id`` is reported and skipped, unless it is ``CASH_USD``.
+    - Unknown ``asset_id`` is reported and skipped, unless it is ``CASH_<CUR>``.
 
     Unknown or malformed rows never raise — they are skipped so the broader
     snapshot run survives partial input.
@@ -74,32 +74,49 @@ def load_holdings_csv(
                 skipped += 1
                 continue
 
-            if asset_id != CASH_ASSET_ID and asset_id not in known_asset_ids:
+            if not is_cash(asset_id) and asset_id not in known_asset_ids:
                 warnings.append(f"row {line_no}: unknown asset {asset_id}, skipped")
                 skipped += 1
                 continue
 
             market_value = _to_float(_clean(row.get("market_value")))
-            if market_value is None:
+            quantity = _to_float(_clean(row.get("quantity")))
+            avg_cost = _to_float(_clean(row.get("avg_cost")))
+            cost_basis = _to_float(_clean(row.get("cost_basis")))
+            currency = (
+                _clean(row.get("currency"))
+                or _currency_from_cash(asset_id)
+                or base_currency
+            )
+
+            if is_cash(asset_id) and market_value is None:
                 warnings.append(
-                    f"row {line_no}: {asset_id} missing market_value, skipped"
+                    f"row {line_no}: {asset_id} missing market_value for cash, skipped"
                 )
                 skipped += 1
                 continue
 
-            currency = _clean(row.get("currency")) or base_currency
-            quantity = _to_float(_clean(row.get("quantity"))) or 0.0
-            cost_basis = _to_float(_clean(row.get("cost_basis")))
+            if (
+                not is_cash(asset_id)
+                and market_value is None
+                and (quantity is None or avg_cost is None)
+            ):
+                warnings.append(
+                    f"row {line_no}: {asset_id} missing quantity/avg_cost or market_value, skipped"
+                )
+                skipped += 1
+                continue
 
             holdings.append(
                 Holding(
                     portfolio_id=portfolio_id,
                     asset_id=asset_id,
                     as_of_date=as_of_date,
-                    quantity=quantity,
+                    quantity=quantity or 0.0,
                     market_value=market_value,
                     currency=currency,
                     cost_basis=cost_basis,
+                    avg_cost=avg_cost,
                     source="manual_csv",
                 )
             )
@@ -137,3 +154,10 @@ def _to_float(value: str) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+def _currency_from_cash(asset_id: str) -> str | None:
+    if not is_cash(asset_id):
+        return None
+    currency = asset_id.removeprefix("CASH_").strip()
+    return currency.upper() if currency else None

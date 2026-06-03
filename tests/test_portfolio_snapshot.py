@@ -2,6 +2,7 @@ from datetime import date
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 
 from croesus.assets.models import Asset
 from croesus.assets.repository import AssetRepository
@@ -298,6 +299,25 @@ def test_load_holdings_csv_accepts_cash_row(tmp_path: Path) -> None:
     assert [h.asset_id for h in result.holdings] == ["CASH_USD"]
 
 
+def test_load_holdings_csv_accepts_multi_currency_cash_row(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\n"
+        "default,CASH_KRW,,421391,KRW\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.skipped == 0
+    assert [h.asset_id for h in result.holdings] == ["CASH_KRW"]
+    assert result.holdings[0].market_value == 421391.0
+    assert result.holdings[0].currency == "KRW"
+
+
 def test_load_holdings_csv_skips_unknown_asset_with_warning(tmp_path: Path) -> None:
     db_path = tmp_path / "p.duckdb"
     migrate(db_path)
@@ -337,14 +357,36 @@ def test_load_holdings_csv_defaults_currency_to_profile_base(tmp_path: Path) -> 
     assert result.holdings[0].currency == "KRW"
 
 
-def test_load_holdings_csv_skips_missing_market_value(tmp_path: Path) -> None:
+def test_load_holdings_csv_accepts_quantity_and_avg_cost_without_market_value(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "p.duckdb"
     migrate(db_path)
-    # Level 1 requires market_value; quantity-only valuation is future work.
     csv_path = _write_csv(
         tmp_path / "h.csv",
-        "portfolio_id,asset_id,quantity,market_value,currency\n"
-        "default,US_EQ_AAPL,10,,USD\n",
+        "portfolio_id,asset_id,quantity,avg_cost,market_value,currency\n"
+        "default,US_EQ_AAPL,10,150,,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.skipped == 0
+    assert result.holdings[0].quantity == 10.0
+    assert result.holdings[0].avg_cost == 150.0
+    assert result.holdings[0].market_value is None
+
+
+def test_load_holdings_csv_skips_non_cash_row_without_valuation_inputs(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,avg_cost,market_value,currency\n"
+        "default,US_EQ_AAPL,,,,USD\n",
     )
 
     with get_connection(db_path) as conn:
@@ -353,7 +395,7 @@ def test_load_holdings_csv_skips_missing_market_value(tmp_path: Path) -> None:
 
     assert result.holdings == []
     assert result.skipped == 1
-    assert any("market_value" in w for w in result.warnings)
+    assert any("quantity/avg_cost or market_value" in w for w in result.warnings)
 
 
 def test_default_policy_targets_carry_sleeve_mapping_metadata() -> None:
@@ -420,7 +462,107 @@ def test_run_portfolio_snapshot_writes_all_tables(tmp_path: Path) -> None:
     }
     sat = next(d for d in drifts if d.sleeve_name == "satellite_equity")
     assert abs(sat.current_weight - (1900.0 / 6000.0)) < 1e-9
-    assert result.warnings == []
+    assert len(result.warnings) == 3
+    assert all("PRICE_MISSING" in warning for warning in result.warnings)
+
+
+def test_run_portfolio_snapshot_marks_to_market_and_persists_pnl(
+    tmp_path: Path,
+) -> None:
+    from croesus.fx.repository import FxRepository
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.prices.repository import PriceRepository
+    from croesus.profiles.seed_default_profile import seed_default_profile
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,avg_cost,currency,market_value\n"
+        "default,US_EQ_AAPL,10,150,USD,\n"
+        "default,CASH_KRW,,,KRW,150000\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)
+        _seed_snapshot_assets(conn)
+        PriceRepository(conn).upsert_daily_prices(
+            "US_EQ_AAPL",
+            pd.DataFrame(
+                [
+                    {
+                        "date": AS_OF,
+                        "open": 190.0,
+                        "high": 191.0,
+                        "low": 189.0,
+                        "close": 190.0,
+                        "adjusted_close": 190.0,
+                        "volume": 1000,
+                    }
+                ]
+            ),
+            source="test",
+        )
+        FxRepository(conn).upsert_rates(
+            "KRW",
+            pd.DataFrame(
+                [{"date": AS_OF, "rate_per_usd": 1500.0}]
+            ),
+            source="test",
+        )
+
+        result = run_portfolio_snapshot(
+            conn, csv_path, portfolio_id="default", as_of_date=AS_OF, log=lambda m: None
+        )
+        repo = PortfolioRepository(conn)
+        snap = repo.get_snapshot("default", AS_OF)
+        holdings = repo.get_holdings("default", AS_OF)
+
+    assert result.total_market_value == 2000.0
+    assert result.total_cost_basis == 1600.0
+    assert result.unrealized_pnl == 400.0
+    assert snap is not None
+    assert snap["total_cost_basis"] == 1600.0
+    assert snap["unrealized_pnl"] == 400.0
+
+    by_asset = {h.asset_id: h for h in holdings}
+    assert by_asset["US_EQ_AAPL"].market_value == 1900.0
+    assert by_asset["US_EQ_AAPL"].cost_basis == 1500.0
+    assert by_asset["US_EQ_AAPL"].metadata["price_source"] == "store"
+    assert by_asset["CASH_KRW"].market_value == 100.0
+    assert by_asset["CASH_KRW"].cost_basis == 100.0
+
+
+def test_run_portfolio_snapshot_persists_unknown_pnl_when_cost_basis_is_unknown(
+    tmp_path: Path,
+) -> None:
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.profiles.seed_default_profile import seed_default_profile
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\n"
+        "default,US_EQ_AAPL,,1800,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)
+        _seed_snapshot_assets(conn)
+
+        result = run_portfolio_snapshot(
+            conn, csv_path, portfolio_id="default", as_of_date=AS_OF, log=lambda m: None
+        )
+        snap = PortfolioRepository(conn).get_snapshot("default", AS_OF)
+
+    assert result.total_market_value == 1800.0
+    assert result.total_cost_basis is None
+    assert result.unrealized_pnl is None
+    assert snap is not None
+    assert snap["total_market_value"] == 1800.0
+    assert snap["total_cost_basis"] is None
+    assert snap["unrealized_pnl"] is None
 
 
 def test_run_portfolio_snapshot_survives_unknown_asset(tmp_path: Path) -> None:

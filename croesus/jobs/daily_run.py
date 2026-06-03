@@ -13,6 +13,7 @@ from croesus.factors.compute_common_factors import (
     FactorComputationResult,
     compute_and_store_common_factors,
 )
+from croesus.fx.ingest_fx_rates import FxIngestionResult, ingest_fx_rates
 from croesus.macro._loader import load_latest_macro_state
 from croesus.macro.screening_adapter import get_screening_params, neutral_screening_params
 from croesus.prices.ingest_prices import IngestionResult, ingest_daily_prices
@@ -21,6 +22,7 @@ from croesus.prices.ingest_prices import IngestionResult, ingest_daily_prices
 @dataclass(frozen=True)
 class DailyRunResult:
     price_result: IngestionResult
+    fx_result: FxIngestionResult
     factor_result: FactorComputationResult
     screening_params: dict
 
@@ -33,6 +35,11 @@ def run_daily_pipeline(
 ) -> DailyRunResult:
     seed_us_equities(conn)
     price_result = ingest_daily_prices(conn, source=source, log=log)
+    fx_result = ingest_fx_rates(
+        conn,
+        currencies=_fx_currencies_for_daily_run(conn),
+        log=log,
+    )
     factor_result = compute_and_store_common_factors(conn)
 
     # Consume the latest MacroState (from daily_macro_run) to adjust screening
@@ -46,9 +53,23 @@ def run_daily_pipeline(
 
     return DailyRunResult(
         price_result=price_result,
+        fx_result=fx_result,
         factor_result=factor_result,
         screening_params=screening_params,
     )
+
+
+def _fx_currencies_for_daily_run(conn: duckdb.DuckDBPyConnection) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT currency FROM assets WHERE currency IS NOT NULL
+        UNION
+        SELECT base_currency FROM portfolios WHERE base_currency IS NOT NULL
+        UNION
+        SELECT currency FROM portfolio_holdings WHERE currency IS NOT NULL
+        """
+    ).fetchall()
+    return sorted({row[0].upper() for row in rows if row[0]})
 
 
 def main() -> None:

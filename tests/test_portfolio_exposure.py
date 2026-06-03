@@ -104,16 +104,15 @@ def test_country_exposure() -> None:
     assert abs(countries["KR"].weight - 0.25) < 1e-9
 
 
-def test_currency_exposure_maps_cash_to_base_currency() -> None:
+def test_currency_exposure_uses_cash_row_currency() -> None:
     holdings = [_h("CASH_USD", 1000, currency="USD")]
 
     currencies = _by_type(
         _exposures(holdings, {}, base_currency="EUR"), "currency"
     )
 
-    # cash currency exposure follows the profile base currency, not the row value
-    assert set(currencies) == {"EUR"}
-    assert abs(currencies["EUR"].weight - 1.0) < 1e-9
+    assert set(currencies) == {"USD"}
+    assert abs(currencies["USD"].weight - 1.0) < 1e-9
 
 
 # -- limit checks --------------------------------------------------------------

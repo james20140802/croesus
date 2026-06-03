@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import duckdb
@@ -61,6 +62,19 @@ class PriceRepository:
             """,
             [asset_id],
         ).df()
+
+    def get_latest_close(self, asset_id: str, as_of: date) -> float | None:
+        row = self.conn.execute(
+            """
+            SELECT close
+            FROM prices_daily
+            WHERE asset_id = ? AND date <= ?
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            [asset_id, as_of],
+        ).fetchone()
+        return float(row[0]) if row and row[0] is not None else None
 
     @staticmethod
     def _optional_float(value: Any) -> float | None:

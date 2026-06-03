@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS prices_daily (
   PRIMARY KEY (asset_id, date)
 );
 
+CREATE TABLE IF NOT EXISTS fx_rates (
+  quote_currency TEXT NOT NULL,
+  date DATE NOT NULL,
+  rate_per_usd DOUBLE,
+  source TEXT,
+  PRIMARY KEY (quote_currency, date)
+);
+
 CREATE TABLE IF NOT EXISTS factor_values (
   asset_id TEXT NOT NULL,
   date DATE NOT NULL,
@@ -115,19 +123,27 @@ CREATE TABLE IF NOT EXISTS portfolio_holdings (
   market_value DOUBLE,
   currency TEXT,
   cost_basis DOUBLE,
+  avg_cost DOUBLE,
   source TEXT,
   metadata JSON,
   PRIMARY KEY (portfolio_id, asset_id, as_of_date)
 );
 
+ALTER TABLE portfolio_holdings ADD COLUMN IF NOT EXISTS avg_cost DOUBLE;
+
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
   portfolio_id TEXT NOT NULL,
   as_of_date DATE NOT NULL,
   total_market_value DOUBLE,
+  total_cost_basis DOUBLE,
+  unrealized_pnl DOUBLE,
   cash_value DOUBLE,
   metadata JSON,
   PRIMARY KEY (portfolio_id, as_of_date)
 );
+
+ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS total_cost_basis DOUBLE;
+ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS unrealized_pnl DOUBLE;
 
 CREATE TABLE IF NOT EXISTS portfolio_exposures (
   portfolio_id TEXT NOT NULL,

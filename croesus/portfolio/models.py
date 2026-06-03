@@ -20,9 +20,10 @@ class Holding:
     asset_id: str
     as_of_date: date
     quantity: float
-    market_value: float
+    market_value: float | None
     currency: str
     cost_basis: float | None = None
+    avg_cost: float | None = None
     source: str | None = "manual_csv"
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -70,12 +71,27 @@ class PolicyDrift:
 
 
 @dataclass(frozen=True)
+class MarkToMarketResult:
+    holdings: list[Holding]
+    total_market_value: float
+    total_cost_basis: float | None
+    unrealized_pnl: float | None
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
 class PortfolioSnapshotResult:
     portfolio_id: str
     as_of_date: date
     total_market_value: float
+    total_cost_basis: float | None
+    unrealized_pnl: float | None
     holdings_imported: int
     holdings_skipped: int
     exposures: list[Exposure]
     policy_drifts: list[PolicyDrift]
     warnings: list[str]
+
+
+def is_cash(asset_id: str) -> bool:
+    return asset_id.startswith("CASH_")
