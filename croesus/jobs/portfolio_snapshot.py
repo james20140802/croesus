@@ -253,8 +253,8 @@ def _log_summary(result: PortfolioSnapshotResult, log: Callable[[str], None]) ->
     log(
         f"portfolio {result.portfolio_id} @ {result.as_of_date}: "
         f"total={result.total_market_value:.2f} "
-        f"cost={result.total_cost_basis:.2f} "
-        f"pnl={result.unrealized_pnl:.2f} "
+        f"cost={_format_optional_money(result.total_cost_basis)} "
+        f"pnl={_format_optional_money(result.unrealized_pnl)} "
         f"imported={result.holdings_imported} skipped={result.holdings_skipped}"
     )
     violations = [e for e in result.exposures if e.is_violation]
@@ -269,6 +269,10 @@ def _log_summary(result: PortfolioSnapshotResult, log: Callable[[str], None]) ->
             log(f"  {d.sleeve_name} {d.current_weight:.2%} (target {d.target_weight:.2%})")
     for warning in result.warnings:
         log(f"warning: {warning}")
+
+
+def _format_optional_money(value: float | None) -> str:
+    return "unknown" if value is None else f"{value:.2f}"
 
 
 def _build_parser() -> argparse.ArgumentParser:

@@ -96,12 +96,21 @@ def mark_to_market(
         )
 
     total_market_value = sum(h.market_value or 0.0 for h in marked)
-    total_cost_basis = sum(h.cost_basis or 0.0 for h in marked)
+    total_cost_basis = (
+        None
+        if any(h.cost_basis is None for h in marked)
+        else sum(h.cost_basis or 0.0 for h in marked)
+    )
+    unrealized_pnl = (
+        None
+        if total_cost_basis is None
+        else total_market_value - total_cost_basis
+    )
     return MarkToMarketResult(
         holdings=marked,
         total_market_value=total_market_value,
         total_cost_basis=total_cost_basis,
-        unrealized_pnl=total_market_value - total_cost_basis,
+        unrealized_pnl=unrealized_pnl,
         warnings=warnings,
     )
 

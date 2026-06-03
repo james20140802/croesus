@@ -74,8 +74,8 @@ class PolicyDrift:
 class MarkToMarketResult:
     holdings: list[Holding]
     total_market_value: float
-    total_cost_basis: float
-    unrealized_pnl: float
+    total_cost_basis: float | None
+    unrealized_pnl: float | None
     warnings: list[str]
 
 
@@ -84,8 +84,8 @@ class PortfolioSnapshotResult:
     portfolio_id: str
     as_of_date: date
     total_market_value: float
-    total_cost_basis: float
-    unrealized_pnl: float
+    total_cost_basis: float | None
+    unrealized_pnl: float | None
     holdings_imported: int
     holdings_skipped: int
     exposures: list[Exposure]

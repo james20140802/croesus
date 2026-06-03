@@ -533,6 +533,38 @@ def test_run_portfolio_snapshot_marks_to_market_and_persists_pnl(
     assert by_asset["CASH_KRW"].cost_basis == 100.0
 
 
+def test_run_portfolio_snapshot_persists_unknown_pnl_when_cost_basis_is_unknown(
+    tmp_path: Path,
+) -> None:
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.profiles.seed_default_profile import seed_default_profile
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,asset_id,quantity,market_value,currency\n"
+        "default,US_EQ_AAPL,,1800,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)
+        _seed_snapshot_assets(conn)
+
+        result = run_portfolio_snapshot(
+            conn, csv_path, portfolio_id="default", as_of_date=AS_OF, log=lambda m: None
+        )
+        snap = PortfolioRepository(conn).get_snapshot("default", AS_OF)
+
+    assert result.total_market_value == 1800.0
+    assert result.total_cost_basis is None
+    assert result.unrealized_pnl is None
+    assert snap is not None
+    assert snap["total_market_value"] == 1800.0
+    assert snap["total_cost_basis"] is None
+    assert snap["unrealized_pnl"] is None
+
+
 def test_run_portfolio_snapshot_survives_unknown_asset(tmp_path: Path) -> None:
     from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
     from croesus.profiles.seed_default_profile import seed_default_profile

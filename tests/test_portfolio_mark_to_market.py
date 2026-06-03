@@ -107,7 +107,32 @@ def test_mark_to_market_keeps_legacy_manual_value_when_quantity_is_missing() -> 
 
     holding = result.holdings[0]
     assert holding.market_value == 1800.0
+    assert holding.cost_basis is None
     assert holding.metadata["price_source"] == "manual"
+    assert result.total_market_value == 1800.0
+    assert result.total_cost_basis is None
+    assert result.unrealized_pnl is None
+
+
+def test_mark_to_market_keeps_portfolio_pnl_unknown_when_any_cost_basis_is_unknown() -> None:
+    result = mark_to_market(
+        [
+            _holding("US_EQ_AAPL", quantity=10, currency="USD", avg_cost=150.0),
+            _holding("US_EQ_MSFT", market_value=1800.0, currency="USD"),
+        ],
+        price_lookup=lambda asset_id: {"US_EQ_AAPL": 190.0}.get(asset_id),
+        fx_rates={"USD": 1.0},
+        assets_by_id={
+            "US_EQ_AAPL": AssetAttrs(currency="USD"),
+            "US_EQ_MSFT": AssetAttrs(currency="USD"),
+        },
+        base_currency="USD",
+        as_of_date=AS_OF,
+    )
+
+    assert result.total_market_value == 3700.0
+    assert result.total_cost_basis is None
+    assert result.unrealized_pnl is None
 
 
 def test_mark_to_market_falls_back_to_cost_basis_when_price_and_manual_value_missing() -> None:
