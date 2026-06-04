@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
 import duckdb
 
-from croesus.portfolio.models import Holding, is_cash
+from croesus.assets.metadata_provider import AssetMetadataProvider
+from croesus.assets.resolver import AssetResolver
+from croesus.data_sources.base import DailyPriceSource
+from croesus.portfolio.models import Holding, ResolverStatus, is_cash
 
 CASH_ASSET_ID = "CASH_USD"
 _DEFAULT_PORTFOLIO_ID = "default"
@@ -21,6 +24,7 @@ class HoldingsImport:
     holdings: list[Holding]
     warnings: list[str]
     skipped: int
+    resolver_statuses: list[ResolverStatus] = field(default_factory=list)
 
 
 def load_holdings_csv(
@@ -30,6 +34,8 @@ def load_holdings_csv(
     *,
     portfolio_id: str = _DEFAULT_PORTFOLIO_ID,
     base_currency: str | None = None,
+    metadata_provider: AssetMetadataProvider | None = None,
+    price_source: DailyPriceSource | None = None,
 ) -> HoldingsImport:
     """Parse a manual holdings CSV into validated :class:`Holding` rows.
 
@@ -49,17 +55,66 @@ def load_holdings_csv(
     snapshot run survives partial input.
     """
     known_asset_ids = _known_asset_ids(conn)
+    resolver = AssetResolver(conn, metadata_provider, price_source)
     if base_currency is None:
         base_currency = _resolve_base_currency(conn)
 
     holdings: list[Holding] = []
     warnings: list[str] = []
+    resolver_statuses: list[ResolverStatus] = []
     skipped = 0
 
     with open(path, newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         for line_no, row in enumerate(reader, start=2):  # line 1 is the header
             asset_id = _clean(row.get("asset_id"))
+            symbol = _clean(row.get("symbol")).upper()
+            if asset_id and symbol:
+                expected_symbol = _symbol_for_asset_id(conn, asset_id)
+                if expected_symbol is not None and expected_symbol.upper() != symbol:
+                    message = (
+                        f"symbol {symbol} does not match asset {asset_id} "
+                        f"symbol {expected_symbol}"
+                    )
+                    warnings.append(f"row {line_no}: {message}")
+                    resolver_statuses.append(
+                        ResolverStatus(
+                            row_number=line_no,
+                            status="skipped",
+                            symbol=symbol,
+                            asset_id=asset_id,
+                            message=message,
+                        )
+                    )
+            elif symbol:
+                resolution = resolver.resolve_symbol(symbol)
+                asset_id = resolution.asset_id or ""
+                if asset_id:
+                    resolver_statuses.append(
+                        ResolverStatus(
+                            row_number=line_no,
+                            status=resolution.status,
+                            symbol=symbol,
+                            asset_id=asset_id,
+                            message=resolution.message,
+                        )
+                    )
+                    known_asset_ids.add(asset_id)
+                    if resolution.message and "failed" in resolution.message.lower():
+                        warnings.append(f"row {line_no}: {resolution.message}")
+                else:
+                    message = resolution.message or "symbol unresolved"
+                    warnings.append(f"row {line_no}: unresolved symbol {symbol}, skipped")
+                    resolver_statuses.append(
+                        ResolverStatus(
+                            row_number=line_no,
+                            status="unresolved",
+                            symbol=symbol,
+                            message=message,
+                        )
+                    )
+                    skipped += 1
+                    continue
             if not asset_id:
                 warnings.append(f"row {line_no}: missing asset_id, skipped")
                 skipped += 1
@@ -121,11 +176,24 @@ def load_holdings_csv(
                 )
             )
 
-    return HoldingsImport(holdings=holdings, warnings=warnings, skipped=skipped)
+    return HoldingsImport(
+        holdings=holdings,
+        warnings=warnings,
+        skipped=skipped,
+        resolver_statuses=resolver_statuses,
+    )
 
 
 def _known_asset_ids(conn: duckdb.DuckDBPyConnection) -> set[str]:
     return {row[0] for row in conn.execute("SELECT asset_id FROM assets").fetchall()}
+
+
+def _symbol_for_asset_id(conn: duckdb.DuckDBPyConnection, asset_id: str) -> str | None:
+    row = conn.execute(
+        "SELECT symbol FROM assets WHERE asset_id = ? AND is_active = TRUE",
+        [asset_id],
+    ).fetchone()
+    return row[0] if row else None
 
 
 def _resolve_base_currency(conn: duckdb.DuckDBPyConnection) -> str:

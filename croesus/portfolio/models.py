@@ -80,6 +80,17 @@ class MarkToMarketResult:
 
 
 @dataclass(frozen=True)
+class ResolverStatus:
+    """Row-level asset resolution status for app-ready import feedback."""
+
+    row_number: int
+    status: str
+    symbol: str | None = None
+    asset_id: str | None = None
+    message: str | None = None
+
+
+@dataclass(frozen=True)
 class PortfolioSnapshotResult:
     portfolio_id: str
     as_of_date: date
@@ -91,6 +102,7 @@ class PortfolioSnapshotResult:
     exposures: list[Exposure]
     policy_drifts: list[PolicyDrift]
     warnings: list[str]
+    resolver_statuses: list[ResolverStatus] = field(default_factory=list)
 
 
 def is_cash(asset_id: str) -> bool:

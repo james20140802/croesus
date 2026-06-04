@@ -9,6 +9,10 @@ from typing import Callable, Sequence
 
 import duckdb
 
+from croesus.assets.metadata_provider import AssetMetadataProvider
+from croesus.data_sources.base import DailyPriceSource
+from croesus.data_sources.yfinance_metadata import YFinanceAssetMetadataProvider
+from croesus.data_sources.yfinance_source import YFinanceDailyPriceSource
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.fx.repository import FxRepository
@@ -31,6 +35,8 @@ def run_portfolio_snapshot(
     *,
     portfolio_id: str = _DEFAULT_PORTFOLIO_ID,
     as_of_date: date | None = None,
+    metadata_provider: AssetMetadataProvider | None = None,
+    price_source: DailyPriceSource | None = None,
     log: Callable[[str], None] = print,
 ) -> PortfolioSnapshotResult:
     """Import holdings, compute exposure and drift, persist the snapshot.
@@ -60,6 +66,14 @@ def run_portfolio_snapshot(
         as_of,
         portfolio_id=portfolio_id,
         base_currency=base_currency,
+        metadata_provider=(
+            metadata_provider
+            if metadata_provider is not None
+            else YFinanceAssetMetadataProvider()
+        ),
+        price_source=(
+            price_source if price_source is not None else YFinanceDailyPriceSource()
+        ),
     )
     warnings = list(imported.warnings)
     raw_holdings = imported.holdings
@@ -130,6 +144,7 @@ def run_portfolio_snapshot(
         exposures=exposures,
         policy_drifts=drift_result.drifts,
         warnings=warnings,
+        resolver_statuses=imported.resolver_statuses,
     )
     _log_summary(result, log)
     return result
@@ -267,6 +282,15 @@ def _log_summary(result: PortfolioSnapshotResult, log: Callable[[str], None]) ->
         log(f"policy sleeves outside band ({len(outside)}):")
         for d in outside:
             log(f"  {d.sleeve_name} {d.current_weight:.2%} (target {d.target_weight:.2%})")
+    if result.resolver_statuses:
+        log("asset resolver:")
+        for status in result.resolver_statuses:
+            if status.asset_id:
+                suffix = f" ({status.message})" if status.message else ""
+                log(f"  {status.status}: {status.symbol} -> {status.asset_id}{suffix}")
+            elif status.symbol:
+                suffix = f" ({status.message})" if status.message else ""
+                log(f"  {status.status}: {status.symbol}{suffix}")
     for warning in result.warnings:
         log(f"warning: {warning}")
 
