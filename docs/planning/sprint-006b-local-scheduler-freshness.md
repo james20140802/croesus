@@ -18,6 +18,9 @@ first complete Level 1 output. It should be completed before investing heavily
 in a local web UI so the dashboard can show reliable status instead of wrapping
 manual CLI steps.
 
+This sprint is a local app readiness sprint. It should make data freshness a
+queryable product state, not just text printed after running commands.
+
 ## Scope
 
 ### 1. Run Status Schema
@@ -75,6 +78,17 @@ Define deterministic freshness rules:
 | rebalance_report | after snapshot, screening, or MacroState change |
 
 The app should be able to answer: "Can I trust today's report?"
+
+Freshness state should be structured enough for dashboard cards:
+
+```text
+domain
+status
+latest_data_date
+latest_success_at
+reason
+blocking_next_actions
+```
 
 ### 3. Orchestrator
 
@@ -138,6 +152,8 @@ tests/test_data_freshness.py
 - Freshness state is queryable for a future local API/web dashboard.
 - Failures are isolated and surfaced clearly.
 - The scheduler never executes trades or broker operations.
+- CLI output, local API responses, and a future dashboard all read the same
+  `job_runs` and `data_freshness` state.
 
 ## Out of Scope
 

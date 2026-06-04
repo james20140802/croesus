@@ -14,6 +14,9 @@ factor_values
 
 Sprint 005 produces candidates and exposure intelligence. It does not create rebalance actions or trades.
 
+The output should distinguish between an asset that is quantitatively
+attractive and an asset that is currently addable to the user's portfolio.
+
 ## Scope
 
 ### 1. Screening Module
@@ -39,6 +42,8 @@ Responsibilities:
 - Apply basic eligibility filters.
 - Store ranked candidates in `screening_results`.
 - Aggregate sector and theme scores for portfolio-aware reporting.
+- Store portfolio-fit metadata when current exposure data exists, including
+  whether a candidate would worsen an existing profile violation.
 
 ### 2. Schema
 
@@ -160,6 +165,7 @@ Use deterministic buckets:
 |---|---|
 | `candidate` | rank <= `candidate_count` |
 | `watch` | rank > `candidate_count` and score is not null |
+| `blocked_by_portfolio_fit` | attractive score but current portfolio constraints block new buys |
 | `skipped` | insufficient factors or failed eligibility |
 
 `screening_results.reason` should be human-readable but deterministic.
@@ -170,6 +176,7 @@ Examples:
 ranked by macro-adjusted factor score
 skipped: missing momentum factors
 skipped: liquidity below macro-adjusted minimum
+blocked: Technology exposure already exceeds profile max
 ```
 
 ## Sector and Theme Analysis
@@ -193,6 +200,10 @@ is_overexposed
 
 Overexposed sectors/themes should not disappear from the report. They should be flagged so Sprint 006 can block or trim actions.
 
+When an asset has a high score but belongs to an overexposed sector, industry,
+theme, country, or currency, screening should preserve it as a watch/blocked
+candidate instead of presenting it as an addable candidate.
+
 ## Data Models
 
 ### `ScreeningCandidate`
@@ -209,6 +220,16 @@ class ScreeningCandidate:
     reason_codes: list[str] = field(default_factory=list)
     factor_scores: dict[str, float | None] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+Candidate metadata should be app-ready and may include:
+
+```python
+{
+    "portfolio_fit": "addable" | "watch" | "blocked",
+    "blocking_exposures": ["sector:Technology"],
+    "would_worsen_violation": True,
+}
 ```
 
 ### `ScreeningRunResult`
@@ -259,6 +280,8 @@ Required tests:
 9. Sector scores aggregate asset scores.
 10. Theme scores read `assets.metadata.theme_tags`.
 11. Overexposed sector is flagged when Sprint 004 exposure rows exist.
+12. High-scoring candidates in overexposed areas are persisted as blocked/watch
+    candidates, not addable candidates.
 
 ## Suggested Task Breakdown
 
