@@ -33,6 +33,7 @@ Level 1 does not execute trades.
 | 006 | Rebalancing proposal engine | Level 1 MVP: deterministic portfolio action report |
 | 006b | Local scheduler and data freshness | Local sync, stale-data status, and run history |
 | 006c | Transaction ledger | Manual execution feedback and holdings derived from transactions |
+| 006d | Performance and goal tracking | Goal progress, contribution-adjusted returns, and attribution |
 | 007 | Valuation layer | Fundamentals, valuation factors, DCF snapshots |
 | 008 | Research Agent | LLM qualitative research for shortlisted candidates |
 | 009 | Approval-based execution | Prepare orders after explicit user approval |
@@ -40,10 +41,10 @@ Level 1 does not execute trades.
 
 Valuation work remains important, but portfolio-profile infrastructure should come first so valuation outputs have a portfolio decision context.
 
-The `b` and `c` sprints are additive local-OS automation sprints. They should
-not rewrite completed baseline sprints. Instead, they remove manual work that
-would make the product feel like a database or CLI wrapper instead of a local
-portfolio operating system.
+The lettered sprints are additive local-OS and user-experience readiness
+sprints. They should not rewrite completed baseline sprints. Instead, they
+remove manual work and missing feedback loops that would make the product feel
+like a database or CLI wrapper instead of a local portfolio operating system.
 
 Sprint 003b is a retrofit over Sprint 003: it adds guided setup and policy
 templates without invalidating profiles already stored by `profile_init`.
@@ -63,6 +64,16 @@ Sprint 006b and 006c are not prerequisites for the first deterministic proposal,
 but they are prerequisites for a credible local web/app experience. A dashboard
 should not merely expose manual CLI commands; it should know whether data is
 fresh and how approved/manual actions affected the portfolio.
+
+Sprint 006d is a user-facing goal-tracking layer on top of completed portfolio,
+snapshot, transaction, and proposal work. It should not promise return
+achievement. It should explain whether the current portfolio is progressing
+toward the target return within the user's risk constraints.
+
+Croesus is CLI-first but app-ready. CLI jobs are the first interface, not the
+final product boundary. New workflows should expose callable use-case functions
+and structured result models so a local web UI, desktop app, local API, or
+scheduler can reuse the same portfolio logic.
 
 ## Sprint 001: Data Foundation
 
@@ -200,6 +211,10 @@ Profile Inputs
 ### Scope
 
 - Add explicit policy templates.
+- Expose user-facing aliases:
+  - `default` -> `balanced_long_term`;
+  - `aggressive` -> `growth_long_term`;
+  - `defensive` -> `capital_preservation`.
 - Recommend a template from profile constraints.
 - Extend `profile_init` with guided setup while preserving current modes.
 - Improve policy target validation messages.
@@ -208,6 +223,8 @@ Profile Inputs
 ### Acceptance Criteria
 
 - A valid profile and policy can be created without hand-writing target weights.
+- A user can choose `default`, `aggressive`, or `defensive` without knowing
+  internal template IDs.
 - Existing `profile_init` flows continue to work.
 - Existing snapshots remain valid; future snapshots use updated policy targets.
 - No screening, rebalancing, or execution logic is introduced.
@@ -303,6 +320,9 @@ Holdings CSV (symbol / asset_id)
   and industry where available.
 - Bootstrap price history for newly resolved assets.
 - Keep cash rows such as `CASH_USD` and `CASH_KRW` registry-light.
+- Keep the import path app-ready: CSV remains supported for bulk import and
+  reconciliation, while the resolver and validation logic should be callable
+  from a future holdings-entry form.
 
 ### Acceptance Criteria
 
@@ -310,6 +330,9 @@ Holdings CSV (symbol / asset_id)
 - Unknown but resolvable symbols create asset registry rows automatically.
 - Resolver failures are clear warnings, not full-run crashes.
 - Screening continues to read from `assets`, not ad hoc ticker lists.
+- The resolver returns structured row-level status (`resolved`, `created`,
+  `unresolved`, `skipped`) so a future UI can show import feedback without
+  parsing CLI text.
 
 ## Sprint 005: Screening and Sector/Theme Analysis
 
@@ -333,6 +356,8 @@ Factor Values
 - Add initial sector and theme tag support in `assets.metadata`.
 - Compute sector/theme scores from asset-level factors.
 - Block or de-prioritize candidates that would worsen profile constraint violations.
+- Separate "attractive asset" from "currently addable to this portfolio" in
+  structured candidate metadata.
 
 ### Acceptance Criteria
 
@@ -340,6 +365,8 @@ Factor Values
 - Screening results are stored with `run_id`, `score`, `rank`, and `reason`.
 - MacroState adjusts weights and candidate count but does not bypass profile constraints.
 - Overexposed sectors/themes are flagged before new buys are proposed.
+- Candidates that worsen current profile or exposure violations are persisted as
+  `watch` or blocked candidates, not as addable candidates.
 
 ## Sprint 006: Rebalancing Proposal Engine
 
@@ -380,6 +407,8 @@ Profile + Policy + Holdings + MacroState + Screening
   - `NO_ACTION_WITHIN_POLICY`
 - Add `rebalance_check` job.
 - Generate Markdown and CSV portfolio action reports.
+- Persist structured actions before report rendering so CLI, reports, and a
+  future local UI consume the same proposal state.
 
 ### Acceptance Criteria
 
@@ -389,6 +418,10 @@ Profile + Policy + Holdings + MacroState + Screening
 - If MacroState is `Cautious` or `Defensive`, new satellite adds are restricted.
 - Proposed actions respect max turnover.
 - No order is submitted.
+- The report distinguishes attractive candidates from candidates that are
+  blocked by portfolio fit, concentration, macro posture, or valuation.
+- `run_rebalance_check(...)` returns a structured result that can drive CLI
+  output, Markdown/CSV reports, and a future review screen.
 
 ## Sprint 006b: Local Scheduler and Data Freshness
 
@@ -449,6 +482,46 @@ Proposed Action
 - Holdings can be derived from transaction history.
 - Snapshot CSV import remains available.
 - No broker API call or real order placement is introduced.
+
+## Sprint 006d: Performance and Goal Tracking
+
+### Goal
+
+Track whether the portfolio is progressing toward the user's target return
+without pretending that future returns can be guaranteed.
+
+```text
+Snapshots + Transactions + Prices
+  -> Contribution-Adjusted Returns
+  -> Goal Progress
+  -> Attribution
+  -> User-Facing Progress Report
+```
+
+### Scope
+
+- Add performance snapshots or views.
+- Compute trailing returns from portfolio snapshots.
+- Separate investment return from deposits and withdrawals.
+- Compare realized progress against `expected_annual_return`.
+- Track drawdown and risk-budget status against the investor profile.
+- Attribute changes to:
+  - market movement;
+  - deposits/withdrawals;
+  - realized transactions;
+  - cash drag;
+  - concentration or sleeve drift where possible.
+- Produce structured status for a future dashboard.
+
+### Acceptance Criteria
+
+- Croesus can answer whether the portfolio is ahead of, near, or behind the
+  target return path.
+- Contribution-adjusted return is not confused with new deposits.
+- Risk status is shown next to return progress.
+- The output explicitly says that target return achievement is not guaranteed.
+- Goal progress can inform reports, but it does not bypass profile constraints
+  or create trades by itself.
 
 ## Sprint 007: Valuation Layer
 
@@ -561,10 +634,10 @@ MVP Level 1 is complete when Sprints 001 through 006 are implemented, with
 Sprint 004b included before relying on rebalance proposals for real portfolio
 decisions.
 
-For a credible local portfolio OS, Sprint 003b, 004c, 006b, and 006c should be
-planned before the web/app layer. They are not all required to prove the first
-proposal engine, but they remove the manual work that would otherwise make the
-product feel like a CLI wrapper.
+For a credible local portfolio OS, Sprint 003b, 004c, 006b, 006c, and 006d
+should be planned before the web/app layer. They are not all required to prove
+the first proposal engine, but they remove the manual work and missing progress
+feedback that would otherwise make the product feel like a CLI wrapper.
 
 The system should be able to:
 
@@ -574,7 +647,8 @@ The system should be able to:
 4. Compute market, factor, macro, and exposure inputs.
 5. Determine whether rebalancing is needed.
 6. Produce a clear portfolio action report.
-7. Submit no trades.
+7. Track goal progress without promising future returns.
+8. Submit no trades.
 
 ## Relationship to Existing Planning Docs
 
@@ -589,4 +663,6 @@ The system should be able to:
   stale-data status needed before a credible local dashboard.
 - `docs/planning/sprint-006c-transaction-ledger.md` defines the transaction
   history needed before approval/execution flows can close the loop.
+- `docs/planning/sprint-006d-performance-goal-tracking.md` defines return
+  progress and attribution tracking for goal-oriented user reports.
 - `docs/planning/sprint-007-valuation-analysis.md` contains the valuation implementation plan and is sequenced after profile and portfolio foundations for product coherence.

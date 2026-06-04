@@ -18,6 +18,10 @@ This sprint follows Sprint 004b because mark-to-market needs reliable asset
 currency and price lookup. It should be completed before Sprint 005 expands
 screening beyond the seed assets.
 
+Sprint 004b remains the completed mark-to-market baseline. This sprint should
+not change the mark-to-market semantics. It improves how holdings become valid
+snapshot input.
+
 ## Why This Exists
 
 The `assets` table is a system registry, not a user-facing data-entry burden.
@@ -46,6 +50,8 @@ Rules:
 - If both are provided, `asset_id` wins and `symbol` is used as a consistency
   check.
 - Cash rows use `CASH_<CUR>` and bypass external lookup.
+- The parsing and resolver path must be callable independently of the CLI so a
+  future holdings-entry form can use the same validation and resolution logic.
 
 ### 2. Asset Resolver
 
@@ -95,6 +101,17 @@ asset resolver:
 
 Persist detailed resolver metadata where useful, but keep user output concise.
 
+The structured resolver result should include row-level status:
+
+```text
+resolved
+created
+unresolved
+skipped
+```
+
+A future UI should be able to show the same result without parsing CLI text.
+
 ## Suggested Files
 
 ```text
@@ -128,6 +145,7 @@ tests/test_portfolio_snapshot.py
 - Resolver failures are shown as warnings and do not crash the entire snapshot.
 - Screening still reads only from `assets`; it does not accept ad hoc ticker
   lists.
+- The resolver returns structured status for each input row.
 
 ## Out of Scope
 

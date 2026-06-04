@@ -17,6 +17,11 @@ This sprint should follow the Level 1 proposal engine and freshness layer, and
 it should come before approval-based execution. It does not require broker API
 integration.
 
+This sprint is also a prerequisite for a credible local web/app experience:
+users should be able to record buys, sells, deposits, withdrawals, dividends,
+and fees as ordinary portfolio events instead of replacing an entire holdings
+CSV every time the portfolio changes.
+
 ## Why This Exists
 
 Sprint 004 and 004b use holdings snapshots as the source of truth. That is
@@ -71,6 +76,9 @@ fee
 manual_adjustment
 ```
 
+These transaction types should be stable product values because a future local
+UI will use them in forms, filters, and history views.
+
 ### 2. Manual Execution Feedback
 
 Add a way to mark a proposed action as manually executed:
@@ -86,6 +94,14 @@ Behavior:
 3. Record one or more transactions.
 4. Link transactions back to the proposed action.
 5. Leave broker execution out of scope.
+
+Also expose a lower-level transaction recording use case that does not require a
+linked proposed action:
+
+```python
+def record_transaction(conn, transaction: PortfolioTransaction) -> TransactionResult:
+    ...
+```
 
 ### 3. Holdings Derivation
 
@@ -139,6 +155,9 @@ tests/test_record_execution.py
 - Snapshot CSV import remains available for bootstrap and reconciliation.
 - Realized and unrealized P&L semantics are documented and deterministic.
 - No broker API calls are made.
+- Transaction recording returns structured results suitable for a future form
+  submission flow.
+- The ledger can power a portfolio history view without parsing CLI output.
 
 ## Out of Scope
 

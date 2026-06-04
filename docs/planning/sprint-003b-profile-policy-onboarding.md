@@ -42,6 +42,14 @@ Example templates:
 | `balanced_long_term` | Moderate return and drawdown expectations |
 | `capital_preservation` | Lower drawdown tolerance, higher cash/defensive sleeve |
 
+Expose user-facing aliases for these templates:
+
+| User-facing alias | Template |
+|---|---|
+| `aggressive` | `growth_long_term` |
+| `default` | `balanced_long_term` |
+| `defensive` | `capital_preservation` |
+
 The template should output editable `PolicyTarget` rows, not opaque optimizer
 results.
 
@@ -61,6 +69,8 @@ Behavior:
 4. Print the proposed sleeve allocation and ranges.
 5. Save only after explicit confirmation in interactive mode, or via a
    deterministic non-interactive flag in tests.
+6. Return a structured recommendation summary so a future local UI can render
+   the same review step without parsing CLI text.
 
 The existing `--interactive`, `--init-config`, and `--config` modes must keep
 working.
@@ -135,6 +145,8 @@ tests/test_profile_init_job.py
 
 - A user can create a valid profile and policy without hand-writing target
   sleeve percentages.
+- A user can select `default`, `aggressive`, or `defensive` without knowing
+  internal template IDs.
 - The generated policy targets are explicit rows in `policy_targets`.
 - Existing `profile_init` modes keep working.
 - Running this after Sprint 004 does not invalidate existing snapshots.

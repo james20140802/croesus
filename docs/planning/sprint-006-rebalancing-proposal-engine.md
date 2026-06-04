@@ -17,6 +17,9 @@ Investor Profile
 
 This sprint produces recommendations only. It must not create broker orders or execute trades.
 
+The structured proposal state is the product contract. Markdown and CSV reports
+are views of that state, not the only output.
+
 ## Scope
 
 ### 1. Schema
@@ -93,6 +96,7 @@ Responsibilities:
 - Render Markdown portfolio action report.
 - Render CSV proposed action export.
 - Keep report text deterministic and traceable to reason codes.
+- Render only from persisted `rebalance_runs` and `proposed_actions` data.
 
 ### 4. Job Entrypoint
 
@@ -132,6 +136,9 @@ def run_rebalance_check(
 ) -> RebalanceRunResult:
     """Generate proposed actions, write portfolio action reports, and return the rebalance run result."""
 ```
+
+`run_rebalance_check(...)` should be safe for a future local API or UI to call.
+It should not rely on terminal prompts or parse CLI output from earlier jobs.
 
 ## Action Types
 
@@ -278,6 +285,7 @@ Use screening results only after rules 1 through 6.
 Candidate add conditions:
 
 - candidate bucket is `candidate`;
+- candidate is not marked `blocked_by_portfolio_fit`;
 - asset is not in overexposed sector/theme;
 - policy sleeve is underweight or within allowed add range;
 - turnover limit remains available;
@@ -292,6 +300,10 @@ If candidate requires qualitative review before action, create `watch`, not `add
 Reason code:
 
 - `QUALITATIVE_RESEARCH_REQUIRED`
+
+If candidate is quantitatively attractive but blocked by concentration, sleeve,
+currency, macro posture, or valuation constraints, preserve it as `watch` or
+`block_new_buy`; do not convert it into `add`.
 
 ### Rule 8: Turnover Limit
 
@@ -414,6 +426,15 @@ Markdown structure:
 
 Reports should not use LLM output in Sprint 006.
 
+The same summary sections should be derivable for a future review screen:
+
+- current issues;
+- proposed actions;
+- blocked actions;
+- watchlist candidates;
+- data used;
+- approval requirement.
+
 ## Tests
 
 Create:
@@ -434,11 +455,13 @@ Required tests:
 7. Cautious MacroState blocks new satellite adds.
 8. Defensive MacroState prioritizes concentration reduction.
 9. Candidate add is created only when profile, policy, macro, and exposure rules allow it.
-10. Turnover limit drops or reduces lower-priority actions.
-11. No violations creates `hold` with `NO_ACTION_WITHIN_POLICY`.
-12. Proposed actions are persisted in `proposed_actions`.
-13. Markdown and CSV reports are generated.
-14. `run_rebalance_check()` does not submit or prepare broker orders.
+10. A high-scoring candidate blocked by portfolio fit becomes `watch` or
+    `block_new_buy`, not `add`.
+11. Turnover limit drops or reduces lower-priority actions.
+12. No violations creates `hold` with `NO_ACTION_WITHIN_POLICY`.
+13. Proposed actions are persisted in `proposed_actions`.
+14. Markdown and CSV reports are generated.
+15. `run_rebalance_check()` does not submit or prepare broker orders.
 
 ## Suggested Task Breakdown
 

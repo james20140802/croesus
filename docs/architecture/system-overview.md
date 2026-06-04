@@ -4,6 +4,12 @@
 
 Croesus is a Python-first personal portfolio management system. Its initial purpose is to build a reliable investor-profile, portfolio, data, and factor pipeline before introducing UI, autonomous agents, or trade execution.
 
+The first interface is the CLI, but the CLI is not the final product boundary.
+Croesus should be **CLI-first, app-ready**: business logic lives in reusable
+use-case functions and domain modules so a future local web UI, desktop app,
+local API, or scheduler can call the same workflows without rewriting the
+portfolio engine. See ADR 0009.
+
 The system should not start from "which stock should I buy?" It should start from:
 
 > Given this investor profile and current portfolio, what action should be proposed now, if any?
@@ -37,6 +43,27 @@ Asset Universe                                                 ▼
 ```
 
 ## Components
+
+### App-Ready Runtime Boundary
+
+CLI jobs should parse arguments, call a use-case function, print a concise
+summary, and map expected errors to stable exit codes. They should not own the
+investment logic.
+
+Expected reusable use-case functions include:
+
+```text
+run_profile_init(...)
+run_portfolio_snapshot(...)
+run_screening_job(...)
+run_rebalance_check(...)
+run_local_sync(...)
+record_transaction(...)
+```
+
+Each use case should return structured results that a CLI, local API, scheduler,
+or future UI can consume. Markdown and CSV reports are generated from these
+structured results; they are not the source of truth.
 
 ### 0. Investor Profile
 
@@ -246,6 +273,10 @@ Later report formats:
 - Email digest.
 - Notion/Google Docs export.
 
+The web dashboard should read persisted state such as snapshots, exposures,
+drifts, candidates, proposed actions, transaction history, and freshness status.
+It should not scrape CLI text output.
+
 ## Initial Runtime Flow
 
 ```text
@@ -278,13 +309,16 @@ Expected initial behavior:
 
 ## Design Constraints
 
-- Do not start with a web app.
+- Do not start with a web app before the portfolio engine is credible, but keep
+  all new workflows app-ready.
 - Do not start with autonomous trading.
 - Do not deeply research every asset with LLMs.
 - Do not mix source ingestion, factor computation, and reporting in one module.
 - Do not hard-code asset assumptions into factor logic.
 - Do not let a screening result become a trade proposal until it passes profile and portfolio constraints.
 - Do not let MacroState override investor-profile constraints.
+- Do not hide product state only inside Markdown reports or CLI output; persist
+  structured state first.
 
 ## Recommended Initial Repository Shape
 
