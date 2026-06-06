@@ -173,3 +173,31 @@ CREATE TABLE IF NOT EXISTS policy_drifts (
   is_outside_band BOOLEAN,
   PRIMARY KEY (portfolio_id, as_of_date, sleeve_name)
 );
+
+CREATE TABLE IF NOT EXISTS rebalance_runs (
+  run_id TEXT PRIMARY KEY,
+  portfolio_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  date DATE NOT NULL,
+  macro_regime TEXT,
+  macro_positioning TEXT,
+  decision TEXT,
+  summary TEXT,
+  metadata JSON
+);
+
+CREATE TABLE IF NOT EXISTS proposed_actions (
+  action_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  asset_id TEXT,
+  sleeve_name TEXT,
+  action_type TEXT NOT NULL,
+  current_weight DOUBLE,
+  target_weight DOUBLE,
+  proposed_weight DOUBLE,
+  estimated_trade_value DOUBLE,
+  reason_codes JSON,
+  human_readable_reason TEXT,
+  requires_research BOOLEAN,
+  requires_user_approval BOOLEAN
+);
