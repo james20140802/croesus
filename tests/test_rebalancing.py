@@ -5,11 +5,13 @@ from pathlib import Path
 
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
+from croesus.jobs.rebalance_check import run_rebalance_check
 from croesus.portfolio.actions import ProposedAction, RebalanceRunResult
-from croesus.portfolio.models import AssetAttrs, Exposure, Holding, PolicyDrift
+from croesus.portfolio.models import AssetAttrs, Exposure, Holding, PolicyDrift, Portfolio
 from croesus.portfolio.rebalancing import generate_proposed_actions
 from croesus.portfolio.repository import PortfolioRepository
 from croesus.profiles.models import AssetType, Currency, InvestorProfile, TradeMode
+from croesus.profiles.repository import ProfileRepository
 from croesus.screening.models import ScreeningCandidate
 
 AS_OF = date(2026, 6, 1)
@@ -376,6 +378,61 @@ def test_no_violations_creates_hold() -> None:
     assert actions[0].reason_codes == ["NO_ACTION_WITHIN_POLICY"]
 
 
+def test_run_rebalance_check_persists_actions_and_returns_result(tmp_path: Path) -> None:
+    db_path = tmp_path / "rebalance.duckdb"
+    migrate(db_path)
+
+    with get_connection(db_path) as conn:
+        _seed_rebalance_state(conn)
+        result = run_rebalance_check(
+            conn,
+            portfolio_id="default",
+            profile_id="default",
+            as_of_date=AS_OF,
+            reports_dir=tmp_path,
+            log=lambda message: None,
+        )
+        latest = PortfolioRepository(conn).load_latest_rebalance_run("default")
+
+    assert result.decision == "rebalance_recommended"
+    assert [action.action_type for action in result.actions] == ["trim"]
+    assert result.markdown_report_path is not None
+    assert result.csv_report_path is not None
+    assert latest is not None
+    assert latest["run_id"] == result.run_id
+    assert latest["actions"] == result.actions
+
+
+def test_run_rebalance_check_does_not_submit_or_prepare_broker_orders(tmp_path: Path) -> None:
+    db_path = tmp_path / "rebalance.duckdb"
+    migrate(db_path)
+
+    with get_connection(db_path) as conn:
+        _seed_rebalance_state(conn)
+        result = run_rebalance_check(
+            conn,
+            portfolio_id="default",
+            profile_id="default",
+            as_of_date=AS_OF,
+            reports_dir=tmp_path,
+            log=lambda message: None,
+        )
+        tables = {
+            row[0]
+            for row in conn.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'main'
+                """
+            ).fetchall()
+        }
+
+    assert "broker_orders" not in tables
+    assert "orders" not in tables
+    assert all("order" not in action.action_type for action in result.actions)
+
+
 def _action(
     action_id: str,
     run_id: str,
@@ -514,3 +571,25 @@ def _one(actions: list[ProposedAction], action_type: str) -> ProposedAction:
     found = [action for action in actions if action.action_type == action_type]
     assert len(found) == 1
     return found[0]
+
+
+def _seed_rebalance_state(conn) -> None:
+    profile = _profile(max_single_position_weight=0.10, max_monthly_turnover=0.50)
+    ProfileRepository(conn).upsert_profile(profile)
+    repo = PortfolioRepository(conn)
+    repo.upsert_portfolio(
+        Portfolio(
+            portfolio_id="default",
+            profile_id="default",
+            name="Default",
+            base_currency="USD",
+        )
+    )
+    repo.save_snapshot("default", AS_OF, 100_000.0, cash_value=10_000.0)
+    repo.replace_holdings(
+        "default",
+        AS_OF,
+        [_holding("US_EQ_NVDA", 18_000.0), _holding("CASH_USD", 10_000.0)],
+    )
+    repo.replace_exposures("default", AS_OF, [_position("US_EQ_NVDA", 0.18, 0.10)])
+    repo.replace_drifts("default", AS_OF, [])
