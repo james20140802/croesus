@@ -5,6 +5,8 @@ import yfinance as yf
 
 
 class YFinanceDailyPriceSource:
+    source_name = "yfinance"
+
     def fetch_daily_prices(self, symbol: str, period: str = "1y") -> pd.DataFrame:
         raw = yf.download(
             symbol,

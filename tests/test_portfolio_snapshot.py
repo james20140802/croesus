@@ -281,6 +281,214 @@ def test_load_holdings_csv_defaults_portfolio_id(tmp_path: Path) -> None:
     assert result.holdings[0].portfolio_id == "default"
 
 
+def test_load_holdings_csv_resolves_existing_asset_by_symbol(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "symbol,quantity,market_value,currency\nAAPL,10,1900,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.skipped == 0
+    assert [h.asset_id for h in result.holdings] == ["US_EQ_AAPL"]
+    assert result.resolver_statuses[0].status == "resolved"
+    assert result.resolver_statuses[0].symbol == "AAPL"
+    assert result.resolver_statuses[0].asset_id == "US_EQ_AAPL"
+
+
+def test_load_holdings_csv_creates_resolvable_symbol_asset(tmp_path: Path) -> None:
+    class StaticMetadataProvider:
+        def get_asset(self, symbol: str) -> Asset | None:
+            if symbol == "VOO":
+                return Asset(
+                    asset_id="US_ETF_VOO",
+                    symbol="VOO",
+                    name="Vanguard S&P 500 ETF",
+                    asset_type="etf",
+                    country="US",
+                    exchange="NYSEARCA",
+                    currency="USD",
+                    sector="Diversified",
+                    industry="Index Fund",
+                    source="test_metadata",
+                    metadata={"theme_tags": ["broad_market"]},
+                )
+            return None
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "symbol,quantity,avg_cost,currency\nVOO,5,430,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        result = load_holdings_csv(
+            csv_path,
+            conn,
+            AS_OF,
+            metadata_provider=StaticMetadataProvider(),
+        )
+        assets = AssetRepository(conn).list_active(asset_type="etf", country="US")
+
+    assert result.skipped == 0
+    assert [h.asset_id for h in result.holdings] == ["US_ETF_VOO"]
+    assert result.resolver_statuses[0].status == "created"
+    assert result.resolver_statuses[0].symbol == "VOO"
+    assert [asset.asset_id for asset in assets] == ["US_ETF_VOO"]
+    assert assets[0].metadata["theme_tags"] == ["broad_market"]
+
+
+def test_load_holdings_csv_reports_unresolved_symbol_status(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "symbol,quantity,market_value,currency\nGHOST,1,500,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.holdings == []
+    assert result.skipped == 1
+    assert result.resolver_statuses[0].status == "unresolved"
+    assert result.resolver_statuses[0].symbol == "GHOST"
+    assert any("unresolved symbol GHOST" in warning for warning in result.warnings)
+
+
+def test_load_holdings_csv_warns_when_asset_id_symbol_mismatch(tmp_path: Path) -> None:
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "asset_id,symbol,quantity,market_value,currency\nUS_EQ_MSFT,AAPL,5,2100,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.skipped == 0
+    assert [h.asset_id for h in result.holdings] == ["US_EQ_MSFT"]
+    assert result.resolver_statuses[0].status == "skipped"
+    assert result.resolver_statuses[0].asset_id == "US_EQ_MSFT"
+    assert result.resolver_statuses[0].symbol == "AAPL"
+    assert any("symbol AAPL does not match asset US_EQ_MSFT symbol MSFT" in w for w in result.warnings)
+
+
+def test_load_holdings_csv_bootstraps_prices_for_created_symbol_asset(
+    tmp_path: Path,
+) -> None:
+    from croesus.prices.repository import PriceRepository
+
+    class StaticMetadataProvider:
+        def get_asset(self, symbol: str) -> Asset | None:
+            if symbol == "VOO":
+                return Asset(
+                    asset_id="US_ETF_VOO",
+                    symbol="VOO",
+                    name="Vanguard S&P 500 ETF",
+                    asset_type="etf",
+                    country="US",
+                    exchange="NYSEARCA",
+                    currency="USD",
+                    sector="Diversified",
+                    industry="Index Fund",
+                    source="test_metadata",
+                )
+            return None
+
+    class StaticPriceSource:
+        def fetch_daily_prices(self, symbol: str, period: str = "1y") -> pd.DataFrame:
+            assert symbol == "VOO"
+            return pd.DataFrame(
+                [
+                    {
+                        "date": AS_OF,
+                        "open": 430.0,
+                        "high": 432.0,
+                        "low": 429.0,
+                        "close": 431.0,
+                        "adjusted_close": 431.0,
+                        "volume": 1000,
+                    }
+                ]
+            )
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "symbol,quantity,avg_cost,currency\nVOO,5,430,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        result = load_holdings_csv(
+            csv_path,
+            conn,
+            AS_OF,
+            metadata_provider=StaticMetadataProvider(),
+            price_source=StaticPriceSource(),
+        )
+        latest_close = PriceRepository(conn).get_latest_close("US_ETF_VOO", AS_OF)
+
+    assert result.skipped == 0
+    assert result.resolver_statuses[0].status == "created"
+    assert latest_close == 431.0
+
+
+def test_load_holdings_csv_keeps_created_asset_when_price_bootstrap_fails(
+    tmp_path: Path,
+) -> None:
+    class StaticMetadataProvider:
+        def get_asset(self, symbol: str) -> Asset | None:
+            return Asset(
+                asset_id="US_ETF_VOO",
+                symbol=symbol,
+                name="Vanguard S&P 500 ETF",
+                asset_type="etf",
+                country="US",
+                exchange="NYSEARCA",
+                currency="USD",
+                sector="Diversified",
+                industry="Index Fund",
+                source="test_metadata",
+            )
+
+    class FailingPriceSource:
+        def fetch_daily_prices(self, symbol: str, period: str = "1y") -> pd.DataFrame:
+            raise RuntimeError("temporary price outage")
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "symbol,quantity,avg_cost,currency\nVOO,5,430,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        result = load_holdings_csv(
+            csv_path,
+            conn,
+            AS_OF,
+            metadata_provider=StaticMetadataProvider(),
+            price_source=FailingPriceSource(),
+        )
+        assets = AssetRepository(conn).list_active(asset_type="etf", country="US")
+
+    assert result.skipped == 0
+    assert [h.asset_id for h in result.holdings] == ["US_ETF_VOO"]
+    assert [asset.asset_id for asset in assets] == ["US_ETF_VOO"]
+    assert result.resolver_statuses[0].status == "created"
+    assert "price bootstrap failed" in (result.resolver_statuses[0].message or "")
+    assert any("price bootstrap failed" in warning for warning in result.warnings)
+
+
 def test_load_holdings_csv_accepts_cash_row(tmp_path: Path) -> None:
     db_path = tmp_path / "p.duckdb"
     migrate(db_path)
@@ -464,6 +672,76 @@ def test_run_portfolio_snapshot_writes_all_tables(tmp_path: Path) -> None:
     assert abs(sat.current_weight - (1900.0 / 6000.0)) < 1e-9
     assert len(result.warnings) == 3
     assert all("PRICE_MISSING" in warning for warning in result.warnings)
+
+
+def test_run_portfolio_snapshot_resolves_symbol_and_reports_statuses(
+    tmp_path: Path,
+) -> None:
+    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.profiles.seed_default_profile import seed_default_profile
+
+    class StaticMetadataProvider:
+        def get_asset(self, symbol: str) -> Asset | None:
+            if symbol == "VOO":
+                return Asset(
+                    asset_id="US_ETF_VOO",
+                    symbol="VOO",
+                    name="Vanguard S&P 500 ETF",
+                    asset_type="etf",
+                    country="US",
+                    exchange="NYSEARCA",
+                    currency="USD",
+                    sector="Diversified",
+                    industry="Index Fund",
+                    source="test_metadata",
+                    metadata={"theme_tags": ["broad_market"]},
+                )
+            return None
+
+    class StaticPriceSource:
+        def fetch_daily_prices(self, symbol: str, period: str = "1y") -> pd.DataFrame:
+            return pd.DataFrame(
+                [
+                    {
+                        "date": AS_OF,
+                        "open": 430.0,
+                        "high": 432.0,
+                        "low": 429.0,
+                        "close": 431.0,
+                        "adjusted_close": 431.0,
+                        "volume": 1000,
+                    }
+                ]
+            )
+
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "portfolio_id,symbol,quantity,avg_cost,currency\n"
+        "default,VOO,5,430,USD\n",
+    )
+
+    with get_connection(db_path) as conn:
+        seed_default_profile(conn)
+        result = run_portfolio_snapshot(
+            conn,
+            csv_path,
+            portfolio_id="default",
+            as_of_date=AS_OF,
+            metadata_provider=StaticMetadataProvider(),
+            price_source=StaticPriceSource(),
+            log=lambda m: None,
+        )
+        holdings = PortfolioRepository(conn).get_holdings("default", AS_OF)
+
+    assert result.holdings_imported == 1
+    assert result.holdings_skipped == 0
+    assert result.total_market_value == 2155.0
+    assert result.resolver_statuses[0].status == "created"
+    assert result.resolver_statuses[0].symbol == "VOO"
+    assert result.resolver_statuses[0].asset_id == "US_ETF_VOO"
+    assert [h.asset_id for h in holdings] == ["US_ETF_VOO"]
 
 
 def test_run_portfolio_snapshot_marks_to_market_and_persists_pnl(
