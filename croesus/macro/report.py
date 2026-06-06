@@ -166,10 +166,13 @@ def save_report(
     md_content = generate_markdown(state, params)
 
     date_str = str(state.date)
-    md_path = reports_dir / f"macro_{date_str}.md"
+    report_dir = reports_dir / "macro" / date_str
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    md_path = report_dir / "macro.md"
     md_path.write_text(md_content, encoding="utf-8")
 
-    csv_path = reports_dir / f"macro_scores_{date_str}.csv"
+    csv_path = report_dir / "macro_scores.csv"
     row = {
         "date": str(state.date),
         "regime": state.regime,
