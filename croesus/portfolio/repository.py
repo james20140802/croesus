@@ -6,6 +6,7 @@ from typing import Any
 
 import duckdb
 
+from croesus.portfolio.actions import ProposedAction
 from croesus.portfolio.models import Exposure, Holding, PolicyDrift, Portfolio
 
 
@@ -281,6 +282,116 @@ class PortfolioRepository:
             for d in (dict(zip(columns, row)) for row in rows)
         ]
 
+    # -- rebalance runs -----------------------------------------------------
+
+    def upsert_rebalance_run(
+        self,
+        run_id: str,
+        portfolio_id: str,
+        profile_id: str,
+        as_of_date: date,
+        *,
+        decision: str,
+        summary: str,
+        macro_regime: str | None = None,
+        macro_positioning: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO rebalance_runs (
+              run_id, portfolio_id, profile_id, date, macro_regime,
+              macro_positioning, decision, summary, metadata
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)
+            ON CONFLICT (run_id) DO UPDATE SET
+              portfolio_id = excluded.portfolio_id,
+              profile_id = excluded.profile_id,
+              date = excluded.date,
+              macro_regime = excluded.macro_regime,
+              macro_positioning = excluded.macro_positioning,
+              decision = excluded.decision,
+              summary = excluded.summary,
+              metadata = excluded.metadata
+            """,
+            (
+                run_id,
+                portfolio_id,
+                profile_id,
+                as_of_date,
+                macro_regime,
+                macro_positioning,
+                decision,
+                summary,
+                json.dumps(metadata or {}),
+            ),
+        )
+
+    def replace_proposed_actions(
+        self, run_id: str, actions: list[ProposedAction]
+    ) -> None:
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.conn.execute("DELETE FROM proposed_actions WHERE run_id = ?", [run_id])
+            if actions:
+                self.conn.executemany(
+                    """
+                    INSERT INTO proposed_actions (
+                      action_id, run_id, asset_id, sleeve_name, action_type,
+                      current_weight, target_weight, proposed_weight,
+                      estimated_trade_value, reason_codes, human_readable_reason,
+                      requires_research, requires_user_approval
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?, ?, ?)
+                    """,
+                    [self._action_to_params(action) for action in actions],
+                )
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
+    def get_rebalance_run(self, run_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM rebalance_runs WHERE run_id = ?",
+            [run_id],
+        ).fetchone()
+        if row is None:
+            return None
+        columns = [desc[0] for desc in self.conn.description]
+        data = dict(zip(columns, row))
+        data["metadata"] = _to_dict(data.get("metadata"))
+        data["actions"] = self.list_proposed_actions(run_id)
+        return data
+
+    def load_latest_rebalance_run(self, portfolio_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            """
+            SELECT run_id
+            FROM rebalance_runs
+            WHERE portfolio_id = ?
+            ORDER BY date DESC, run_id DESC
+            LIMIT 1
+            """,
+            [portfolio_id],
+        ).fetchone()
+        return self.get_rebalance_run(row[0]) if row else None
+
+    def list_proposed_actions(self, run_id: str) -> list[ProposedAction]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM proposed_actions
+            WHERE run_id = ?
+            ORDER BY action_id
+            """,
+            [run_id],
+        ).fetchall()
+        columns = [desc[0] for desc in self.conn.description]
+        return [
+            self._row_to_action(dict(zip(columns, row)))
+            for row in rows
+        ]
+
     # -- helpers ------------------------------------------------------------
 
     @staticmethod
@@ -313,8 +424,50 @@ class PortfolioRepository:
             metadata=_to_dict(row.get("metadata")),
         )
 
+    @staticmethod
+    def _action_to_params(action: ProposedAction) -> tuple[Any, ...]:
+        return (
+            action.action_id,
+            action.run_id,
+            action.asset_id,
+            action.sleeve_name,
+            action.action_type,
+            action.current_weight,
+            action.target_weight,
+            action.proposed_weight,
+            action.estimated_trade_value,
+            json.dumps(action.reason_codes),
+            action.human_readable_reason,
+            action.requires_research,
+            action.requires_user_approval,
+        )
+
+    @staticmethod
+    def _row_to_action(row: dict[str, Any]) -> ProposedAction:
+        return ProposedAction(
+            action_id=row["action_id"],
+            run_id=row["run_id"],
+            asset_id=row["asset_id"],
+            sleeve_name=row["sleeve_name"],
+            action_type=row["action_type"],
+            current_weight=row["current_weight"],
+            target_weight=row["target_weight"],
+            proposed_weight=row["proposed_weight"],
+            estimated_trade_value=row["estimated_trade_value"],
+            reason_codes=_to_list(row.get("reason_codes")),
+            human_readable_reason=row["human_readable_reason"],
+            requires_research=bool(row["requires_research"]),
+            requires_user_approval=bool(row["requires_user_approval"]),
+        )
+
 
 def _to_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, str):
         value = json.loads(value)
     return value or {}
+
+
+def _to_list(value: Any) -> list[Any]:
+    if isinstance(value, str):
+        value = json.loads(value)
+    return list(value or [])
