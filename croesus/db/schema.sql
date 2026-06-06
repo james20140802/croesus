@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS screening_results (
   PRIMARY KEY (run_id, asset_id)
 );
 
+ALTER TABLE screening_results ADD COLUMN IF NOT EXISTS reason_codes JSON;
+ALTER TABLE screening_results ADD COLUMN IF NOT EXISTS factor_scores JSON;
+ALTER TABLE screening_results ADD COLUMN IF NOT EXISTS metadata JSON;
+
 CREATE TABLE IF NOT EXISTS macro_scores (
   date                DATE PRIMARY KEY,
   regime              TEXT NOT NULL,
