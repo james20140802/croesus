@@ -6,7 +6,11 @@ from pathlib import Path
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.portfolio.actions import ProposedAction, RebalanceRunResult
+from croesus.portfolio.models import AssetAttrs, Exposure, Holding, PolicyDrift
+from croesus.portfolio.rebalancing import generate_proposed_actions
 from croesus.portfolio.repository import PortfolioRepository
+from croesus.profiles.models import AssetType, Currency, InvestorProfile, TradeMode
+from croesus.screening.models import ScreeningCandidate
 
 AS_OF = date(2026, 6, 1)
 
@@ -139,6 +143,239 @@ def test_load_latest_rebalance_run_prefers_newest_date(tmp_path: Path) -> None:
     assert [action.action_id for action in loaded["actions"]] == ["act-new"]
 
 
+def test_invalid_profile_returns_profile_invalid_and_no_trade_actions() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(expected_annual_return=-0.01),
+        total_market_value=100_000.0,
+        exposures=[_position("US_EQ_NVDA", 0.30, 0.10)],
+        drifts=[_drift("satellite_equity", 0.30, 0.15, 0.00, 0.20)],
+        holdings=[_holding("US_EQ_NVDA", 30_000.0)],
+        assets_by_id={"US_EQ_NVDA": AssetAttrs(asset_type="equity", sector="Technology")},
+        screening_candidates=[
+            _candidate("US_EQ_MSFT", score=0.95, metadata={"sleeve_name": "satellite_equity"})
+        ],
+    )
+
+    assert [action.action_type for action in actions] == ["hold"]
+    assert actions[0].reason_codes == ["PROFILE_INVALID"]
+
+
+def test_position_over_max_creates_trim() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(max_single_position_weight=0.10),
+        total_market_value=100_000.0,
+        exposures=[_position("US_EQ_NVDA", 0.18, 0.10)],
+        holdings=[_holding("US_EQ_NVDA", 18_000.0)],
+        assets_by_id={"US_EQ_NVDA": AssetAttrs(asset_type="equity", sector="Technology")},
+    )
+
+    trim = _one(actions, "trim")
+    assert trim.asset_id == "US_EQ_NVDA"
+    assert trim.current_weight == 0.18
+    assert trim.proposed_weight == 0.10
+    assert trim.estimated_trade_value == 8_000.0
+    assert trim.reason_codes == ["POSITION_OVER_MAX"]
+
+
+def test_sector_over_max_creates_block_new_buy() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(max_sector_weight=0.35),
+        total_market_value=100_000.0,
+        exposures=[_exposure("sector", "Technology", 0.40, 0.35)],
+    )
+
+    block = _one(actions, "block_new_buy")
+    assert block.sleeve_name == "Technology"
+    assert block.reason_codes == ["SECTOR_OVER_MAX"]
+
+
+def test_severe_sector_over_max_also_trims_largest_holding_in_sector() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(max_sector_weight=0.35, rebalance_band=0.05),
+        total_market_value=100_000.0,
+        exposures=[_exposure("sector", "Technology", 0.47, 0.35)],
+        holdings=[
+            _holding("US_EQ_AAPL", 20_000.0),
+            _holding("US_EQ_NVDA", 27_000.0),
+            _holding("US_EQ_JNJ", 10_000.0),
+        ],
+        assets_by_id={
+            "US_EQ_AAPL": AssetAttrs(asset_type="equity", sector="Technology"),
+            "US_EQ_NVDA": AssetAttrs(asset_type="equity", sector="Technology"),
+            "US_EQ_JNJ": AssetAttrs(asset_type="equity", sector="Healthcare"),
+        },
+    )
+
+    trims = [action for action in actions if action.action_type == "trim"]
+    assert trims[0].asset_id == "US_EQ_NVDA"
+    assert "SECTOR_OVER_MAX" in trims[0].reason_codes
+
+
+def test_sleeve_under_min_creates_rebalance_to_band() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(max_monthly_turnover=0.50),
+        total_market_value=100_000.0,
+        drifts=[_drift("core_us_equity", 0.30, 0.55, 0.45, 0.65)],
+    )
+
+    action = _one(actions, "rebalance_to_band")
+    assert action.sleeve_name == "core_us_equity"
+    assert action.current_weight == 0.30
+    assert action.proposed_weight == 0.55
+    assert action.estimated_trade_value == 25_000.0
+    assert action.reason_codes == ["SLEEVE_UNDER_BAND"]
+
+
+def test_cash_under_min_creates_raise_cash_and_blocks_adds() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(),
+        total_market_value=100_000.0,
+        drifts=[_drift("cash", 0.02, 0.10, 0.05, 0.20)],
+        screening_candidates=[
+            _candidate("US_EQ_MSFT", score=0.98, metadata={"sleeve_name": "satellite_equity"})
+        ],
+    )
+
+    assert _one(actions, "raise_cash").reason_codes == ["CASH_BELOW_BUFFER"]
+    assert not any(action.action_type == "add" for action in actions)
+
+
+def test_cautious_macro_blocks_new_satellite_adds() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(),
+        total_market_value=100_000.0,
+        drifts=[_drift("satellite_equity", 0.10, 0.15, 0.00, 0.20)],
+        screening_candidates=[
+            _candidate("US_EQ_MSFT", score=0.98, metadata={"sleeve_name": "satellite_equity"})
+        ],
+        macro_state=_macro("Cautious"),
+    )
+
+    watch = _one(actions, "watch")
+    assert watch.asset_id == "US_EQ_MSFT"
+    assert "MACRO_CAUTIOUS_TIGHTEN_RISK" in watch.reason_codes
+
+
+def test_defensive_macro_keeps_concentration_reduction_before_candidate_watch() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(max_single_position_weight=0.10),
+        total_market_value=100_000.0,
+        exposures=[_position("US_EQ_NVDA", 0.18, 0.10)],
+        screening_candidates=[
+            _candidate("US_EQ_MSFT", score=0.98, metadata={"sleeve_name": "satellite_equity"})
+        ],
+        macro_state=_macro("Defensive"),
+    )
+
+    assert actions[0].action_type == "trim"
+    assert "MACRO_DEFENSIVE_REDUCE_CONCENTRATION" in actions[0].reason_codes
+    assert _one(actions, "watch").action_type == "watch"
+
+
+def test_candidate_add_created_when_policy_macro_and_exposure_allow() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(max_monthly_turnover=0.30),
+        total_market_value=100_000.0,
+        drifts=[_drift("satellite_equity", 0.10, 0.15, 0.00, 0.20)],
+        screening_candidates=[
+            _candidate("US_EQ_MSFT", score=0.98, metadata={"sleeve_name": "satellite_equity"})
+        ],
+        macro_state=_macro("Neutral"),
+    )
+
+    add = _one(actions, "add")
+    assert add.asset_id == "US_EQ_MSFT"
+    assert add.sleeve_name == "satellite_equity"
+    assert add.estimated_trade_value == 5_000.0
+    assert add.reason_codes == ["FACTOR_SCORE_SUPPORTS_ADD"]
+
+
+def test_blocked_high_scoring_candidate_becomes_watch_not_add() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(),
+        total_market_value=100_000.0,
+        drifts=[_drift("satellite_equity", 0.10, 0.15, 0.00, 0.20)],
+        screening_candidates=[
+            _candidate(
+                "US_EQ_MSFT",
+                score=0.98,
+                decision_bucket="blocked_by_portfolio_fit",
+                metadata={
+                    "sleeve_name": "satellite_equity",
+                    "blocking_exposures": ["sector:Technology"],
+                },
+            )
+        ],
+    )
+
+    watch = _one(actions, "watch")
+    assert watch.asset_id == "US_EQ_MSFT"
+    assert not any(action.action_type == "add" for action in actions)
+
+
+def test_turnover_limit_drops_lower_priority_adds_and_marks_affected_actions() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(max_single_position_weight=0.10, max_monthly_turnover=0.05),
+        total_market_value=100_000.0,
+        exposures=[_position("US_EQ_NVDA", 0.18, 0.10)],
+        drifts=[_drift("satellite_equity", 0.10, 0.15, 0.00, 0.20)],
+        screening_candidates=[
+            _candidate("US_EQ_MSFT", score=0.98, metadata={"sleeve_name": "satellite_equity"})
+        ],
+    )
+
+    trim = _one(actions, "trim")
+    assert "TURNOVER_LIMIT" in trim.reason_codes
+    assert trim.estimated_trade_value == 5_000.0
+    assert not any(action.action_type == "add" for action in actions)
+
+
+def test_no_violations_creates_hold() -> None:
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(),
+        total_market_value=100_000.0,
+    )
+
+    assert [action.action_type for action in actions] == ["hold"]
+    assert actions[0].reason_codes == ["NO_ACTION_WITHIN_POLICY"]
+
+
 def _action(
     action_id: str,
     run_id: str,
@@ -168,3 +405,112 @@ def _action(
         requires_research=False,
         requires_user_approval=True,
     )
+
+
+def _profile(**overrides) -> InvestorProfile:
+    fields = dict(
+        profile_id="default",
+        name="Default profile",
+        base_currency=Currency.USD,
+        expected_annual_return=0.08,
+        max_tolerable_drawdown=-0.25,
+        investment_horizon_years=10,
+        monthly_contribution=1000.0,
+        liquidity_buffer_months=6.0,
+        allowed_asset_types=[AssetType.EQUITY, AssetType.ETF, AssetType.CASH],
+        disallowed_asset_types=[],
+        max_single_position_weight=0.10,
+        max_sector_weight=0.35,
+        max_industry_weight=0.25,
+        max_theme_weight=0.25,
+        max_country_weight=0.80,
+        max_currency_weight=0.90,
+        max_monthly_turnover=0.20,
+        rebalance_band=0.05,
+        trade_mode=TradeMode.PROPOSE_ONLY,
+        metadata={},
+    )
+    fields.update(overrides)
+    return InvestorProfile(**fields)
+
+
+def _position(asset_id: str, weight: float, limit: float) -> Exposure:
+    return _exposure("position", asset_id, weight, limit)
+
+
+def _exposure(exposure_type: str, name: str, weight: float, limit: float) -> Exposure:
+    return Exposure(
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        exposure_type=exposure_type,
+        exposure_name=name,
+        weight=weight,
+        market_value=weight * 100_000.0,
+        limit_weight=limit,
+        is_violation=True,
+    )
+
+
+def _drift(
+    sleeve_name: str,
+    current: float,
+    target: float,
+    min_weight: float | None,
+    max_weight: float | None,
+) -> PolicyDrift:
+    return PolicyDrift(
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        sleeve_name=sleeve_name,
+        current_weight=current,
+        target_weight=target,
+        min_weight=min_weight,
+        max_weight=max_weight,
+        drift=current - target,
+        is_outside_band=True,
+    )
+
+
+def _holding(asset_id: str, market_value: float) -> Holding:
+    return Holding("default", asset_id, AS_OF, 1.0, market_value, "USD")
+
+
+def _candidate(
+    asset_id: str,
+    *,
+    score: float,
+    decision_bucket: str = "candidate",
+    metadata: dict | None = None,
+) -> ScreeningCandidate:
+    return ScreeningCandidate(
+        run_id="screen-1",
+        asset_id=asset_id,
+        score=score,
+        rank=1,
+        decision_bucket=decision_bucket,
+        reason="passes screen",
+        reason_codes=[],
+        factor_scores={"strategy_score": score},
+        metadata=metadata or {},
+    )
+
+
+def _macro(positioning: str):
+    from croesus.macro.models import MacroState
+
+    return MacroState(
+        date=AS_OF,
+        regime="Goldilocks",
+        regime_confidence=0.7,
+        growth_direction="Expanding",
+        inflation_direction="Falling",
+        amplifier_score=25.0,
+        confirmation_score=0.5,
+        positioning=positioning,
+    )
+
+
+def _one(actions: list[ProposedAction], action_type: str) -> ProposedAction:
+    found = [action for action in actions if action.action_type == action_type]
+    assert len(found) == 1
+    return found[0]
