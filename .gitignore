@@ -228,3 +228,5 @@ reports/
 !croesus/reports/**
 experiments/*/results/*.csv
 experiments/*/results/*.png
+
+graphify-out/
