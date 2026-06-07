@@ -224,5 +224,7 @@ __marimo__/
 # Event study experiment outputs
 storage/
 reports/
+!croesus/reports/
+!croesus/reports/**
 experiments/*/results/*.csv
 experiments/*/results/*.png
