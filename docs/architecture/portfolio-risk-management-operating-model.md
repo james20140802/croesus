@@ -515,6 +515,8 @@ score
 
 이 점수는 "매수 확정"이 아니라 "검토 후보 순위"다.
 
+이 score 구조의 알려진 한계(1m momentum의 반전 성질, regime 경계의 cliff effect)와 계획된 개선은 7장의 "계획된 개선: regime-aware screening 세부 조정"과 `docs/planning/sprint-005b-screening-regime-refinement.md`를 참고한다.
+
 ### Valuation
 
 Valuation은 기업이 현재 비싼지 싼지 평가하는 영역이다.
@@ -1177,6 +1179,76 @@ skipped
 => 데이터 부족 또는 필터 탈락
 ```
 
+### 계획된 개선: regime-aware screening 세부 조정 (Sprint 005b)
+
+현재 screening 구조에는 두 가지 알려진 한계가 있다.
+
+- `momentum_score`가 1m/3m/6m percentile의 단순 평균이다. 1개월 수익률은 학계에서 momentum이 아니라 단기 반전(short-term reversal) 신호로 알려져 있다. 그리고 3m/6m은 겹치는 구간이 많아 평균을 내도 분산 효과가 작다.
+- MacroState의 regime override는 4개 top-level weight에 이산적인 delta만 더한다. Regime이 바뀌는 순간 weight가 계단식으로 점프한다(cliff effect).
+
+이를 보완하기 위해 다음 4가지 개선이 계획되어 있다. 모두 결정적(deterministic) 계산이며, yaml config로 명시된다.
+
+#### a. Regime별 momentum horizon 가중
+
+`momentum_score` 내부의 horizon 가중을 regime별로 다르게 둔다.
+
+```yaml
+regime_overrides:
+  Stagflation:
+    momentum: -0.15
+    volatility_penalty: 0.15
+    momentum_horizon_weights:
+      momentum_1m: 0.0
+      momentum_3m: 0.3
+      momentum_6m: 0.7
+```
+
+변동성이 높은 regime에서는 단기 momentum이 반전과 휩쏘에 취약하므로 장기 horizon 비중을 높이고 1m 비중을 줄인다. 안정적인 regime에서는 단기 신호를 더 살릴 수 있다.
+
+#### b. 연속 보간 (continuous interpolation)
+
+이산 regime 분류 대신, 이미 연속값으로 계산되는 `amplifier_score`와 `confirmation_score`를 사용해 base weight와 regime override 사이를 선형 보간한다.
+
+```text
+t = clamp(stress_score / 100, 0, 1)
+
+weight_k = base_weight_k + t * regime_delta_k
+```
+
+같은 원리로 stress filter도 threshold에서 갑자기 켜지는 대신 점진적으로 조여진다. Regime 경계에서의 급격한 후보 교체를 막는다.
+
+#### c. Volatility-scaled momentum
+
+Momentum은 평상시에는 유효하지만 패닉 후 반등 구간에서 크게 무너질 수 있다(momentum crash). momentum 신호를 자산 자신의 최근 변동성으로 나눠 스케일하면 이 꼬리 위험이 줄어든다.
+
+```text
+scaled_momentum_k = momentum_k / volatility_3m
+```
+
+이것은 weight 조정이 아니라 factor 정의 자체의 개선이므로, regime 분류가 틀려도 방어 효과가 유지된다.
+
+#### d. Regime별 게이트 전환
+
+Cautious / Defensive positioning에서는 `above_200d_ma`를 score 가중 항목이 아니라 eligibility filter로 승격한다.
+
+```text
+positioning in {Cautious, Defensive}
+and above_200d_ma == 0.0
+=> skipped: below 200d MA under defensive posture
+```
+
+방어 국면에서 장기 추세 아래에 있는 종목은 점수가 깎이는 것이 아니라 후보 자체가 되지 못한다.
+
+#### 공통 원칙
+
+```text
+모든 조정 규칙은 경제적 근거와 함께 yaml config에 명시한다.
+과거 데이터에서 regime별 weight를 학습하는 방식은
+백테스트 리서치로 검증되기 전에는 도입하지 않는다.
+```
+
+Regime은 표본 수가 매우 적어서(수십 년 데이터에도 regime 전환은 몇십 번) 데이터 기반 weight 학습은 과적합 위험이 크다.
+
 ## 8. Action Generation: 어떤 행동을 제안할 것인가
 
 Action Generation은 다음 질문에 답한다.
@@ -1597,6 +1669,7 @@ flowchart TD
 | Screening | 구현됨 | Percentile factor score와 portfolio-fit overlay |
 | Rebalancing proposal | 구현됨 | Proposal-only actions와 reason codes |
 | Portfolio action report | 구현됨 | Persisted actions 기반 Markdown/CSV report |
+| Screening regime refinement | 계획됨 | Sprint 005b — momentum horizon 가중, 연속 보간, vol-scaled momentum, trend gate |
 | Data freshness | 계획됨 | Sprint 006b |
 | Transaction ledger | 계획됨 | Sprint 006c |
 | Performance / goal tracking | 계획됨 | Sprint 006d |
