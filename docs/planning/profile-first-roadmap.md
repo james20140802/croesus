@@ -26,6 +26,7 @@ Level 1 does not execute trades.
 | 002 | Macro risk posture | MacroState and macro-adjusted screening params |
 | 003 | Investor profile and policy portfolio | Advanced profile input, validation, policy targets |
 | 003b | Guided profile and policy onboarding | Profile-driven policy templates and setup UX |
+| 003c | Return-anchored profile guidance | Risk-return mapping, implied constraints, conflict resolution during onboarding |
 | 004 | Portfolio snapshot and exposure | Holdings, weights, drift, concentration checks |
 | 004b | Portfolio mark-to-market and FX | Current-price valuation, multi-currency FX, unrealized P&L |
 | 004c | Holdings onboarding and asset resolver | User-friendly holdings import and automatic asset registry enrichment |
@@ -49,6 +50,13 @@ like a database or CLI wrapper instead of a local portfolio operating system.
 
 Sprint 003b is a retrofit over Sprint 003: it adds guided setup and policy
 templates without invalidating profiles already stored by `profile_init`.
+
+Sprint 003c layers return-anchored guidance in front of the 003b flow. A user
+who only knows a desired annual return receives the drawdown tolerance,
+minimum horizon, and allocation posture that return has historically
+required, with explicit resolution options when stated values are
+incompatible. All guidance numbers come from a documented mapping config, not
+from an LLM. See `sprint-003c-return-anchored-profile-guidance.md`.
 
 Sprint 004b is a follow-on to Sprint 004 that promotes its deferred items
 (quantity-only valuation, multi-currency FX) into current-price mark-to-market
@@ -666,6 +674,9 @@ The system should be able to:
 - `docs/planning/sprint-002-macro-analysis.md` remains valid for MacroState.
 - `docs/planning/sprint-003b-profile-policy-onboarding.md` adds an onboarding
   retrofit over the already-implemented profile/policy foundation.
+- `docs/planning/sprint-003c-return-anchored-profile-guidance.md` derives
+  realistic profile constraints from a desired return (or drawdown anchor)
+  via a deterministic risk-return mapping, layered in front of 003b.
 - `docs/planning/sprint-004b-portfolio-mark-to-market-fx.md` plans current-price mark-to-market, multi-currency FX, and unrealized P&L; it is a follow-on to Sprint 004, sequenced before Sprint 006, and is distinct from the Sprint 007 fundamental valuation work.
 - `docs/planning/sprint-004c-holdings-asset-resolver.md` keeps `assets` as an
   internal registry by resolving user-provided symbols during holdings import.
