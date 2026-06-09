@@ -827,6 +827,51 @@ action_type = hold
 reason_code = PROFILE_INVALID
 ```
 
+### 계획된 개선: return-anchored profile 가이드 (Sprint 003c)
+
+Croesus는 profile-first 시스템이므로 profile 품질이 가장 레버리지가 큰 사용자 입력이다. 그런데 투자에 익숙하지 않은 사용자는 원하는 수익률 하나는 말할 수 있어도, 그 수익률이 현실적으로 요구하는 나머지 값들(허용 drawdown, 최소 horizon, 자산배분 성격)은 모른다.
+
+그래서 온보딩에 다음 흐름이 계획되어 있다.
+
+```text
+사용자: 원하는 수익률(또는 허용 drawdown) 입력
+시스템:
+  -> 장기 historical 데이터 기반 risk-return 매핑 테이블 조회
+  -> 그 수익률이 역사적으로 요구해 온 drawdown / horizon / 자산배분 제시
+  -> 사용자가 말한 다른 값과 모순이면 해결 옵션 제시
+  -> 일관된 draft를 003b 템플릿 추천으로 전달
+```
+
+예시:
+
+```text
+입력: expected_annual_return = 8%
+
+가이드:
+  주식 비중 약 60~85% 필요
+  역사적으로 -30% ~ -45% drawdown 동반
+  권장 최소 horizon: 7년
+  포트폴리오 1억 기준: 최악 시점에 약 6,000만 원대까지 하락 가능
+```
+
+모순 해결:
+
+```text
+원하는 수익률 10% + 허용 drawdown -10% => 불가능 조합
+
+옵션 1: 기대수익률을 4% 이하로 낮춘다
+옵션 2: drawdown 허용치를 약 -50%로 늘리고 horizon 10년 이상을 받아들인다
+옵션 3: 중간 지점 — 수익률 5~6%, drawdown 약 -25%, horizon 5년 이상
+```
+
+원칙:
+
+- 매핑 테이블은 yaml config에 명시된 결정적 데이터다. LLM이 숫자를 만들지 않는다.
+- 가이드는 사용자가 말한 값을 조용히 덮어쓰지 않는다. 사용자가 옵션을 직접 고른다.
+- 기존 Sprint 003 validation이 최종 게이트로 유지된다.
+
+상세는 `docs/planning/sprint-003c-return-anchored-profile-guidance.md` 참고.
+
 ## 2. Policy Portfolio: 목표 비중 지도
 
 Policy Portfolio는 다음 질문에 답한다.
@@ -1669,6 +1714,7 @@ flowchart TD
 | Screening | 구현됨 | Percentile factor score와 portfolio-fit overlay |
 | Rebalancing proposal | 구현됨 | Proposal-only actions와 reason codes |
 | Portfolio action report | 구현됨 | Persisted actions 기반 Markdown/CSV report |
+| Return-anchored profile guidance | 계획됨 | Sprint 003c — risk-return 매핑, 모순 해결 옵션, 시나리오 번역 |
 | Screening regime refinement | 계획됨 | Sprint 005b — momentum horizon 가중, 연속 보간, vol-scaled momentum, trend gate |
 | Data freshness | 계획됨 | Sprint 006b |
 | Transaction ledger | 계획됨 | Sprint 006c |
