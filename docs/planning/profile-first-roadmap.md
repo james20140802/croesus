@@ -30,6 +30,7 @@ Level 1 does not execute trades.
 | 004b | Portfolio mark-to-market and FX | Current-price valuation, multi-currency FX, unrealized P&L |
 | 004c | Holdings onboarding and asset resolver | User-friendly holdings import and automatic asset registry enrichment |
 | 005 | Screening and sector/theme analysis | Candidate ranking plus sector/theme exposure inputs |
+| 005b | Regime-aware screening refinement | Momentum horizon weights, continuous macro interpolation, vol-scaled momentum, defensive trend gate |
 | 006 | Rebalancing proposal engine | Level 1 MVP: deterministic portfolio action report |
 | 006b | Local scheduler and data freshness | Local sync, stale-data status, and run history |
 | 006c | Transaction ledger | Manual execution feedback and holdings derived from transactions |
@@ -59,6 +60,15 @@ rebalancing needs accurate current portfolio values. It is distinct from Sprint
 Sprint 004c follows Sprint 004b and should come before Sprint 005. It makes the
 asset registry a behind-the-scenes system registry rather than a table the user
 must manually maintain. See `sprint-004c-holdings-asset-resolver.md`.
+
+Sprint 005b is a retrofit over the already-implemented screening (005) and
+macro adapter (002). It refines how MacroState adjusts screening — per-regime
+momentum horizon weights, continuous interpolation instead of discrete regime
+deltas, optional volatility-scaled momentum, and a defensive-posture trend
+gate — without changing the proposal engine or any stored factor names. It is
+sequenced after Sprint 006 in practice because 005 and 006 were implemented
+first; default config must reproduce pre-005b results exactly. See
+`sprint-005b-screening-regime-refinement.md`.
 
 Sprint 006b and 006c are not prerequisites for the first deterministic proposal,
 but they are prerequisites for a credible local web/app experience. A dashboard
@@ -659,6 +669,10 @@ The system should be able to:
 - `docs/planning/sprint-004b-portfolio-mark-to-market-fx.md` plans current-price mark-to-market, multi-currency FX, and unrealized P&L; it is a follow-on to Sprint 004, sequenced before Sprint 006, and is distinct from the Sprint 007 fundamental valuation work.
 - `docs/planning/sprint-004c-holdings-asset-resolver.md` keeps `assets` as an
   internal registry by resolving user-provided symbols during holdings import.
+- `docs/planning/sprint-005b-screening-regime-refinement.md` refines
+  regime-aware screening (momentum horizon weights, continuous interpolation,
+  vol-scaled momentum, defensive trend gate) as a retrofit over Sprints 002
+  and 005.
 - `docs/planning/sprint-006b-local-scheduler-freshness.md` defines local sync and
   stale-data status needed before a credible local dashboard.
 - `docs/planning/sprint-006c-transaction-ledger.md` defines the transaction
