@@ -201,3 +201,29 @@ CREATE TABLE IF NOT EXISTS proposed_actions (
   requires_research BOOLEAN,
   requires_user_approval BOOLEAN
 );
+
+-- Sprint 006b: local scheduler and data freshness.
+-- job_runs records the execution history of every local job (success/failure/
+-- skip) so a future dashboard reads the same state the CLI does.
+CREATE TABLE IF NOT EXISTS job_runs (
+  run_id TEXT PRIMARY KEY,
+  job_name TEXT NOT NULL,
+  started_at TIMESTAMP,
+  finished_at TIMESTAMP,
+  status TEXT,
+  summary TEXT,
+  error TEXT,
+  metadata JSON
+);
+
+-- data_freshness is the queryable "can I trust today's report?" state, one row
+-- per data domain, derived deterministically from job_runs and source tables.
+CREATE TABLE IF NOT EXISTS data_freshness (
+  data_domain TEXT PRIMARY KEY,
+  latest_data_date DATE,
+  latest_success_at TIMESTAMP,
+  stale_after_hours DOUBLE,
+  status TEXT,
+  reason TEXT,
+  metadata JSON
+);
