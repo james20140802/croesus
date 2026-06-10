@@ -42,14 +42,41 @@ Direction inference: `trim` / `raise_cash` → sell, `add` → buy,
 `rebalance_to_band` → sell when the proposed weight is below current, else buy.
 `hold` / `watch` and other non-trade actions require an explicit `--type`.
 
-A lower-level path records a transaction with no linked action:
+## Recording a self-directed transaction
+
+For a trade the system never proposed — a buy or sell you decided on your own,
+or a deposit, withdrawal, dividend, fee, or manual adjustment — use:
+
+```bash
+python -m croesus.jobs.record_transaction \
+    --type buy --asset VOO --quantity 2 --price 670 --date 2026-06-10
+```
+
+| Flag | Effect |
+|---|---|
+| `--type T` | One of `buy`, `sell`, `deposit`, `withdrawal`, `dividend`, `fee`, `manual_adjustment` (required). |
+| `--asset SYMBOL` | Ticker, resolved to an `asset_id` against the assets table (no network). |
+| `--asset-id ID` | Explicit `asset_id`, skips symbol resolution. |
+| `--quantity Q` / `--price P` | For buys/sells (and adjustments). |
+| `--amount A` | Gross cash amount for `deposit`/`withdrawal`/`dividend`/`fee`. |
+| `--fees F` | Fees paid. |
+| `--currency CUR` | Trade currency (defaults to the portfolio base). |
+| `--portfolio-id ID` | Portfolio to record against (default: `default`). |
+| `--date YYYY-MM-DD` | Transaction date (default: today). |
+| `--note TEXT` | Free-text note stored in `metadata`. |
+
+An unknown symbol is **reported, not silently created** — a typo cannot mint a
+bogus position; record a snapshot first or pass `--asset-id`. Like
+`record_execution`, it performs **no** broker calls and places **no** orders.
+
+The same thing in Python (what both CLIs build on):
 
 ```python
 from croesus.portfolio.transaction_repository import TransactionRepository
 TransactionRepository(conn).record_transaction(txn)  # -> TransactionResult
 ```
 
-Both paths **validate before writing** and return a structured result
+All paths **validate before writing** and return a structured result
 (`recorded` / `rejected` + field errors) suitable for a future form flow.
 
 ## `portfolio_transactions`
