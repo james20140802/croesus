@@ -248,3 +248,27 @@ CREATE TABLE IF NOT EXISTS portfolio_transactions (
   linked_action_id TEXT,
   metadata JSON
 );
+
+-- Sprint 006d: performance and goal tracking. One row per (portfolio, date,
+-- period) turns the profile's target return into a measurable progress report:
+-- contribution-adjusted return (deposits are not investment gain), the gap to
+-- the profile's expected_annual_return, and a risk_status shown beside it.
+-- These are progress reports, not guarantees. Annualized return and lightweight
+-- attribution live in metadata JSON.
+CREATE TABLE IF NOT EXISTS portfolio_performance_snapshots (
+  portfolio_id TEXT NOT NULL,
+  as_of_date DATE NOT NULL,
+  period TEXT NOT NULL,
+  start_value DOUBLE,
+  end_value DOUBLE,
+  net_contributions DOUBLE,
+  investment_return DOUBLE,
+  investment_return_pct DOUBLE,
+  target_return_pct DOUBLE,
+  return_gap_pct DOUBLE,
+  max_drawdown_pct DOUBLE,
+  risk_status TEXT,
+  status TEXT,
+  metadata JSON,
+  PRIMARY KEY (portfolio_id, as_of_date, period)
+);
