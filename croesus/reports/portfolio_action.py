@@ -8,6 +8,7 @@ import duckdb
 
 from croesus.portfolio.actions import ProposedAction
 from croesus.portfolio.repository import PortfolioRepository
+from croesus.reports.paths import report_output_dir
 
 
 def write_portfolio_action_reports(
@@ -22,11 +23,10 @@ def write_portfolio_action_reports(
     if run is None:
         raise ValueError(f"rebalance run not found: {run_id}")
 
-    output_dir = Path(reports_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     as_of = run["date"]
-    markdown_path = output_dir / f"portfolio_action_{as_of:%Y-%m-%d}.md"
-    csv_path = output_dir / f"portfolio_action_{as_of:%Y-%m-%d}.csv"
+    output_dir = report_output_dir(reports_dir, "portfolio_action", as_of)
+    markdown_path = output_dir / "portfolio_action.md"
+    csv_path = output_dir / "portfolio_action.csv"
 
     markdown_path.write_text(_render_markdown(run), encoding="utf-8")
     _write_csv(csv_path, run["actions"])

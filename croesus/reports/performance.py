@@ -20,6 +20,7 @@ from croesus.portfolio.performance import (
     PerformanceCheckResult,
     PerformancePeriod,
 )
+from croesus.reports.paths import report_output_dir
 
 _GOAL_LABELS = {
     GOAL_AHEAD: "ahead of goal",
@@ -50,11 +51,9 @@ def write_performance_reports(
     reports_dir: str | Path = "reports",
 ) -> tuple[Path, Path]:
     """Write Markdown and CSV views of ``result``; return their paths."""
-    output_dir = Path(reports_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stamp = f"{result.as_of_date:%Y-%m-%d}"
-    markdown_path = output_dir / f"performance_{stamp}.md"
-    csv_path = output_dir / f"performance_{stamp}.csv"
+    output_dir = report_output_dir(reports_dir, "performance", result.as_of_date)
+    markdown_path = output_dir / "performance.md"
+    csv_path = output_dir / "performance.csv"
 
     markdown_path.write_text(render_markdown(result), encoding="utf-8")
     _write_csv(csv_path, result)

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from croesus.macro.models import MacroState
 from croesus.macro.screening_adapter import get_screening_params
+from croesus.reports.paths import report_output_dir
 
 _REGIME_EMOJI = {
     "Goldilocks": "🟢",
@@ -157,15 +158,10 @@ def save_report(
 
     Returns (md_path, csv_path).
     """
-    reports_dir = Path(reports_dir)
-    reports_dir.mkdir(parents=True, exist_ok=True)
-
     params = get_screening_params(state)
     md_content = generate_markdown(state, params)
 
-    date_str = str(state.date)
-    report_dir = reports_dir / "macro" / date_str
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = report_output_dir(reports_dir, "macro", state.date)
 
     md_path = report_dir / "macro.md"
     md_path.write_text(md_content, encoding="utf-8")
