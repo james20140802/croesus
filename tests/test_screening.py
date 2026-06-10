@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from croesus.assets.models import Asset
 from croesus.assets.repository import AssetRepository
 from croesus.db.connection import get_connection
@@ -10,10 +12,20 @@ from croesus.db.migrate import migrate
 from croesus.jobs.screening_run import run_screening_job
 from croesus.macro._loader import store_macro_state
 from croesus.macro.models import MacroState
-from croesus.macro.screening_adapter import neutral_screening_params
+from croesus.macro.screening_adapter import (
+    _interpolate_weights,
+    _stress_filters,
+    get_screening_params,
+    neutral_screening_params,
+)
 from croesus.screening.normalization import percentile_rank
 from croesus.screening.repository import ScreeningRepository
-from croesus.screening.run_screening import run_screening
+from croesus.screening.run_screening import (
+    _renormalize_without_trend,
+    _scale_momentum_values,
+    _weighted_momentum,
+    run_screening,
+)
 
 AS_OF = date(2026, 6, 1)
 
@@ -169,6 +181,168 @@ def test_overexposed_candidate_is_blocked_not_addable(tmp_path: Path) -> None:
     assert aapl.metadata["would_worsen_violation"] is True
 
 
+# ── Sprint 005b: regime-aware screening refinement ───────────────────────────
+
+
+def _macro_state(*, regime: str, amplifier: float, positioning: str = "Neutral") -> MacroState:
+    return MacroState(
+        date=AS_OF,
+        regime=regime,
+        regime_confidence=0.8,
+        growth_direction="Expanding",
+        inflation_direction="Falling",
+        amplifier_score=amplifier,
+        confirmation_score=0.0,
+        positioning=positioning,
+    )
+
+
+# Spec test 1
+def test_horizon_weights_change_momentum_score_deterministically() -> None:
+    percentiles = {"momentum_1m": 0.0, "momentum_3m": 0.0, "momentum_6m": 1.0}
+
+    equal = _weighted_momentum(percentiles, {})
+    weighted = _weighted_momentum(
+        percentiles, {"momentum_1m": 0.2, "momentum_3m": 0.3, "momentum_6m": 0.5}
+    )
+
+    assert equal == pytest.approx(1 / 3)
+    assert weighted == pytest.approx(0.5)
+
+
+# Spec test 2
+def test_null_horizon_percentiles_renormalize_remaining_weights() -> None:
+    percentiles = {"momentum_1m": None, "momentum_3m": 0.4, "momentum_6m": 1.0}
+
+    weighted = _weighted_momentum(
+        percentiles, {"momentum_1m": 0.5, "momentum_3m": 0.2, "momentum_6m": 0.3}
+    )
+
+    # The 0.5 weight on the null 1m horizon drops out and 0.2/0.3 renormalize.
+    assert weighted == pytest.approx((0.2 * 0.4 + 0.3 * 1.0) / 0.5)
+
+
+# Spec test 3
+def test_regime_override_horizon_weights_take_precedence() -> None:
+    params = get_screening_params(_macro_state(regime="Stagflation", amplifier=50))
+
+    assert params["momentum_horizon_weights"] == {
+        "momentum_1m": 0.0,
+        "momentum_3m": 0.3,
+        "momentum_6m": 0.7,
+    }
+
+
+# Spec test 4
+def test_continuous_interpolation_endpoints_match_base_and_discrete() -> None:
+    base = {"momentum": 0.35, "liquidity": 0.25, "volatility_penalty": 0.15}
+    overrides = {"momentum": 0.10, "volatility_penalty": -0.05}
+
+    at_zero = _interpolate_weights(base, overrides, "continuous", 0.0)
+    at_one = _interpolate_weights(base, overrides, "continuous", 1.0)
+    discrete = _interpolate_weights(base, overrides, "discrete", 1.0)
+
+    assert at_zero == base
+    assert at_one == discrete == {"momentum": 0.45, "liquidity": 0.25, "volatility_penalty": 0.10}
+
+
+# Spec test 5
+def test_stress_filters_tighten_monotonically_with_stress() -> None:
+    scr = {
+        "amplifier_stress_threshold": 60,
+        "amplifier_stress_filters": {
+            "min_liquidity_multiplier": 1.5,
+            "max_volatility_multiplier": 0.8,
+            "min_market_cap_multiplier": 2.0,
+        },
+    }
+
+    low = _stress_filters(scr, "continuous", 0.2, 20.0)
+    high = _stress_filters(scr, "continuous", 0.8, 80.0)
+
+    assert high["min_liquidity_multiplier"] > low["min_liquidity_multiplier"]
+    assert high["max_volatility_multiplier"] < low["max_volatility_multiplier"]
+    assert high["min_market_cap_multiplier"] > low["min_market_cap_multiplier"]
+
+
+# Spec test 6
+def test_discrete_interpolation_reproduces_regime_override() -> None:
+    params = get_screening_params(_macro_state(regime="Goldilocks", amplifier=25))
+
+    assert params["interpolation"] == "discrete"
+    assert params["factor_weights"]["momentum"] == 0.45
+    assert params["factor_weights"]["volatility_penalty"] == 0.10
+
+
+# Spec test 7
+def test_vol_scaled_momentum_changes_ranking_and_falls_back() -> None:
+    factor_values = {
+        "A": {"momentum_1m": None, "momentum_3m": 0.2, "momentum_6m": None, "volatility_3m": 0.10},
+        "B": {"momentum_1m": None, "momentum_3m": 0.3, "momentum_6m": None, "volatility_3m": 0.30},
+        "C": {"momentum_1m": None, "momentum_3m": 0.4, "momentum_6m": None, "volatility_3m": None},
+    }
+    fallback: set[str] = set()
+
+    scaled = _scale_momentum_values(factor_values, fallback)
+
+    # Raw ranking is B > A; after scaling by volatility it flips to A > B.
+    assert factor_values["A"]["momentum_3m"] < factor_values["B"]["momentum_3m"]
+    assert scaled["A"]["momentum_3m"] == pytest.approx(2.0)
+    assert scaled["B"]["momentum_3m"] == pytest.approx(1.0)
+    assert scaled["A"]["momentum_3m"] > scaled["B"]["momentum_3m"]
+    # Missing volatility falls back to the raw momentum value and is flagged.
+    assert scaled["C"]["momentum_3m"] == 0.4
+    assert fallback == {"C"}
+
+
+# Spec test 8
+def test_trend_gate_skips_below_ma_only_in_configured_postures(tmp_path: Path) -> None:
+    db_path = tmp_path / "trend_gate.duckdb"
+    migrate(db_path)
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        _seed_factor_values(conn, msft_below_ma=True)
+
+        defensive = run_screening(
+            conn,
+            neutral_screening_params()
+            | {"positioning": "Defensive", "trend_gate_postures": ["Cautious", "Defensive"]},
+            as_of_date=AS_OF,
+        )
+        neutral = run_screening(
+            conn,
+            neutral_screening_params()
+            | {"positioning": "Neutral", "trend_gate_postures": ["Cautious", "Defensive"]},
+            as_of_date=AS_OF,
+        )
+
+    gated = next(c for c in defensive.skipped if c.asset_id == "US_EQ_MSFT")
+    assert "below 200d MA" in gated.reason
+    assert "BELOW_200D_MA_DEFENSIVE" in gated.reason_codes
+    # Under a non-gated posture MSFT is scored, not skipped for the trend gate.
+    assert all(
+        "BELOW_200D_MA_DEFENSIVE" not in c.reason_codes for c in neutral.skipped
+    )
+    assert any(c.asset_id == "US_EQ_MSFT" for c in neutral.candidates)
+
+
+# Spec test 9
+def test_active_trend_gate_renormalizes_weights_without_double_penalty() -> None:
+    weights = {"momentum": 0.35, "liquidity": 0.25, "trend": 0.25, "volatility_penalty": 0.15}
+
+    renormalized = _renormalize_without_trend(weights)
+
+    assert "trend" not in renormalized
+    original_total = sum(abs(v) for v in weights.values())
+    assert sum(abs(v) for v in renormalized.values()) == pytest.approx(original_total)
+    # Relative proportions of the surviving weights are preserved (modulo the
+    # 4-decimal rounding convention).
+    assert renormalized["momentum"] / renormalized["liquidity"] == pytest.approx(
+        0.35 / 0.25, rel=1e-3
+    )
+
+
 def _seed_assets(conn, *, include_inactive: bool = False) -> None:
     assets = [
         Asset(
@@ -244,7 +418,7 @@ def _seed_assets(conn, *, include_inactive: bool = False) -> None:
     AssetRepository(conn).upsert_many(assets)
 
 
-def _seed_factor_values(conn, *, missing_msft: bool = False) -> None:
+def _seed_factor_values(conn, *, missing_msft: bool = False, msft_below_ma: bool = False) -> None:
     factors_by_asset = {
         "US_EQ_AAPL": {
             "momentum_1m": 0.12,
@@ -296,6 +470,8 @@ def _seed_factor_values(conn, *, missing_msft: bool = False) -> None:
             "above_200d_ma": None,
             "volatility_3m": 0.16,
         }
+    if msft_below_ma:
+        factors_by_asset["US_EQ_MSFT"]["above_200d_ma"] = 0.0
 
     rows = [
         (asset_id, AS_OF, factor_name, value)
