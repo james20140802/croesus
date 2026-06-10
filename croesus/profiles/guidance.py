@@ -28,6 +28,25 @@ ABOVE_HIGHEST = "above_highest"
 
 
 @dataclass(frozen=True)
+class Guardrails:
+    """Governance (IPS) caps a band applies to the profile draft.
+
+    Diversification and operational-discipline conventions, not backtested
+    quantities. They scale monotonically with risk posture.
+    """
+
+    liquidity_buffer_months: float
+    max_single_position_weight: float
+    max_sector_weight: float
+    max_industry_weight: float
+    max_theme_weight: float
+    max_country_weight: float
+    max_currency_weight: float
+    max_monthly_turnover: float
+    rebalance_band: float
+
+
+@dataclass(frozen=True)
 class RiskBand:
     name: str
     expected_return_range: tuple[float, float]
@@ -35,6 +54,7 @@ class RiskBand:
     historical_drawdown_range: tuple[float, float]
     min_recommended_horizon_years: int
     template_id: str
+    guardrails: Guardrails
 
 
 @dataclass(frozen=True)
@@ -62,6 +82,7 @@ class ResolutionOption:
     implied_drawdown_range: tuple[float, float]
     implied_min_horizon_years: int
     template_id: str
+    guardrails: Guardrails
 
 
 @dataclass(frozen=True)
@@ -80,6 +101,7 @@ class ProfileGuidance:
     implied_return_range: tuple[float, float] | None
     min_recommended_horizon_years: int
     template_id: str
+    guardrails: Guardrails | None
     scenarios: list[ScenarioLine]
     conflicts: list[GuidanceConflict]
     warnings: list[str]
@@ -95,6 +117,7 @@ def _load_map() -> tuple[list[RiskBand], list[HistoricalEpisode]]:
             historical_drawdown_range=tuple(b["historical_drawdown_range"]),
             min_recommended_horizon_years=int(b["min_recommended_horizon_years"]),
             template_id=b["template_id"],
+            guardrails=Guardrails(**b["guardrails"]),
         )
         for b in raw["bands"]
     ]
@@ -197,6 +220,7 @@ def _band_guidance(
         implied_return_range=band.expected_return_range,
         min_recommended_horizon_years=band.min_recommended_horizon_years,
         template_id=band.template_id,
+        guardrails=band.guardrails,
         scenarios=_build_scenarios(band.name, portfolio_size, portfolio_currency),
         conflicts=conflicts or [],
         warnings=warnings or [],
@@ -220,6 +244,7 @@ def _above_highest_guidance(value: float, anchor: str) -> ProfileGuidance:
         implied_return_range=None,
         min_recommended_horizon_years=0,
         template_id="",
+        guardrails=None,
         scenarios=[],
         conflicts=[],
         warnings=[warning],
@@ -279,6 +304,7 @@ def _resolution_option(key: str, description: str, band: RiskBand) -> Resolution
         implied_drawdown_range=band.historical_drawdown_range,
         implied_min_horizon_years=band.min_recommended_horizon_years,
         template_id=band.template_id,
+        guardrails=band.guardrails,
     )
 
 
@@ -380,23 +406,41 @@ def _midpoint(span: tuple[float, float]) -> float:
     return (span[0] + span[1]) / 2.0
 
 
+def _guardrail_fields(guardrails: Guardrails) -> dict[str, float]:
+    """The band's governance caps as InvestorProfile keyword overrides."""
+    return {
+        "liquidity_buffer_months": guardrails.liquidity_buffer_months,
+        "max_single_position_weight": guardrails.max_single_position_weight,
+        "max_sector_weight": guardrails.max_sector_weight,
+        "max_industry_weight": guardrails.max_industry_weight,
+        "max_theme_weight": guardrails.max_theme_weight,
+        "max_country_weight": guardrails.max_country_weight,
+        "max_currency_weight": guardrails.max_currency_weight,
+        "max_monthly_turnover": guardrails.max_monthly_turnover,
+        "rebalance_band": guardrails.rebalance_band,
+    }
+
+
 def apply_guidance_to_profile(
     base_profile: InvestorProfile,
     guidance: ProfileGuidance,
 ) -> InvestorProfile:
     """Return a copy of ``base_profile`` with guidance-derived fields applied.
 
-    Only ``expected_annual_return`` (return-range midpoint),
-    ``max_tolerable_drawdown`` (drawdown-range midpoint, negative), and
-    ``investment_horizon_years`` (the minimum recommended horizon) are set; every
-    other field — including ``profile_id`` — is preserved. When the guidance has
-    no usable bands (above-highest), ``base_profile`` is returned unchanged.
+    Sets the three core risk fields — ``expected_annual_return`` (return-range
+    midpoint), ``max_tolerable_drawdown`` (drawdown-range midpoint, negative),
+    ``investment_horizon_years`` (the minimum recommended horizon) — plus the
+    band's governance guardrails (concentration caps, turnover, rebalance band,
+    liquidity buffer). Every other field, including ``profile_id``, is preserved.
+    When the guidance has no usable band (above-highest), ``base_profile`` is
+    returned unchanged.
 
     The result is a draft only; the caller must still run ``validate_profile``.
     """
     if (
         guidance.implied_return_range is None
         or guidance.implied_drawdown_range is None
+        or guidance.guardrails is None
     ):
         return base_profile
     return replace(
@@ -404,6 +448,7 @@ def apply_guidance_to_profile(
         expected_annual_return=_midpoint(guidance.implied_return_range),
         max_tolerable_drawdown=_midpoint(guidance.implied_drawdown_range),
         investment_horizon_years=guidance.min_recommended_horizon_years,
+        **_guardrail_fields(guidance.guardrails),
     )
 
 
@@ -417,4 +462,5 @@ def apply_resolution_to_profile(
         expected_annual_return=_midpoint(option.implied_return_range),
         max_tolerable_drawdown=_midpoint(option.implied_drawdown_range),
         investment_horizon_years=option.implied_min_horizon_years,
+        **_guardrail_fields(option.guardrails),
     )

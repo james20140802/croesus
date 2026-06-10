@@ -3,12 +3,26 @@ import pytest
 from croesus.profiles import guidance as gmod
 from croesus.profiles.guidance import (
     ABOVE_HIGHEST,
+    Guardrails,
     RiskBand,
     HistoricalEpisode,
     anchor_on_drawdown,
     anchor_on_return,
     apply_guidance_to_profile,
     detect_conflict,
+)
+
+
+_TEST_GUARDRAILS = Guardrails(
+    liquidity_buffer_months=9.0,
+    max_single_position_weight=0.04,
+    max_sector_weight=0.18,
+    max_industry_weight=0.12,
+    max_theme_weight=0.12,
+    max_country_weight=0.65,
+    max_currency_weight=0.75,
+    max_monthly_turnover=0.04,
+    rebalance_band=0.02,
 )
 from croesus.profiles.policy_templates import POLICY_TEMPLATES
 from croesus.profiles.seed_default_profile import DEFAULT_PROFILE
@@ -178,6 +192,44 @@ def test_apply_guidance_above_band_returns_profile_unchanged():
     assert draft is DEFAULT_PROFILE
 
 
+# --- Derived guardrails (spec section 5) --------------------------------------
+
+
+def test_each_band_carries_guardrails():
+    for g in (anchor_on_return(0.03), anchor_on_return(0.05), anchor_on_return(0.075), anchor_on_return(0.10)):
+        assert g.guardrails is not None
+        assert g.guardrails.max_single_position_weight <= g.guardrails.max_sector_weight
+
+
+def test_guardrails_scale_monotonically_with_risk():
+    bands = [anchor_on_return(r).guardrails for r in (0.03, 0.05, 0.075, 0.10)]
+    # cash buffer shrinks as risk rises; caps and turnover widen.
+    assert [b.liquidity_buffer_months for b in bands] == sorted(
+        (b.liquidity_buffer_months for b in bands), reverse=True
+    )
+    for attr in (
+        "max_single_position_weight",
+        "max_sector_weight",
+        "max_monthly_turnover",
+        "rebalance_band",
+    ):
+        values = [getattr(b, attr) for b in bands]
+        assert values == sorted(values)
+
+
+def test_apply_guidance_sets_guardrail_fields_from_band():
+    g = anchor_on_return(0.03)  # capital_preservation, tightest caps
+    draft = apply_guidance_to_profile(DEFAULT_PROFILE, g)
+    assert draft.max_single_position_weight == 0.05
+    assert draft.liquidity_buffer_months == 12.0
+    assert draft.max_monthly_turnover == 0.05
+    assert draft.rebalance_band == 0.03
+    # personal / governance fields untouched
+    assert draft.monthly_contribution == DEFAULT_PROFILE.monthly_contribution
+    assert draft.trade_mode == DEFAULT_PROFILE.trade_mode
+    assert validate_profile(draft).is_valid
+
+
 # --- AC7: every number comes from the YAML (override changes the output) -------
 
 
@@ -191,6 +243,7 @@ def test_band_values_are_sourced_from_the_yaml_table():
             historical_drawdown_range=(-0.07, -0.03),
             min_recommended_horizon_years=1,
             template_id="capital_preservation",
+            guardrails=_TEST_GUARDRAILS,
         )
     ]
     gmod._EPISODES = [

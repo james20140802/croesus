@@ -164,6 +164,13 @@ def _display_guidance(guidance: ProfileGuidance, prompter: Prompter) -> None:
         worse, milder = guidance.implied_drawdown_range
         prompter.info(f"  역사적 손실폭 범위: {worse:.0%} ~ {milder:.0%}")
     prompter.info(f"  권장 최소 투자기간: {guidance.min_recommended_horizon_years}년")
+    if guidance.guardrails is not None:
+        gr = guidance.guardrails
+        prompter.info(
+            f"  도출된 가드레일: 종목당 최대 {gr.max_single_position_weight:.0%}, "
+            f"섹터 최대 {gr.max_sector_weight:.0%}, 월 회전율 {gr.max_monthly_turnover:.0%}, "
+            f"리밸런싱 밴드 {gr.rebalance_band:.0%}, 현금버퍼 {gr.liquidity_buffer_months:.0f}개월"
+        )
     for warning in guidance.warnings:
         prompter.info(f"warning: {warning}")
     if guidance.scenarios:

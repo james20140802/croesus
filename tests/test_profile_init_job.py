@@ -359,6 +359,9 @@ def test_guided_conflict_resolution_keep_return_applies_return_band(
 
     assert profile is not None
     assert profile.expected_annual_return >= 0.085
+    # keep_return resolves to equity_max, whose guardrails are the widest.
+    assert profile.max_single_position_weight == 0.15
+    assert profile.liquidity_buffer_months == 3.0
     assert "conflict_resolution" in prompter.prompted_keys()
 
 
