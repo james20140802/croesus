@@ -15,6 +15,27 @@ from croesus.profiles.validation import validate_policy_targets, validate_profil
 def recommend_policy(profile: InvestorProfile) -> PolicyRecommendation:
     """Choose an editable starting policy from explicit profile constraints."""
     template_id, rationale = _select_template_id(profile)
+    return _build_recommendation(profile, template_id, rationale)
+
+
+def recommend_policy_for_template(
+    profile: InvestorProfile, template_id: str
+) -> PolicyRecommendation:
+    """Build a recommendation for an explicitly chosen template.
+
+    Used by the return-anchored guided flow: the matched risk band already names
+    the template, so the band is authoritative and the heuristic selector is
+    bypassed. Validation and warnings are identical to ``recommend_policy``.
+    """
+    rationale = [
+        f"selected {template_id} from the return-anchored guidance band"
+    ]
+    return _build_recommendation(profile, template_id, rationale)
+
+
+def _build_recommendation(
+    profile: InvestorProfile, template_id: str, rationale: list[str]
+) -> PolicyRecommendation:
     template = get_policy_template(template_id)
     targets = instantiate_template(template, profile.profile_id)
 

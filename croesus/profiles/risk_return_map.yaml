@@ -1,0 +1,124 @@
+# risk_return_map.yaml
+#
+# DATA SOURCES AND EDITORIAL NOTES
+# ---------------------------------
+# Return ranges: long-run nominal-return heuristics for diversified public-market
+#   portfolios, anchored on long-horizon capital-market studies (e.g. Dimson/
+#   Marsh/Staunton historical returns; Vanguard Capital Markets Model bands).
+# Drawdown ranges: approximate peak-to-trough observations for portfolios at the
+#   given equity weight across the 2000-02, 2007-09, 2020, and 2022 episodes.
+# Horizon minimums: a time-to-recovery heuristic, not a statistical guarantee.
+#
+# ALL VALUES ARE EDITABLE ASSUMPTIONS, NOT PROMISES.
+# Edit this file to reflect your own beliefs or updated research. The values are
+# long-run heuristics; markets can and do deviate. The LLM produces no numbers in
+# this file or anywhere in the guidance flow — every number originates here.
+#
+# Conventions:
+#   expected_return_range:    [low, high]            ascending, fractions
+#   typical_equity_weight:    [low, high]            ascending, fractions
+#   historical_drawdown_range:[worse, milder]        both negative, most-negative first
+#   template_id:              a real id in croesus/profiles/policy_templates.py
+#   guardrails:               governance (IPS) caps applied to the profile draft.
+#                             These are diversification / operational-discipline
+#                             conventions — NOT backtested quantities — and scale
+#                             monotonically with risk posture: more conservative
+#                             bands hold a larger cash buffer and tighter caps,
+#                             trade less, and rebalance on a narrower drift band.
+
+bands:
+  - name: capital_preservation
+    expected_return_range: [0.02, 0.04]
+    typical_equity_weight: [0.00, 0.30]
+    historical_drawdown_range: [-0.15, -0.05]
+    min_recommended_horizon_years: 2
+    template_id: capital_preservation
+    guardrails:
+      liquidity_buffer_months: 12.0
+      max_single_position_weight: 0.05
+      max_sector_weight: 0.20
+      max_industry_weight: 0.15
+      max_theme_weight: 0.15
+      max_country_weight: 0.70
+      max_currency_weight: 0.80
+      max_monthly_turnover: 0.05
+      rebalance_band: 0.03
+
+  - name: balanced
+    expected_return_range: [0.04, 0.065]
+    typical_equity_weight: [0.30, 0.60]
+    historical_drawdown_range: [-0.30, -0.15]
+    min_recommended_horizon_years: 5
+    template_id: balanced_long_term
+    guardrails:
+      liquidity_buffer_months: 6.0
+      max_single_position_weight: 0.08
+      max_sector_weight: 0.28
+      max_industry_weight: 0.20
+      max_theme_weight: 0.22
+      max_country_weight: 0.80
+      max_currency_weight: 0.88
+      max_monthly_turnover: 0.10
+      rebalance_band: 0.04
+
+  - name: growth
+    expected_return_range: [0.065, 0.085]
+    typical_equity_weight: [0.60, 0.85]
+    historical_drawdown_range: [-0.45, -0.30]
+    min_recommended_horizon_years: 7
+    template_id: growth_long_term
+    guardrails:
+      liquidity_buffer_months: 4.0
+      max_single_position_weight: 0.10
+      max_sector_weight: 0.35
+      max_industry_weight: 0.25
+      max_theme_weight: 0.30
+      max_country_weight: 0.90
+      max_currency_weight: 0.95
+      max_monthly_turnover: 0.15
+      rebalance_band: 0.05
+
+  - name: equity_max
+    expected_return_range: [0.085, 0.11]
+    typical_equity_weight: [0.85, 1.00]
+    historical_drawdown_range: [-0.55, -0.45]
+    min_recommended_horizon_years: 10
+    template_id: growth_long_term
+    guardrails:
+      liquidity_buffer_months: 3.0
+      max_single_position_weight: 0.15
+      max_sector_weight: 0.40
+      max_industry_weight: 0.30
+      max_theme_weight: 0.35
+      max_country_weight: 1.00
+      max_currency_weight: 1.00
+      max_monthly_turnover: 0.20
+      rebalance_band: 0.07
+
+# Approximate peak-to-trough drawdown by band for notable stress periods.
+# Source: public index data (broad equity + aggregate bond indices); approximate
+# only, for translating an abstract posture into a felt historical experience.
+historical_episodes:
+  - year: 2008
+    label: "Global Financial Crisis"
+    drawdown_by_band:
+      capital_preservation: -0.10
+      balanced: -0.25
+      growth: -0.40
+      equity_max: -0.52
+
+  - year: 2020
+    label: "COVID-19 Crash"
+    drawdown_by_band:
+      capital_preservation: -0.06
+      balanced: -0.14
+      growth: -0.25
+      equity_max: -0.34
+
+  - year: 2022
+    label: "Rate-Hike Bear Market"
+    drawdown_by_band:
+      capital_preservation: -0.08
+      balanced: -0.18
+      growth: -0.28
+      equity_max: -0.35

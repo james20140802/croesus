@@ -8,7 +8,7 @@ from croesus.profiles.config_io import write_profile_config
 from croesus.jobs.profile_init import main as profile_init_main
 from croesus.jobs.profile_init import run_profile_guided
 from croesus.jobs.profile_init import run_profile_init
-from croesus.profiles.models import PolicyTarget
+from croesus.profiles.models import Currency, PolicyTarget
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
     DEFAULT_POLICY_TARGETS,
@@ -133,7 +133,9 @@ def test_run_profile_guided_saves_recommended_policy_after_confirmation(tmp_path
     )
 
     with get_connection(db_path) as conn:
-        profile_id = run_profile_guided(conn, prompter=prompter, profile_id="guided")
+        profile_id = run_profile_guided(
+            conn, prompter=prompter, profile_id="guided", skip_guidance=True
+        )
         repo = ProfileRepository(conn)
         profile = repo.get_profile(profile_id)
         targets = repo.get_policy_targets(profile_id)
@@ -156,6 +158,7 @@ def test_run_profile_guided_does_not_save_without_confirmation(tmp_path: Path) -
                 conn,
                 prompter=GuidedPrompter(confirmed=False),
                 profile_id="declined",
+                skip_guidance=True,
             )
         assert ProfileRepository(conn).get_profile("declined") is None
 
@@ -166,7 +169,7 @@ def test_profile_init_guided_yes_uses_configured_db_path(tmp_path: Path, monkeyp
 
     profile_init_main(
         ["--guided", "--yes"],
-        prompter=GuidedPrompter({"name": "Guided CLI"}),
+        prompter=GuidedPrompter({"name": "Guided CLI", "anchor_type": "가이드 건너뛰기"}),
     )
 
     with get_connection(db_path) as conn:
@@ -263,10 +266,11 @@ def test_profile_init_guided_from_custom_policy_requires_replace_confirmation(
         profile_init_main(
             ["--guided", "--from", str(cfg)],
             prompter=GuidedPrompter(
+                {"anchor_type": "가이드 건너뛰기"},
                 confirm_answers={
                     "replace_policy_targets": False,
                     "save_profile": True,
-                }
+                },
             ),
         )
 
@@ -284,6 +288,176 @@ def test_profile_init_guided_keyboard_interrupt_exits_cleanly(
     monkeypatch.setenv("CROESUS_DB_PATH", str(db_path))
 
     with pytest.raises(SystemExit) as excinfo:
-        profile_init_main(["--guided"], prompter=InterruptingPrompter())
+        profile_init_main(
+            ["--guided"],
+            prompter=InterruptingPrompter({"anchor_type": "가이드 건너뛰기"}),
+        )
 
     assert excinfo.value.code == 130
+
+
+# --- Sprint 003c: return-anchored guidance integration ------------------------
+
+
+def test_guided_return_anchor_prefills_band_defaults(tmp_path: Path) -> None:
+    db_path = tmp_path / "anchor.duckdb"
+    migrate(db_path)
+    # Return target lands in the growth band; no competing answers for the
+    # derived fields, so the band-derived defaults flow through to the save.
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "anchor_return_value": 0.075,
+            "max_tolerable_drawdown": -0.375,
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(conn, prompter=prompter, profile_id="anchored")
+        profile = ProfileRepository(conn).get_profile("anchored")
+
+    assert profile is not None
+    assert 0.065 <= profile.expected_annual_return <= 0.085
+    assert profile.investment_horizon_years == 7
+    assert "anchor_return_value" in prompter.prompted_keys()
+
+
+def test_guided_growth_band_uses_growth_template_not_selector(tmp_path: Path) -> None:
+    db_path = tmp_path / "band_template.duckdb"
+    migrate(db_path)
+    # 0.075 sits in the growth band (template growth_long_term). The heuristic
+    # selector would pick balanced_long_term here (horizon 7 < 10), so the
+    # satellite weight proves the band — not the selector — chose the template.
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "anchor_return_value": 0.075,
+            "conflict_resolution": "keep_return",
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(conn, prompter=prompter, profile_id="band")
+        targets = ProfileRepository(conn).get_policy_targets("band")
+
+    satellite = next(t for t in targets if t.sleeve_name == "satellite_equity")
+    assert satellite.target_weight == 0.20  # growth_long_term, not balanced (0.15)
+
+
+def test_guided_meet_in_middle_uses_balanced_template(tmp_path: Path) -> None:
+    db_path = tmp_path / "mid_template.duckdb"
+    migrate(db_path)
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "anchor_return_value": 0.075,
+            "conflict_resolution": "meet_in_middle",
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(conn, prompter=prompter, profile_id="mid")
+        targets = ProfileRepository(conn).get_policy_targets("mid")
+
+    satellite = next(t for t in targets if t.sleeve_name == "satellite_equity")
+    assert satellite.target_weight == 0.15  # balanced_long_term
+
+
+def test_guided_skip_guidance_matches_legacy_flow(tmp_path: Path) -> None:
+    db_path = tmp_path / "skip.duckdb"
+    migrate(db_path)
+    prompter = GuidedPrompter({"name": "Skip test"})
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(
+            conn, prompter=prompter, profile_id="skip", skip_guidance=True
+        )
+        profile = ProfileRepository(conn).get_profile("skip")
+
+    assert profile is not None
+    assert profile.name == "Skip test"
+    assert "anchor_type" not in prompter.prompted_keys()
+
+
+def test_guided_conflict_resolution_keep_return_applies_return_band(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "conflict.duckdb"
+    migrate(db_path)
+    # Default drawdown -0.25 (balanced) vs a 0.10 return target (equity_max)
+    # is a conflict; choosing keep_return pushes the profile into equity_max.
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "anchor_return_value": 0.10,
+            "conflict_resolution": "keep_return",
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(conn, prompter=prompter, profile_id="conflict_r")
+        profile = ProfileRepository(conn).get_profile("conflict_r")
+
+    assert profile is not None
+    assert profile.expected_annual_return >= 0.085
+    # keep_return resolves to equity_max, whose guardrails are the widest.
+    assert profile.max_single_position_weight == 0.15
+    assert profile.liquidity_buffer_months == 3.0
+    assert "conflict_resolution" in prompter.prompted_keys()
+
+
+def test_guided_currency_chosen_in_anchor_phase_drives_scenarios(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "currency.duckdb"
+    migrate(db_path)
+    # Currency is picked before portfolio size, so scenarios render in KRW and
+    # the build phase inherits KRW as its base_currency default.
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "base_currency": Currency.KRW,
+            "portfolio_size": 100_000_000.0,
+            "anchor_return_value": 0.10,
+            "conflict_resolution": "keep_return",
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(conn, prompter=prompter, profile_id="krw")
+        profile = ProfileRepository(conn).get_profile("krw")
+
+    assert profile is not None
+    assert profile.base_currency is Currency.KRW
+    scenario_lines = [e["message"] for e in prompter.seen if "KRW 손실" in e["message"]]
+    assert scenario_lines
+
+
+def test_guided_above_band_warns_and_keeps_stated_return(tmp_path: Path) -> None:
+    db_path = tmp_path / "above.duckdb"
+    migrate(db_path)
+    # The build phase does NOT re-state the return, so the only way the saved
+    # value can be 0.50 is if the anchor phase preserved the stated number.
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "anchor_return_value": 0.50,
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(
+            conn, prompter=prompter, profile_id="above", auto_confirm=True
+        )
+        profile = ProfileRepository(conn).get_profile("above")
+
+    assert profile is not None
+    assert profile.expected_annual_return == 0.50  # stated value never dropped
+    warnings = [
+        e["message"]
+        for e in prompter.seen
+        if "above the highest" in e["message"].lower()
+    ]
+    assert warnings
+    # Above-band path never prompts for a resolution.
+    assert "conflict_resolution" not in prompter.prompted_keys()

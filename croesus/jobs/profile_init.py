@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -10,14 +11,24 @@ import duckdb
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.profiles.config_io import read_profile_config, write_profile_config
+from croesus.profiles.guidance import (
+    ABOVE_HIGHEST,
+    ProfileGuidance,
+    anchor_on_drawdown,
+    apply_guidance_to_profile,
+    apply_resolution_to_profile,
+    detect_conflict,
+)
 from croesus.profiles.interactive import (
     Prompter,
     QuestionaryPrompter,
+    _negative_float,
+    _positive_float,
     build_profile_interactively,
     build_profile_inputs_interactively,
 )
-from croesus.profiles.models import InvestorProfile, PolicyTarget
-from croesus.profiles.onboarding import recommend_policy
+from croesus.profiles.models import Currency, InvestorProfile, PolicyTarget
+from croesus.profiles.onboarding import recommend_policy, recommend_policy_for_template
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
     DEFAULT_POLICY_TARGETS,
@@ -127,6 +138,152 @@ def run_profile_interactive(
     return profile.profile_id
 
 
+ANCHOR_RETURN = "목표 수익률"
+ANCHOR_DRAWDOWN = "감내 가능한 손실폭"
+ANCHOR_SKIP = "가이드 건너뛰기"
+
+
+def _optional_positive_float(raw: str) -> float | None:
+    if raw.strip().lower() in {"none", "null", ""}:
+        return None
+    return _positive_float(raw)
+
+
+def _display_guidance(guidance: ProfileGuidance, prompter: Prompter) -> None:
+    """Render a ProfileGuidance as human-readable info lines via the prompter."""
+    if guidance.matched_band == ABOVE_HIGHEST:
+        for warning in guidance.warnings:
+            prompter.info(f"warning: {warning}")
+        return
+
+    prompter.info(f"가이드: '{guidance.matched_band}' 구간")
+    if guidance.implied_return_range is not None:
+        lo, hi = guidance.implied_return_range
+        prompter.info(f"  예상 수익률 범위: {lo:.1%} ~ {hi:.1%}")
+    if guidance.implied_drawdown_range is not None:
+        worse, milder = guidance.implied_drawdown_range
+        prompter.info(f"  역사적 손실폭 범위: {worse:.0%} ~ {milder:.0%}")
+    prompter.info(f"  권장 최소 투자기간: {guidance.min_recommended_horizon_years}년")
+    if guidance.guardrails is not None:
+        gr = guidance.guardrails
+        prompter.info(
+            f"  도출된 가드레일: 종목당 최대 {gr.max_single_position_weight:.0%}, "
+            f"섹터 최대 {gr.max_sector_weight:.0%}, 월 회전율 {gr.max_monthly_turnover:.0%}, "
+            f"리밸런싱 밴드 {gr.rebalance_band:.0%}, 현금버퍼 {gr.liquidity_buffer_months:.0f}개월"
+        )
+    for warning in guidance.warnings:
+        prompter.info(f"warning: {warning}")
+    if guidance.scenarios:
+        prompter.info("  역사적 사례 (근사치):")
+        for line in guidance.scenarios:
+            text = f"    {line.episode_year} {line.episode_label}: 약 {line.approximate_drawdown:.0%}"
+            if line.currency_amount is not None and line.currency:
+                text += f" ({abs(line.currency_amount):,.0f} {line.currency} 손실)"
+            prompter.info(text)
+
+
+def _run_return_anchor_phase(
+    profile_defaults: InvestorProfile,
+    *,
+    prompter: Prompter,
+) -> tuple[InvestorProfile, str | None]:
+    """Ask the return/drawdown anchor question and derive a consistent draft.
+
+    Returns ``(draft_profile, template_id)``. The draft becomes the defaults for
+    the subsequent field-by-field build, so every derived value remains editable.
+    ``template_id`` is the matched band's (or the chosen resolution's) template,
+    which the caller treats as authoritative for the policy; it is ``None`` when
+    the user skips guidance or the target is above the highest band (both fall
+    back to the heuristic selector). Nothing is saved here, and
+    ``validate_profile`` is still the only gate downstream.
+    """
+    anchor_type = prompter.select(
+        "anchor_type",
+        "어떤 기준으로 프로필을 설계할까요?",
+        "목표 수익률 또는 감내 가능한 손실폭 중 하나를 고르거나, 가이드를 건너뜁니다.",
+        [ANCHOR_RETURN, ANCHOR_DRAWDOWN, ANCHOR_SKIP],
+        ANCHOR_RETURN,
+    )
+    if anchor_type == ANCHOR_SKIP:
+        return profile_defaults, None
+
+    base_currency = prompter.select(
+        "base_currency",
+        "기축통화를 선택하세요",
+        "이후 입력하는 금액과 손실폭 환산이 모두 이 통화 기준으로 표시됩니다.",
+        list(Currency),
+        profile_defaults.base_currency,
+    )
+    profile_defaults = replace(profile_defaults, base_currency=base_currency)
+    currency = base_currency.value
+    portfolio_size = prompter.text(
+        "portfolio_size",
+        f"대략적인 포트폴리오 규모 ({currency}, 선택)",
+        f"손실폭을 {currency} 금액으로 환산해 보여줍니다. 없으면 비워두세요.",
+        None,
+        _optional_positive_float,
+    )
+
+    if anchor_type == ANCHOR_DRAWDOWN:
+        drawdown_val = prompter.text(
+            "anchor_drawdown_value",
+            "감내 가능한 최대 손실폭 (음수, 예: -0.20)",
+            "이 수준의 하락을 견딜 수 있다고 가정합니다.",
+            profile_defaults.max_tolerable_drawdown,
+            _negative_float,
+        )
+        guidance = anchor_on_drawdown(
+            drawdown_val, portfolio_size=portfolio_size, portfolio_currency=currency
+        )
+        _display_guidance(guidance, prompter)
+        draft = apply_guidance_to_profile(profile_defaults, guidance)
+        return draft, guidance.template_id
+
+    return_val = prompter.text(
+        "anchor_return_value",
+        "목표 연간 수익률 (예: 0.08)",
+        "이 수익률을 장기 목표로 가정합니다.",
+        profile_defaults.expected_annual_return,
+        _positive_float,
+    )
+    guidance = detect_conflict(
+        return_val,
+        profile_defaults.max_tolerable_drawdown,
+        portfolio_size=portfolio_size,
+        portfolio_currency=currency,
+    )
+    _display_guidance(guidance, prompter)
+
+    if guidance.matched_band == ABOVE_HIGHEST:
+        # Keep the user's stated return (never silently drop it) but invent no
+        # band-derived fields; the heuristic selector picks the policy and the
+        # downstream validator surfaces the warning.
+        return replace(profile_defaults, expected_annual_return=return_val), None
+
+    if guidance.conflicts:
+        conflict = guidance.conflicts[0]
+        prompter.info(f"warning: {conflict.description}")
+        choice = prompter.select(
+            "conflict_resolution",
+            "목표 수익률과 손실폭이 일치하지 않습니다. 어떻게 조정할까요?",
+            "선택한 옵션에 맞춰 프로필 초안을 구성합니다 (이후 단계에서 수정 가능).",
+            [option.key for option in conflict.options],
+            conflict.options[0].key,
+        )
+        option = next(o for o in conflict.options if o.key == choice)
+        prompter.info(f"선택: {option.key} — {option.description}")
+        draft = apply_resolution_to_profile(
+            profile_defaults,
+            option,
+            stated_return=return_val,
+            stated_drawdown=profile_defaults.max_tolerable_drawdown,
+        )
+        return draft, option.template_id
+
+    draft = apply_guidance_to_profile(profile_defaults, guidance)
+    return draft, guidance.template_id
+
+
 def run_profile_guided(
     conn: duckdb.DuckDBPyConnection,
     profile_defaults: InvestorProfile = DEFAULT_PROFILE,
@@ -136,12 +293,24 @@ def run_profile_guided(
     profile_id: str | None = None,
     existing_targets: list[PolicyTarget] | None = None,
     auto_confirm: bool = False,
+    skip_guidance: bool = False,
 ) -> str:
-    """Prompt for profile fields, recommend policy targets, and save on approval."""
+    """Prompt for profile fields, recommend policy targets, and save on approval.
+
+    When ``skip_guidance`` is False (the default), a return/drawdown anchor phase
+    runs first and pre-fills the field defaults; pass ``skip_guidance=True`` to
+    reproduce the pre-003c flow exactly.
+    """
     if prompter is None:
         prompter = QuestionaryPrompter()
     resolved_id = profile_id if profile_id is not None else _new_profile_id()
     prompter.info(f"profile id: {resolved_id}")
+
+    guided_template_id: str | None = None
+    if not skip_guidance:
+        profile_defaults, guided_template_id = _run_return_anchor_phase(
+            profile_defaults, prompter=prompter
+        )
 
     profile = build_profile_inputs_interactively(
         profile_defaults,
@@ -153,7 +322,12 @@ def run_profile_guided(
     if profile_result.errors:
         raise ValueError(f"invalid profile: {profile_result.errors}")
 
-    recommendation = recommend_policy(profile)
+    # When guidance ran, the matched band names the template authoritatively;
+    # otherwise fall back to the heuristic selector.
+    if guided_template_id is not None:
+        recommendation = recommend_policy_for_template(profile, guided_template_id)
+    else:
+        recommendation = recommend_policy(profile)
     target_result = validate_policy_targets(recommendation.targets)
     if target_result.errors:
         raise ValueError(f"invalid recommended policy: {target_result.errors}")
