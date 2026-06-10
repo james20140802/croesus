@@ -157,7 +157,6 @@ def generate_proposed_actions(
     for drift in drift_rows:
         if not drift.is_outside_band:
             continue
-        lower_name = drift.sleeve_name.lower()
         if _is_cash_sleeve(drift) and drift.min_weight is not None:
             if drift.current_weight < drift.min_weight:
                 cash_needs_restoration = True

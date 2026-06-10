@@ -93,7 +93,6 @@ def compute_confirmation_score(
     gc = last("GC=F")
     if hg is not None and gc is not None and gc > 0:
         cg_ratio = hg / gc
-        cg_series = None
         hg_s = raw.get("HG=F")
         gc_s = raw.get("GC=F")
         if hg_s is not None and gc_s is not None:

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
-from datetime import date
 from pathlib import Path
 
 from croesus.macro.models import MacroState
@@ -77,7 +75,7 @@ def generate_markdown(state: MacroState, params: dict | None = None) -> str:
             "## Regime Method Comparison",
             "",
             f"**Consensus: {top_count}/{total} methods → {top_regime}**"
-            + (f"  (unanimous)" if top_count == total else ""),
+            + ("  (unanimous)" if top_count == total else ""),
             "",
             "| Method | Type | Growth | Inflation | Regime | Confidence |",
             "|--------|------|--------|-----------|--------|------------|",

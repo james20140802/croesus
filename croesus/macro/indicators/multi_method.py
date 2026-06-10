@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Alternative regime classification methods for cross-validation.
 
@@ -11,6 +9,8 @@ These are reference implementations of approaches used by major institutions:
 The primary regime used for screening is always the ensemble vote in engine.py.
 These methods are output-only reference signals — never wired into screening_adapter.
 """
+
+from __future__ import annotations
 
 import pandas as pd
 
