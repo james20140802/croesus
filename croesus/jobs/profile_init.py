@@ -251,9 +251,9 @@ def _run_return_anchor_phase(
     _display_guidance(guidance, prompter)
 
     if guidance.matched_band == ABOVE_HIGHEST:
-        # Do not invent a draft; keep the user's stated value and let the
-        # downstream validator surface its warning.
-        return profile_defaults, guidance
+        # Keep the user's stated return (never silently drop it) but invent no
+        # band-derived fields; the downstream validator surfaces the warning.
+        return replace(profile_defaults, expected_annual_return=return_val), guidance
 
     if guidance.conflicts:
         conflict = guidance.conflicts[0]
@@ -267,7 +267,13 @@ def _run_return_anchor_phase(
         )
         option = next(o for o in conflict.options if o.key == choice)
         prompter.info(f"선택: {option.key} — {option.description}")
-        return apply_resolution_to_profile(profile_defaults, option), guidance
+        draft = apply_resolution_to_profile(
+            profile_defaults,
+            option,
+            stated_return=return_val,
+            stated_drawdown=profile_defaults.max_tolerable_drawdown,
+        )
+        return draft, guidance
 
     return apply_guidance_to_profile(profile_defaults, guidance), guidance
 

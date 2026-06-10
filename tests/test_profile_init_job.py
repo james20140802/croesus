@@ -395,12 +395,12 @@ def test_guided_currency_chosen_in_anchor_phase_drives_scenarios(
 def test_guided_above_band_warns_and_keeps_stated_return(tmp_path: Path) -> None:
     db_path = tmp_path / "above.duckdb"
     migrate(db_path)
+    # The build phase does NOT re-state the return, so the only way the saved
+    # value can be 0.50 is if the anchor phase preserved the stated number.
     prompter = GuidedPrompter(
         {
             "anchor_type": "목표 수익률",
             "anchor_return_value": 0.50,
-            "expected_annual_return": 0.50,
-            "max_tolerable_drawdown": -0.55,
         }
     )
 
@@ -408,7 +408,10 @@ def test_guided_above_band_warns_and_keeps_stated_return(tmp_path: Path) -> None
         run_profile_guided(
             conn, prompter=prompter, profile_id="above", auto_confirm=True
         )
+        profile = ProfileRepository(conn).get_profile("above")
 
+    assert profile is not None
+    assert profile.expected_annual_return == 0.50  # stated value never dropped
     warnings = [
         e["message"]
         for e in prompter.seen

@@ -9,6 +9,7 @@ from croesus.profiles.guidance import (
     anchor_on_drawdown,
     anchor_on_return,
     apply_guidance_to_profile,
+    apply_resolution_to_profile,
     detect_conflict,
 )
 
@@ -190,6 +191,56 @@ def test_apply_guidance_above_band_returns_profile_unchanged():
     g = anchor_on_return(0.50)
     draft = apply_guidance_to_profile(DEFAULT_PROFILE, g)
     assert draft is DEFAULT_PROFILE
+
+
+# --- Anchored value is preserved exactly (the stated number is never replaced) -
+
+
+def test_return_anchor_preserves_exact_stated_return():
+    # 0.08 sits inside growth (0.065–0.085); the saved return must stay 0.08,
+    # not collapse to the band midpoint (0.075).
+    g = anchor_on_return(0.08)
+    draft = apply_guidance_to_profile(DEFAULT_PROFILE, g)
+    assert draft.expected_annual_return == 0.08
+    # the non-anchored side (drawdown) is derived from the band
+    assert draft.max_tolerable_drawdown == pytest.approx(-0.375)
+
+
+def test_drawdown_anchor_preserves_exact_stated_drawdown():
+    g = anchor_on_drawdown(-0.22)  # inside balanced (-0.30–-0.15)
+    draft = apply_guidance_to_profile(DEFAULT_PROFILE, g)
+    assert draft.max_tolerable_drawdown == -0.22
+    assert draft.expected_annual_return == pytest.approx(0.0525)  # balanced midpoint
+
+
+def test_resolution_keep_return_preserves_stated_return():
+    g = detect_conflict(0.10, -0.10)
+    opt = next(o for o in g.conflicts[0].options if o.key == "keep_return")
+    draft = apply_resolution_to_profile(
+        DEFAULT_PROFILE, opt, stated_return=0.10, stated_drawdown=-0.10
+    )
+    assert draft.expected_annual_return == 0.10  # kept exactly
+    assert draft.max_tolerable_drawdown == pytest.approx(-0.50)  # equity_max derived
+
+
+def test_resolution_keep_drawdown_preserves_stated_drawdown():
+    g = detect_conflict(0.10, -0.10)
+    opt = next(o for o in g.conflicts[0].options if o.key == "keep_drawdown")
+    draft = apply_resolution_to_profile(
+        DEFAULT_PROFILE, opt, stated_return=0.10, stated_drawdown=-0.10
+    )
+    assert draft.max_tolerable_drawdown == -0.10  # kept exactly
+    assert draft.expected_annual_return == pytest.approx(0.03)  # cap-pres derived
+
+
+def test_resolution_meet_in_middle_derives_both_sides():
+    g = detect_conflict(0.10, -0.10)
+    opt = next(o for o in g.conflicts[0].options if o.key == "meet_in_middle")
+    draft = apply_resolution_to_profile(
+        DEFAULT_PROFILE, opt, stated_return=0.10, stated_drawdown=-0.10
+    )
+    assert draft.expected_annual_return == pytest.approx(0.0525)  # balanced
+    assert draft.max_tolerable_drawdown == pytest.approx(-0.225)
 
 
 # --- Derived guardrails (spec section 5) --------------------------------------

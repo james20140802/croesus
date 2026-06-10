@@ -96,6 +96,7 @@ class GuidanceConflict:
 @dataclass(frozen=True)
 class ProfileGuidance:
     anchor: str  # "return" | "drawdown"
+    anchor_value: float | None  # the exact value the user stated for the anchor
     matched_band: str
     implied_drawdown_range: tuple[float, float] | None
     implied_return_range: tuple[float, float] | None
@@ -208,6 +209,7 @@ def _band_guidance(
     band: RiskBand,
     *,
     anchor: str,
+    anchor_value: float,
     portfolio_size: float | None,
     portfolio_currency: str | None,
     conflicts: list[GuidanceConflict] | None = None,
@@ -215,6 +217,7 @@ def _band_guidance(
 ) -> ProfileGuidance:
     return ProfileGuidance(
         anchor=anchor,
+        anchor_value=anchor_value,
         matched_band=band.name,
         implied_drawdown_range=band.historical_drawdown_range,
         implied_return_range=band.expected_return_range,
@@ -239,6 +242,7 @@ def _above_highest_guidance(value: float, anchor: str) -> ProfileGuidance:
     )
     return ProfileGuidance(
         anchor=anchor,
+        anchor_value=value,
         matched_band=ABOVE_HIGHEST,
         implied_drawdown_range=None,
         implied_return_range=None,
@@ -264,6 +268,7 @@ def anchor_on_return(
     return _band_guidance(
         band,
         anchor="return",
+        anchor_value=value,
         portfolio_size=portfolio_size,
         portfolio_currency=portfolio_currency,
     )
@@ -285,12 +290,14 @@ def anchor_on_drawdown(
         return _band_guidance(
             _BANDS[0],
             anchor="drawdown",
+            anchor_value=value,
             portfolio_size=portfolio_size,
             portfolio_currency=portfolio_currency,
         )
     return _band_guidance(
         band,
         anchor="drawdown",
+        anchor_value=value,
         portfolio_size=portfolio_size,
         portfolio_currency=portfolio_currency,
     )
@@ -383,6 +390,7 @@ def detect_conflict(
         return _band_guidance(
             return_band,
             anchor="return",
+            anchor_value=return_val,
             portfolio_size=portfolio_size,
             portfolio_currency=portfolio_currency,
         )
@@ -396,6 +404,7 @@ def detect_conflict(
     return _band_guidance(
         return_band,
         anchor="return",
+        anchor_value=return_val,
         portfolio_size=portfolio_size,
         portfolio_currency=portfolio_currency,
         conflicts=[conflict],
@@ -427,13 +436,14 @@ def apply_guidance_to_profile(
 ) -> InvestorProfile:
     """Return a copy of ``base_profile`` with guidance-derived fields applied.
 
-    Sets the three core risk fields — ``expected_annual_return`` (return-range
-    midpoint), ``max_tolerable_drawdown`` (drawdown-range midpoint, negative),
-    ``investment_horizon_years`` (the minimum recommended horizon) — plus the
-    band's governance guardrails (concentration caps, turnover, rebalance band,
-    liquidity buffer). Every other field, including ``profile_id``, is preserved.
-    When the guidance has no usable band (above-highest), ``base_profile`` is
-    returned unchanged.
+    The **anchored** side is preserved exactly as the user stated it — a return
+    anchor keeps ``expected_annual_return`` at the entered value, a drawdown
+    anchor keeps ``max_tolerable_drawdown`` — and only the *other* core field is
+    derived from the band (its range midpoint). ``investment_horizon_years`` (the
+    minimum recommended horizon) and the band's governance guardrails are applied
+    too. Every other field, including ``profile_id``, is preserved. When the
+    guidance has no usable band (above-highest), ``base_profile`` is returned
+    unchanged.
 
     The result is a draft only; the caller must still run ``validate_profile``.
     """
@@ -441,12 +451,21 @@ def apply_guidance_to_profile(
         guidance.implied_return_range is None
         or guidance.implied_drawdown_range is None
         or guidance.guardrails is None
+        or guidance.anchor_value is None
     ):
         return base_profile
+
+    if guidance.anchor == "drawdown":
+        expected_return = _midpoint(guidance.implied_return_range)
+        drawdown = guidance.anchor_value  # preserve the stated drawdown exactly
+    else:
+        expected_return = guidance.anchor_value  # preserve the stated return exactly
+        drawdown = _midpoint(guidance.implied_drawdown_range)
+
     return replace(
         base_profile,
-        expected_annual_return=_midpoint(guidance.implied_return_range),
-        max_tolerable_drawdown=_midpoint(guidance.implied_drawdown_range),
+        expected_annual_return=expected_return,
+        max_tolerable_drawdown=drawdown,
         investment_horizon_years=guidance.min_recommended_horizon_years,
         **_guardrail_fields(guidance.guardrails),
     )
@@ -455,12 +474,34 @@ def apply_guidance_to_profile(
 def apply_resolution_to_profile(
     base_profile: InvestorProfile,
     option: ResolutionOption,
+    *,
+    stated_return: float,
+    stated_drawdown: float,
 ) -> InvestorProfile:
-    """Apply a chosen :class:`ResolutionOption` to a profile, like the above."""
+    """Apply a chosen conflict :class:`ResolutionOption` to a profile.
+
+    The kept side keeps the user's stated value; the other is derived from the
+    option's band:
+
+    - ``keep_return``  → keep ``stated_return``, derive drawdown from the band;
+    - ``keep_drawdown``→ keep ``stated_drawdown``, derive return from the band;
+    - ``meet_in_middle``→ derive both from the (balanced) band, since the user
+      explicitly accepted a compromise on both sides.
+    """
+    if option.key == "keep_return":
+        expected_return = stated_return
+        drawdown = _midpoint(option.implied_drawdown_range)
+    elif option.key == "keep_drawdown":
+        expected_return = _midpoint(option.implied_return_range)
+        drawdown = stated_drawdown
+    else:  # meet_in_middle
+        expected_return = _midpoint(option.implied_return_range)
+        drawdown = _midpoint(option.implied_drawdown_range)
+
     return replace(
         base_profile,
-        expected_annual_return=_midpoint(option.implied_return_range),
-        max_tolerable_drawdown=_midpoint(option.implied_drawdown_range),
+        expected_annual_return=expected_return,
+        max_tolerable_drawdown=drawdown,
         investment_horizon_years=option.implied_min_horizon_years,
         **_guardrail_fields(option.guardrails),
     )
