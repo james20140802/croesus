@@ -227,3 +227,24 @@ CREATE TABLE IF NOT EXISTS data_freshness (
   reason TEXT,
   metadata JSON
 );
+
+-- Sprint 006c: transaction ledger. The append-only record of how a portfolio
+-- changed over time (buys, sells, deposits, withdrawals, dividends, fees,
+-- manual adjustments). Holdings can be derived deterministically from these
+-- rows, and a manually-executed proposed action links back via
+-- linked_action_id. transaction_type values are a stable product contract.
+CREATE TABLE IF NOT EXISTS portfolio_transactions (
+  transaction_id TEXT PRIMARY KEY,
+  portfolio_id TEXT NOT NULL,
+  asset_id TEXT,
+  transaction_date DATE NOT NULL,
+  transaction_type TEXT NOT NULL,
+  quantity DOUBLE,
+  price DOUBLE,
+  gross_amount DOUBLE,
+  currency TEXT,
+  fees DOUBLE,
+  source TEXT,
+  linked_action_id TEXT,
+  metadata JSON
+);
