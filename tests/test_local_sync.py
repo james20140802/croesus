@@ -13,7 +13,7 @@ from croesus.jobs.local_sync import (
     render_launchd_plist,
     run_local_sync,
 )
-from croesus.jobs.run_status import RunStatusRepository
+from croesus.jobs.run_status import DOMAINS_BY_NAME, RunStatusRepository
 
 UTC = timezone.utc
 NOW = datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
@@ -160,6 +160,11 @@ def test_records_history_and_refreshes_freshness(tmp_path: Path) -> None:
 
     fresh = {s.domain: s for s in result.freshness}
     assert fresh["prices"].status == "fresh"
+    # Tie freshness to the recorded success, not an unconditional "fresh" write:
+    # a domain whose job never ran must stay missing in the same result.
+    assert fresh["prices"].latest_success_at == NOW
+    assert fresh["screening"].status == "missing"
+    assert fresh["screening"].latest_success_at is None
 
     with get_connection(db_path) as conn:
         runs = RunStatusRepository(conn).recent_job_runs("daily_run")
@@ -181,6 +186,18 @@ def test_default_jobs_are_recommendation_only_no_trades() -> None:
         for name in names
         for token in ("order", "execute", "broker", "submit")
     )
+
+
+def test_default_job_names_match_their_domain_freshness_jobs() -> None:
+    # Each default job's name must equal the job_name its domains are tracked
+    # under; otherwise a successful run would never clear those domains' staleness.
+    for job in default_sync_jobs():
+        for domain in job.domains:
+            spec = DOMAINS_BY_NAME[domain]
+            assert spec.job_name == job.name, (
+                f"job {job.name!r} refreshes domain {domain!r} whose freshness is "
+                f"keyed to job {spec.job_name!r} — name drift would hide staleness"
+            )
 
 
 def test_scheduling_templates_render() -> None:

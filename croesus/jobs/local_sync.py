@@ -14,6 +14,7 @@ touching the network. ``default_sync_jobs()`` wires the real entrypoints.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -125,7 +126,7 @@ def run_local_sync(
         if blocking:
             reason = f"dependency not satisfied: {', '.join(blocking)}"
             unsatisfied.add(job.name)
-            _record(resolved, run_id, job, started, started, RUN_SKIPPED, reason, None, now=None)
+            _record(resolved, run_id, job, started, started, RUN_SKIPPED, reason, None)
             outcomes.append(_outcome(job, RUN_SKIPPED, started, started, reason, None))
             log(f"{job.name}: skipped — {reason}")
             continue
@@ -136,7 +137,7 @@ def run_local_sync(
         dep_refreshed = any(d in ran_ok for d in job.depends_on)
         if not (force or domains_due or dep_refreshed):
             reason = "up to date"
-            _record(resolved, run_id, job, started, started, RUN_SKIPPED, reason, None, now=None)
+            _record(resolved, run_id, job, started, started, RUN_SKIPPED, reason, None)
             outcomes.append(_outcome(job, RUN_SKIPPED, started, started, reason, None))
             log(f"{job.name}: skipped — {reason}")
             continue  # up-to-date skip does NOT block dependents
@@ -153,17 +154,17 @@ def run_local_sync(
             unsatisfied.add(job.name)
 
         finished = clock()
-        # Re-stamp freshness only after a real success refreshed source data.
-        _record(
-            resolved, run_id, job, started, finished, status, summary, error,
-            now=(clock() if status == RUN_SUCCESS else None),
-        )
+        _record(resolved, run_id, job, started, finished, status, summary, error)
         outcomes.append(_outcome(job, status, started, finished, summary, error))
         log(f"{job.name}: {status}" + (f" — {summary or error}" if (summary or error) else ""))
 
+    # Re-stamp every domain once, against a single end-of-run reference time, so
+    # the persisted freshness is coherent (no per-job clock drift across domains).
     finished_overall = clock()
     with get_connection(resolved) as conn:
-        freshness = RunStatusRepository(conn).get_freshness()
+        repo = RunStatusRepository(conn)
+        repo.refresh_freshness(finished_overall)
+        freshness = repo.get_freshness()
 
     return LocalSyncResult(
         run_id=run_id,
@@ -201,18 +202,17 @@ def _record(
     status: str,
     summary: str | None,
     error: str | None,
-    *,
-    now: datetime | None,
 ) -> None:
-    """Persist a job_run row and, on success, refresh the affected domains.
+    """Persist a single job_run row.
 
     The bookkeeping connection is opened and closed here — never held open while
     a job runner executes — so self-contained jobs that open their own DuckDB
     connection do not collide with the orchestrator on the same database file.
+    Freshness is re-stamped once at the end of the run, not per job, so all
+    domains share one reference time.
     """
     with get_connection(db_path) as conn:
-        repo = RunStatusRepository(conn)
-        repo.record_job_run(
+        RunStatusRepository(conn).record_job_run(
             run_id=f"{run_id}:{job.name}",
             job_name=job.name,
             started_at=started,
@@ -222,8 +222,6 @@ def _record(
             error=error,
             metadata={"domains": list(job.domains)},
         )
-        if now is not None:
-            repo.refresh_freshness(now)
 
 
 # ── Default production job wiring ────────────────────────────────────────────
@@ -245,13 +243,11 @@ def _run_daily(db: Path) -> str:
     return (
         f"prices={len(result.price_result.succeeded)} "
         f"fx={len(result.fx_result.succeeded)} "
-        f"factors={sum(result.factor_result.computed.values())}"
+        f"factors={len(result.factor_result.computed)}"
     )
 
 
 def _run_snapshot(db: Path) -> str:
-    import os
-
     from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
 
     holdings_path = os.getenv("CROESUS_HOLDINGS_PATH")
@@ -361,7 +357,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="python -m croesus.jobs.local_sync",
         description="Refresh due local research data in dependency order.",
     )
-    parser.add_argument("--db-path", default=None, help="override the DuckDB path")
+    parser.add_argument(
+        "--db-path", default=None,
+        help="override the DuckDB path (exported so self-contained sub-jobs honor it)",
+    )
     parser.add_argument(
         "--force", action="store_true", help="run every job regardless of freshness"
     )
@@ -378,6 +377,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--hour", type=int, default=7, help="schedule hour (templates)")
     parser.add_argument("--minute", type=int, default=0, help="schedule minute (templates)")
     args = parser.parse_args(argv)
+
+    # Some sub-jobs (e.g. the macro runs) manage their own connection via
+    # resolve_db_path(), which reads CROESUS_DB_PATH. Export the override so a
+    # custom --db-path reaches every runner, not just the conn-accepting ones.
+    if args.db_path:
+        os.environ["CROESUS_DB_PATH"] = str(args.db_path)
 
     if args.print_cron:
         print(render_cron_line(hour=args.hour, minute=args.minute))
