@@ -215,10 +215,14 @@ def _value_at(
     """Latest snapshot ``(as_of_date, total_market_value)`` at or before ``target``."""
     chosen: tuple[date, float] | None = None
     for row in history:  # history is oldest-first
-        if row["as_of_date"] <= target:
-            chosen = (row["as_of_date"], row.get("total_market_value") or 0.0)
-        else:
+        if row["as_of_date"] > target:
             break
+        value = row.get("total_market_value")
+        if value is not None:
+            # A NULL-valued snapshot is no data, not a $0 portfolio: skip it so
+            # it neither becomes a false 0.0 end-point nor masks an earlier
+            # valued snapshot. A real 0.0 (empty book) is kept.
+            chosen = (row["as_of_date"], value)
     return chosen
 
 
@@ -295,9 +299,11 @@ def _window_drawdown(
     history: list[dict[str, Any]], *, start: date | None, end: date
 ) -> float | None:
     values = [
-        row.get("total_market_value") or 0.0
+        row["total_market_value"]
         for row in history
-        if (start is None or row["as_of_date"] >= start) and row["as_of_date"] <= end
+        if (start is None or row["as_of_date"] >= start)
+        and row["as_of_date"] <= end
+        and row.get("total_market_value") is not None
     ]
     return max_drawdown(values)
 

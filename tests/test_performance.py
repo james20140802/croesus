@@ -119,6 +119,11 @@ def test_classify_risk_precedence() -> None:
         n_violations=0, n_drift_outside=0, max_drawdown_pct=None,
         max_tolerable_drawdown=0.20, has_data=False,
     ) == RISK_UNKNOWN
+    # A 0.0 tolerance ("any drawdown breaches") must not be read as "no limit".
+    assert classify_risk(
+        n_violations=0, n_drift_outside=0, max_drawdown_pct=0.10,
+        max_tolerable_drawdown=0.0, has_data=True,
+    ) == RISK_OVER
 
 
 def test_max_drawdown_peak_to_trough() -> None:
@@ -305,6 +310,30 @@ def test_run_performance_check_flags_concentration_as_over_budget(tmp_path: Path
             conn, as_of_date=AS_OF, periods=["since_inception"], log=lambda _: None
         )
     assert result.periods[0].risk_status == RISK_OVER
+
+
+def test_run_performance_check_ignores_null_valued_snapshot(tmp_path: Path) -> None:
+    # A snapshot row with NULL total_market_value is missing data, not a $0
+    # portfolio: it must not be coerced to 0.0 and fabricate a ~100% drawdown.
+    db_path = tmp_path / "perf.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        _seed_default(conn)
+        _deposit(conn, "d0", date(2025, 6, 11), 10_000)
+        _snapshot(conn, date(2025, 6, 11), 10_000)
+        conn.execute(
+            "INSERT INTO portfolio_snapshots (portfolio_id, as_of_date, "
+            "total_market_value) VALUES ('default', DATE '2026-01-01', NULL)"
+        )
+        _snapshot(conn, AS_OF, 11_000)  # value only ever rose
+
+        result = run_performance_check(
+            conn, as_of_date=AS_OF, periods=["since_inception"], log=lambda _: None
+        )
+    period = result.periods[0]
+    # 10_000 -> 11_000 with a NULL hole in between: no real decline.
+    assert period.max_drawdown_pct == 0.0
+    assert period.risk_status == RISK_WITHIN  # not over_budget from a phantom crash
 
 
 def test_run_performance_check_states_goals_not_guarantees(tmp_path: Path) -> None:

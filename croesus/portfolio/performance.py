@@ -255,14 +255,21 @@ def classify_risk(
     if not has_data:
         return RISK_UNKNOWN
 
-    breach = max_drawdown_pct is not None and bool(max_tolerable_drawdown) and (
-        max_drawdown_pct >= max_tolerable_drawdown
+    # ``is not None`` (not truthiness): a 0.0 tolerance means "any drawdown is a
+    # breach", which is the opposite of "no limit set" (None).
+    has_limit = max_tolerable_drawdown is not None
+    breach = (
+        max_drawdown_pct is not None
+        and has_limit
+        and max_drawdown_pct >= max_tolerable_drawdown
     )
     if n_violations > 0 or breach:
         return RISK_OVER
 
-    near_breach = max_drawdown_pct is not None and bool(max_tolerable_drawdown) and (
-        max_drawdown_pct >= 0.8 * max_tolerable_drawdown
+    near_breach = (
+        max_drawdown_pct is not None
+        and has_limit
+        and max_drawdown_pct >= 0.8 * max_tolerable_drawdown
     )
     if n_drift_outside > 0 or near_breach:
         return RISK_WATCH
