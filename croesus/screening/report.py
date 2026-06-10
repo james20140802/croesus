@@ -7,6 +7,7 @@ from typing import Any
 
 import duckdb
 
+from croesus.reports.paths import report_output_dir
 from croesus.screening.models import ScreeningCandidate, ScreeningRunResult
 from croesus.screening.sector_theme import compute_sector_theme_scores
 
@@ -18,9 +19,7 @@ def save_report(
     reports_dir: str | Path = "reports",
     portfolio_id: str | None = None,
 ) -> tuple[Path, Path]:
-    reports_dir = Path(reports_dir)
-    report_dir = reports_dir / "screening" / result.as_of_date.isoformat()
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = report_output_dir(reports_dir, "screening", result.as_of_date)
 
     md_path = report_dir / f"{result.run_id}.md"
     csv_path = report_dir / f"{result.run_id}.csv"

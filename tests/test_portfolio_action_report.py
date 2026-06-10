@@ -60,8 +60,9 @@ def test_markdown_and_csv_reports_are_generated_from_persisted_actions(
 
     markdown = markdown_path.read_text(encoding="utf-8")
     csv_text = csv_path.read_text(encoding="utf-8")
-    assert markdown_path.name == "portfolio_action_2026-06-01.md"
-    assert csv_path.name == "portfolio_action_2026-06-01.csv"
+    # Consistent layout: reports/<domain>/<YYYY-MM-DD>/<name> like macro/screening.
+    assert markdown_path == tmp_path / "portfolio_action" / "2026-06-01" / "portfolio_action.md"
+    assert csv_path == tmp_path / "portfolio_action" / "2026-06-01" / "portfolio_action.csv"
     assert "# Portfolio Action Report - 2026-06-01" in markdown
     assert "## Proposed Actions" in markdown
     assert "Trim US_EQ_NVDA" in markdown
