@@ -114,7 +114,8 @@ def derive_holdings_from_transactions(
             notional = (txn.quantity or 0.0) * (txn.price or 0.0)
             p.quantity += txn.quantity or 0.0
             p.cost_basis += notional + fees
-            add_cash(p.currency or currency, -(notional + fees))
+            # Cash leaves in the transaction's own currency, not the position's.
+            add_cash(currency, -(notional + fees))
 
         elif ttype == TXN_SELL:
             p = pos_for(txn.asset_id, currency)
@@ -132,7 +133,7 @@ def derive_holdings_from_transactions(
             realized_pnl += proceeds - cost_removed - fees
             p.quantity -= sell_qty
             p.cost_basis -= cost_removed
-            add_cash(p.currency or currency, proceeds - fees)
+            add_cash(currency, proceeds - fees)
 
         elif ttype == TXN_DIVIDEND:
             amount = txn.gross_amount or 0.0
@@ -154,6 +155,15 @@ def derive_holdings_from_transactions(
         elif ttype == TXN_MANUAL_ADJUSTMENT:
             p = pos_for(txn.asset_id, currency)
             delta = txn.quantity or 0.0
+            # A long-only book cannot go negative: clamp a reducing adjustment to
+            # at most the held quantity (mirrors the sell clamp) so we never emit
+            # a phantom short position with a meaningless cost basis.
+            if delta < 0 and -delta > p.quantity + _EPSILON:
+                warnings.append(
+                    f"{txn.asset_id}: manual_adjustment of {delta:g} exceeds held "
+                    f"{p.quantity:g}; clamped to held quantity"
+                )
+                delta = -p.quantity
             if txn.price is not None:
                 p.cost_basis += delta * txn.price
             elif delta < 0 and p.quantity > _EPSILON:
@@ -165,6 +175,14 @@ def derive_holdings_from_transactions(
                     "without a price; cost basis left unchanged"
                 )
             p.quantity += delta
+
+        else:
+            # Defensive: a type in TRANSACTION_TYPES that gains no fold branch
+            # here would otherwise silently no-op. Surface it instead.
+            warnings.append(
+                f"{txn.transaction_id}: unhandled transaction_type "
+                f"{ttype!r}; ignored"
+            )
 
     holdings = _build_holdings(
         positions, portfolio_id=portfolio_id, as_of_date=as_of_date

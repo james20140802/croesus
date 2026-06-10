@@ -165,8 +165,8 @@ def _infer_transaction_type(action: dict[str, Any]) -> str | None:
     if atype == "rebalance_to_band":
         current = action.get("current_weight")
         proposed = action.get("proposed_weight")
-        if current is None or proposed is None:
-            return None
+        if current is None or proposed is None or proposed == current:
+            return None  # equal weights are a no-op; force an explicit --type
         return TXN_SELL if proposed < current else TXN_BUY
     return None
 

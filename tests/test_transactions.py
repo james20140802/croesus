@@ -253,6 +253,42 @@ def test_derive_withdrawal_and_fee_reduce_cash() -> None:
     assert derived.cash_by_currency["USD"] == 1000 - 200 - 5
 
 
+def test_derive_manual_adjustment_cannot_go_negative() -> None:
+    # An over-large reducing adjustment clamps to the held quantity (long-only),
+    # never emitting a phantom short position with a meaningless cost basis.
+    txns = [
+        _txn("b1", TXN_BUY, asset_id="AAPL", quantity=5, price=100,
+             when=date(2026, 6, 2)),
+        _txn("adj", TXN_MANUAL_ADJUSTMENT, asset_id="AAPL", quantity=-10,
+             price=None, when=date(2026, 6, 5)),
+    ]
+    derived = derive_holdings_from_transactions(
+        txns, portfolio_id="default", as_of_date=date(2026, 6, 30)
+    )
+    assert any("exceeds held" in w for w in derived.warnings)
+    # Position is closed (clamped to 0), not negative.
+    assert all(h.asset_id != "AAPL" for h in derived.holdings)
+
+
+def test_derive_buy_posts_cash_in_transaction_currency() -> None:
+    # Cash for a buy leaves in the transaction's own currency, even when a later
+    # transaction's currency differs from the position's first-seen currency.
+    txns = [
+        _txn("dep", TXN_DEPOSIT, gross_amount=10_000, currency="USD",
+             when=date(2026, 6, 1)),
+        _txn("dep_eur", TXN_DEPOSIT, gross_amount=5_000, currency="EUR",
+             when=date(2026, 6, 1)),
+        _txn("b1", TXN_BUY, asset_id="SAP", quantity=10, price=100,
+             currency="EUR", when=date(2026, 6, 2)),
+    ]
+    derived = derive_holdings_from_transactions(
+        txns, portfolio_id="default", as_of_date=date(2026, 6, 30)
+    )
+    # The 1000 EUR cost is drawn from EUR cash, not USD.
+    assert derived.cash_by_currency["EUR"] == 4_000
+    assert derived.cash_by_currency["USD"] == 10_000
+
+
 def test_derive_manual_adjustment_changes_quantity() -> None:
     txns = [
         _txn("b1", TXN_BUY, asset_id="AAPL", quantity=10, price=100,

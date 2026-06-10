@@ -11,6 +11,7 @@ deterministic and a history view needs no extra sort.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date
 from typing import Any
 
@@ -48,9 +49,7 @@ class TransactionRepository:
         if stored.gross_amount is None:
             gross = effective_gross_amount(stored)
             if gross is not None:
-                stored = PortfolioTransaction(
-                    **{**stored.__dict__, "gross_amount": gross}
-                )
+                stored = replace(stored, gross_amount=gross)
 
         self.conn.execute(
             """

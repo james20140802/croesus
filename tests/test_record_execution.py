@@ -99,6 +99,19 @@ def test_rebalance_to_band_uses_weight_direction(tmp_path: Path) -> None:
     assert up.transaction.transaction_type == TXN_BUY
 
 
+def test_rebalance_to_band_equal_weight_is_ambiguous(tmp_path: Path) -> None:
+    # proposed == current is a no-op; inference must not silently pick buy.
+    db_path = _migrated(tmp_path)
+    with get_connection(db_path) as conn:
+        _seed_action(
+            conn, action_id="flat", action_type="rebalance_to_band",
+            current_weight=0.3, proposed_weight=0.3,
+        )
+        result = record_execution(conn, "flat", quantity=1, price=100)
+    assert result.status == EXEC_AMBIGUOUS_DIRECTION
+    assert not result.ok
+
+
 def test_explicit_type_overrides_inference(tmp_path: Path) -> None:
     db_path = _migrated(tmp_path)
     with get_connection(db_path) as conn:
