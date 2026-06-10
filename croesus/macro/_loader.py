@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Shared helper: assemble raw indicator dict from all available data sources."""
+
+from __future__ import annotations
 
 import json
 import logging

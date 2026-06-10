@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 
 import pandas as pd
 
