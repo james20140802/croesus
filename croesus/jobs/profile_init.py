@@ -28,7 +28,7 @@ from croesus.profiles.interactive import (
     build_profile_inputs_interactively,
 )
 from croesus.profiles.models import Currency, InvestorProfile, PolicyTarget
-from croesus.profiles.onboarding import recommend_policy
+from croesus.profiles.onboarding import recommend_policy, recommend_policy_for_template
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
     DEFAULT_POLICY_TARGETS,
@@ -186,13 +186,16 @@ def _run_return_anchor_phase(
     profile_defaults: InvestorProfile,
     *,
     prompter: Prompter,
-) -> tuple[InvestorProfile, ProfileGuidance | None]:
+) -> tuple[InvestorProfile, str | None]:
     """Ask the return/drawdown anchor question and derive a consistent draft.
 
-    Returns ``(draft_profile, guidance)``. The draft becomes the defaults for the
-    subsequent field-by-field build, so every derived value remains editable.
-    ``guidance`` is ``None`` only when the user skips guidance. Nothing is saved
-    here, and ``validate_profile`` is still the only gate downstream.
+    Returns ``(draft_profile, template_id)``. The draft becomes the defaults for
+    the subsequent field-by-field build, so every derived value remains editable.
+    ``template_id`` is the matched band's (or the chosen resolution's) template,
+    which the caller treats as authoritative for the policy; it is ``None`` when
+    the user skips guidance or the target is above the highest band (both fall
+    back to the heuristic selector). Nothing is saved here, and
+    ``validate_profile`` is still the only gate downstream.
     """
     anchor_type = prompter.select(
         "anchor_type",
@@ -233,7 +236,8 @@ def _run_return_anchor_phase(
             drawdown_val, portfolio_size=portfolio_size, portfolio_currency=currency
         )
         _display_guidance(guidance, prompter)
-        return apply_guidance_to_profile(profile_defaults, guidance), guidance
+        draft = apply_guidance_to_profile(profile_defaults, guidance)
+        return draft, guidance.template_id
 
     return_val = prompter.text(
         "anchor_return_value",
@@ -252,8 +256,9 @@ def _run_return_anchor_phase(
 
     if guidance.matched_band == ABOVE_HIGHEST:
         # Keep the user's stated return (never silently drop it) but invent no
-        # band-derived fields; the downstream validator surfaces the warning.
-        return replace(profile_defaults, expected_annual_return=return_val), guidance
+        # band-derived fields; the heuristic selector picks the policy and the
+        # downstream validator surfaces the warning.
+        return replace(profile_defaults, expected_annual_return=return_val), None
 
     if guidance.conflicts:
         conflict = guidance.conflicts[0]
@@ -273,9 +278,10 @@ def _run_return_anchor_phase(
             stated_return=return_val,
             stated_drawdown=profile_defaults.max_tolerable_drawdown,
         )
-        return draft, guidance
+        return draft, option.template_id
 
-    return apply_guidance_to_profile(profile_defaults, guidance), guidance
+    draft = apply_guidance_to_profile(profile_defaults, guidance)
+    return draft, guidance.template_id
 
 
 def run_profile_guided(
@@ -300,8 +306,9 @@ def run_profile_guided(
     resolved_id = profile_id if profile_id is not None else _new_profile_id()
     prompter.info(f"profile id: {resolved_id}")
 
+    guided_template_id: str | None = None
     if not skip_guidance:
-        profile_defaults, _ = _run_return_anchor_phase(
+        profile_defaults, guided_template_id = _run_return_anchor_phase(
             profile_defaults, prompter=prompter
         )
 
@@ -315,7 +322,12 @@ def run_profile_guided(
     if profile_result.errors:
         raise ValueError(f"invalid profile: {profile_result.errors}")
 
-    recommendation = recommend_policy(profile)
+    # When guidance ran, the matched band names the template authoritatively;
+    # otherwise fall back to the heuristic selector.
+    if guided_template_id is not None:
+        recommendation = recommend_policy_for_template(profile, guided_template_id)
+    else:
+        recommendation = recommend_policy(profile)
     target_result = validate_policy_targets(recommendation.targets)
     if target_result.errors:
         raise ValueError(f"invalid recommended policy: {target_result.errors}")

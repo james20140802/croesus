@@ -322,6 +322,47 @@ def test_guided_return_anchor_prefills_band_defaults(tmp_path: Path) -> None:
     assert "anchor_return_value" in prompter.prompted_keys()
 
 
+def test_guided_growth_band_uses_growth_template_not_selector(tmp_path: Path) -> None:
+    db_path = tmp_path / "band_template.duckdb"
+    migrate(db_path)
+    # 0.075 sits in the growth band (template growth_long_term). The heuristic
+    # selector would pick balanced_long_term here (horizon 7 < 10), so the
+    # satellite weight proves the band — not the selector — chose the template.
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "anchor_return_value": 0.075,
+            "conflict_resolution": "keep_return",
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(conn, prompter=prompter, profile_id="band")
+        targets = ProfileRepository(conn).get_policy_targets("band")
+
+    satellite = next(t for t in targets if t.sleeve_name == "satellite_equity")
+    assert satellite.target_weight == 0.20  # growth_long_term, not balanced (0.15)
+
+
+def test_guided_meet_in_middle_uses_balanced_template(tmp_path: Path) -> None:
+    db_path = tmp_path / "mid_template.duckdb"
+    migrate(db_path)
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "anchor_return_value": 0.075,
+            "conflict_resolution": "meet_in_middle",
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(conn, prompter=prompter, profile_id="mid")
+        targets = ProfileRepository(conn).get_policy_targets("mid")
+
+    satellite = next(t for t in targets if t.sleeve_name == "satellite_equity")
+    assert satellite.target_weight == 0.15  # balanced_long_term
+
+
 def test_guided_skip_guidance_matches_legacy_flow(tmp_path: Path) -> None:
     db_path = tmp_path / "skip.duckdb"
     migrate(db_path)
