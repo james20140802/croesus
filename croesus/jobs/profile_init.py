@@ -196,14 +196,14 @@ def _run_return_anchor_phase(
     if anchor_type == ANCHOR_SKIP:
         return profile_defaults, None
 
+    currency = profile_defaults.base_currency.value
     portfolio_size = prompter.text(
         "portfolio_size",
-        "대략적인 포트폴리오 규모 (선택)",
-        "손실폭을 금액으로 환산해 보여줍니다. 없으면 비워두세요.",
+        f"대략적인 포트폴리오 규모 ({currency}, 선택)",
+        f"손실폭을 {currency} 금액으로 환산해 보여줍니다. 없으면 비워두세요.",
         None,
         _optional_positive_float,
     )
-    currency = profile_defaults.base_currency.value
 
     if anchor_type == ANCHOR_DRAWDOWN:
         drawdown_val = prompter.text(
