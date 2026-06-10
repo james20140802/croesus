@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -26,7 +27,7 @@ from croesus.profiles.interactive import (
     build_profile_interactively,
     build_profile_inputs_interactively,
 )
-from croesus.profiles.models import InvestorProfile, PolicyTarget
+from croesus.profiles.models import Currency, InvestorProfile, PolicyTarget
 from croesus.profiles.onboarding import recommend_policy
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
@@ -196,7 +197,15 @@ def _run_return_anchor_phase(
     if anchor_type == ANCHOR_SKIP:
         return profile_defaults, None
 
-    currency = profile_defaults.base_currency.value
+    base_currency = prompter.select(
+        "base_currency",
+        "기축통화를 선택하세요",
+        "이후 입력하는 금액과 손실폭 환산이 모두 이 통화 기준으로 표시됩니다.",
+        list(Currency),
+        profile_defaults.base_currency,
+    )
+    profile_defaults = replace(profile_defaults, base_currency=base_currency)
+    currency = base_currency.value
     portfolio_size = prompter.text(
         "portfolio_size",
         f"대략적인 포트폴리오 규모 ({currency}, 선택)",

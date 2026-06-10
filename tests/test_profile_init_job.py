@@ -8,7 +8,7 @@ from croesus.profiles.config_io import write_profile_config
 from croesus.jobs.profile_init import main as profile_init_main
 from croesus.jobs.profile_init import run_profile_guided
 from croesus.jobs.profile_init import run_profile_init
-from croesus.profiles.models import PolicyTarget
+from croesus.profiles.models import Currency, PolicyTarget
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import (
     DEFAULT_POLICY_TARGETS,
@@ -360,6 +360,33 @@ def test_guided_conflict_resolution_keep_return_applies_return_band(
     assert profile is not None
     assert profile.expected_annual_return >= 0.085
     assert "conflict_resolution" in prompter.prompted_keys()
+
+
+def test_guided_currency_chosen_in_anchor_phase_drives_scenarios(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "currency.duckdb"
+    migrate(db_path)
+    # Currency is picked before portfolio size, so scenarios render in KRW and
+    # the build phase inherits KRW as its base_currency default.
+    prompter = GuidedPrompter(
+        {
+            "anchor_type": "목표 수익률",
+            "base_currency": Currency.KRW,
+            "portfolio_size": 100_000_000.0,
+            "anchor_return_value": 0.10,
+            "conflict_resolution": "keep_return",
+        }
+    )
+
+    with get_connection(db_path) as conn:
+        run_profile_guided(conn, prompter=prompter, profile_id="krw")
+        profile = ProfileRepository(conn).get_profile("krw")
+
+    assert profile is not None
+    assert profile.base_currency is Currency.KRW
+    scenario_lines = [e["message"] for e in prompter.seen if "KRW 손실" in e["message"]]
+    assert scenario_lines
 
 
 def test_guided_above_band_warns_and_keeps_stated_return(tmp_path: Path) -> None:
