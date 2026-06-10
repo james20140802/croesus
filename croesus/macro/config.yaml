@@ -30,12 +30,31 @@ positioning_thresholds:
     positioning: Neutral
 
 screening:
+  # Sprint 005b refinements ────────────────────────────────────────────────
+  # How MacroState deltas map onto base weights/filters:
+  #   discrete   = additive regime delta at full strength (pre-005b behavior)
+  #   continuous = linear interpolation by stress (amplifier_score / 100)
+  interpolation: discrete
+  # Momentum percentile input: raw factor values, or momentum / volatility_3m.
+  momentum_scaling: raw
+  # Postures in which `above_200d_ma` becomes an eligibility gate rather than a
+  # weighted score component. Empty list disables the gate.
+  trend_gate_postures:
+    - Cautious
+    - Defensive
   base_candidate_count: 20
   base_weights:
     momentum: 0.35
     liquidity: 0.25
     trend: 0.25
     volatility_penalty: 0.15
+  # Weighting of momentum horizons inside momentum_score. 1m acts as a
+  # short-term reversal signal, so it is downweighted relative to 3m/6m.
+  # Unset/empty => equal-average of available horizons (pre-005b behavior).
+  base_momentum_horizon_weights:
+    momentum_1m: 0.2
+    momentum_3m: 0.3
+    momentum_6m: 0.5
   regime_overrides:
     Goldilocks:
       momentum: 0.10
@@ -46,6 +65,11 @@ screening:
     Stagflation:
       momentum: -0.15
       volatility_penalty: 0.15
+      # Stress regime: drop the 1m reversal horizon, lean on 6m trend.
+      momentum_horizon_weights:
+        momentum_1m: 0.0
+        momentum_3m: 0.3
+        momentum_6m: 0.7
     Deflation:
       momentum: -0.10
       liquidity: 0.05

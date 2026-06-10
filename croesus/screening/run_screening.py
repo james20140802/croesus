@@ -48,7 +48,13 @@ def run_screening(
         if asset.asset_type not in SUPPORTED_ASSET_TYPES
     ]
     factor_values = _load_latest_factor_values(conn, [asset.asset_id for asset in eligible_assets], actual_as_of)
-    percentile_scores = _factor_percentiles(factor_values)
+    momentum_scaling = screening_params.get("momentum_scaling") or "raw"
+    vol_fallback_assets: set[str] = set()
+    if momentum_scaling == "vol_scaled":
+        percentile_inputs = _scale_momentum_values(factor_values, vol_fallback_assets)
+    else:
+        percentile_inputs = factor_values
+    percentile_scores = _factor_percentiles(percentile_inputs)
     exposure_overlay = _load_blocking_exposures(conn, portfolio_id, actual_as_of)
 
     ranked_inputs: list[ScreeningCandidate] = []
@@ -61,6 +67,8 @@ def run_screening(
                 factor_values.get(asset.asset_id, {}),
                 percentile_scores.get(asset.asset_id, {}),
                 exposure_overlay,
+                momentum_scaling=momentum_scaling,
+                vol_fallback=asset.asset_id in vol_fallback_assets,
             )
         except Exception as exc:
             skipped.append(
@@ -126,6 +134,9 @@ def _score_asset(
     factors: Mapping[str, float | None],
     percentiles: Mapping[str, float | None],
     exposure_overlay: dict[str, dict[str, Any]],
+    *,
+    momentum_scaling: str = "raw",
+    vol_fallback: bool = False,
 ) -> ScreeningCandidate:
     filters = screening_params.get("filters") or {}
     liquidity = factors.get("liquidity_1m")
@@ -149,12 +160,24 @@ def _score_asset(
             {"portfolio_fit": "watch"},
         )
 
-    momentum_parts = [
-        percentiles.get("momentum_1m"),
-        percentiles.get("momentum_3m"),
-        percentiles.get("momentum_6m"),
-    ]
-    momentum_score = _average(momentum_parts)
+    # ── Posture-dependent trend gate (Sprint 005b §4) ─────────────────────────
+    positioning = screening_params.get("positioning")
+    gate_postures = screening_params.get("trend_gate_postures") or []
+    trend_gate_active = positioning in gate_postures
+    # Gate only on a confirmed below-MA reading (== 0.0, per spec §4). A missing
+    # above_200d_ma (None) is not a confirmed breach, so it is not gated here;
+    # such assets simply carry a null trend_score into the renormalized score.
+    if trend_gate_active and factors.get("above_200d_ma") == 0.0:
+        return _skipped_candidate(
+            run_id,
+            asset.asset_id,
+            "skipped: below 200d MA under defensive posture",
+            ["BELOW_200D_MA_DEFENSIVE"],
+            {"portfolio_fit": "watch", "trend_gate_active": True},
+        )
+
+    horizon_weights = screening_params.get("momentum_horizon_weights") or {}
+    momentum_score = _weighted_momentum(percentiles, horizon_weights)
     factor_scores = {
         "momentum_score": momentum_score,
         "liquidity_score": percentiles.get("liquidity_1m"),
@@ -180,7 +203,12 @@ def _score_asset(
             factor_scores=factor_scores,
         )
 
+    # When the trend gate is active, trend is enforced as eligibility above, so
+    # drop it from the weighted sum and renormalize the remaining weights — the
+    # factor must not be double-counted as both gate and score.
     weights = screening_params.get("factor_weights") or {}
+    if trend_gate_active:
+        weights = _renormalize_without_trend(weights)
     score = (
         float(weights.get("momentum", 0.0)) * (factor_scores["momentum_score"] or 0.0)
         + float(weights.get("liquidity", 0.0)) * (factor_scores["liquidity_score"] or 0.0)
@@ -201,6 +229,10 @@ def _score_asset(
             "portfolio_fit": "watch" if blocking else "addable",
             "blocking_exposures": blocking,
             "would_worsen_violation": bool(blocking),
+            "momentum_horizon_weights": dict(horizon_weights),
+            "momentum_scaling": momentum_scaling,
+            "momentum_vol_fallback": bool(vol_fallback),
+            "trend_gate_active": trend_gate_active,
         },
     )
 
@@ -309,11 +341,82 @@ def _theme_tags(asset: Asset) -> list[str]:
     return tags if isinstance(tags, list) else []
 
 
+MOMENTUM_HORIZONS = ("momentum_1m", "momentum_3m", "momentum_6m")
+
+
 def _average(values: list[float | None]) -> float | None:
     non_null = [value for value in values if value is not None]
     if not non_null:
         return None
     return sum(non_null) / len(non_null)
+
+
+def _weighted_momentum(
+    percentiles: Mapping[str, float | None],
+    horizon_weights: Mapping[str, float],
+) -> float | None:
+    """
+    Combine the momentum horizon percentiles into a single score.
+
+    Without configured horizon weights this is the equal-average of available
+    horizons (pre-005b behavior). With horizon weights, available horizons are
+    combined as a weighted average; if a horizon percentile is null its weight
+    is dropped and the remaining weights renormalize so scores stay comparable
+    across assets. Returns None only when every horizon is null.
+    """
+    available = [
+        (name, value)
+        for name in MOMENTUM_HORIZONS
+        if (value := percentiles.get(name)) is not None
+    ]
+    if not available:
+        return None
+    weight_total = sum(float(horizon_weights.get(name, 0.0)) for name, _ in available)
+    if not horizon_weights or weight_total == 0.0:
+        return _average([value for _, value in available])
+    return sum(
+        float(horizon_weights.get(name, 0.0)) * value for name, value in available
+    ) / weight_total
+
+
+def _scale_momentum_values(
+    factor_values: dict[str, dict[str, float | None]],
+    fallback_assets: set[str],
+) -> dict[str, dict[str, float | None]]:
+    """
+    Return a copy of ``factor_values`` with each momentum horizon divided by
+    ``volatility_3m`` before percentile ranking. When volatility is null or
+    zero the raw momentum value is kept and the asset is recorded in
+    ``fallback_assets`` so the candidate metadata can flag it.
+    """
+    scaled: dict[str, dict[str, float | None]] = {}
+    for asset_id, factors in factor_values.items():
+        row = dict(factors)
+        volatility = factors.get("volatility_3m")
+        if volatility in (None, 0.0):
+            if any(factors.get(name) is not None for name in MOMENTUM_HORIZONS):
+                fallback_assets.add(asset_id)
+        else:
+            for name in MOMENTUM_HORIZONS:
+                value = factors.get(name)
+                if value is not None:
+                    row[name] = value / volatility
+        scaled[asset_id] = row
+    return scaled
+
+
+def _renormalize_without_trend(weights: Mapping[str, float]) -> dict[str, float]:
+    """
+    Drop the trend weight and scale the remaining weights so their total
+    magnitude is preserved — keeps the score on the same scale as a full run.
+    """
+    total = sum(abs(float(value)) for value in weights.values())
+    remaining = {key: float(value) for key, value in weights.items() if key != "trend"}
+    remaining_total = sum(abs(value) for value in remaining.values())
+    if remaining_total == 0.0:
+        return remaining
+    scale = total / remaining_total
+    return {key: round(value * scale, 4) for key, value in remaining.items()}
 
 
 def _skipped_candidate(
