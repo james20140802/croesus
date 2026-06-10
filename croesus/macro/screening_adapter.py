@@ -125,7 +125,9 @@ def _interpolate_weights(
     if not overrides:
         return dict(base)
     blended: dict[str, float] = {}
-    for key in set(base) | set(overrides):
+    # Preserve a deterministic key order (base keys first, then override-only
+    # keys) so the persisted weights serialize reproducibly across processes.
+    for key in dict.fromkeys([*base, *overrides]):
         base_value = base.get(key, 0.0)
         if as_target:
             target = overrides.get(key, base_value)

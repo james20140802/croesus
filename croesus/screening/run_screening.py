@@ -164,6 +164,9 @@ def _score_asset(
     positioning = screening_params.get("positioning")
     gate_postures = screening_params.get("trend_gate_postures") or []
     trend_gate_active = positioning in gate_postures
+    # Gate only on a confirmed below-MA reading (== 0.0, per spec §4). A missing
+    # above_200d_ma (None) is not a confirmed breach, so it is not gated here;
+    # such assets simply carry a null trend_score into the renormalized score.
     if trend_gate_active and factors.get("above_200d_ma") == 0.0:
         return _skipped_candidate(
             run_id,
@@ -361,15 +364,16 @@ def _weighted_momentum(
     is dropped and the remaining weights renormalize so scores stay comparable
     across assets. Returns None only when every horizon is null.
     """
-    available = [(name, percentiles.get(name)) for name in MOMENTUM_HORIZONS]
-    available = [(name, value) for name, value in available if value is not None]
+    available = [
+        (name, value)
+        for name in MOMENTUM_HORIZONS
+        if (value := percentiles.get(name)) is not None
+    ]
     if not available:
         return None
-    if not horizon_weights:
-        return sum(value for _, value in available) / len(available)
     weight_total = sum(float(horizon_weights.get(name, 0.0)) for name, _ in available)
-    if weight_total == 0.0:
-        return sum(value for _, value in available) / len(available)
+    if not horizon_weights or weight_total == 0.0:
+        return _average([value for _, value in available])
     return sum(
         float(horizon_weights.get(name, 0.0)) * value for name, value in available
     ) / weight_total
