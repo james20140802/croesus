@@ -69,6 +69,8 @@ def _asset_type(quote_type: str) -> str:
         return "etf"
     if quote_type in {"MUTUALFUND", "FUND"}:
         return "fund"
+    if quote_type == "CRYPTOCURRENCY":
+        return "crypto"
     return quote_type.lower() if quote_type else "unknown"
 
 
