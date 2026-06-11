@@ -11,7 +11,10 @@ Configuration (env vars, overridable per-instance):
   - ``CROESUS_LLM_BASE_URL``  default ``http://localhost:11434/v1``
   - ``CROESUS_LLM_MODEL``     default ``qwen3:32b`` (downscale to 14b/8b on
     smaller hardware)
-  - ``CROESUS_LLM_TIMEOUT``   request timeout in seconds, default 180
+  - ``CROESUS_LLM_TIMEOUT``   request timeout in seconds, default 600 — a
+    30B-class thinking model on consumer hardware routinely needs minutes per
+    note, and with ``stream=False`` the server only answers once generation
+    finishes
 
 Error contract: :class:`LlmUnavailable` means the server itself cannot serve
 us (down, wrong URL, model not pulled) — callers should skip the whole run
@@ -28,7 +31,7 @@ from typing import Protocol
 
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_MODEL = "qwen3:32b"
-DEFAULT_TIMEOUT_SECONDS = 180.0
+DEFAULT_TIMEOUT_SECONDS = 600.0
 
 
 class LlmError(RuntimeError):
@@ -97,6 +100,17 @@ class ChatCompletionsClient:
                 f"LLM request failed with HTTP {exc.code} at {self.base_url}: {detail}"
             ) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            # A timeout means the server exists but generation outran the
+            # budget (model loading, or a big thinking model on small
+            # hardware) — a different fix than a down server.
+            reason = getattr(exc, "reason", exc)
+            if isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError):
+                raise LlmUnavailable(
+                    f"LLM request to {self.base_url} timed out after "
+                    f"{self.timeout:.0f}s — the model may still be loading or "
+                    "is too slow for this hardware; raise CROESUS_LLM_TIMEOUT "
+                    "or set a smaller CROESUS_LLM_MODEL"
+                ) from exc
             raise LlmUnavailable(
                 f"no LLM server reachable at {self.base_url} ({exc}); start one "
                 "(e.g. `ollama serve`) or set CROESUS_LLM_BASE_URL to any "
