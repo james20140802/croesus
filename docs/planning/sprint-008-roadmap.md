@@ -69,7 +69,7 @@ early.
 | 008b | Screening v2: sub-scores + valuation dimension | M | **done** |
 | 008c | Universe scale: S&P 500 + NASDAQ-100 | M | **done** |
 | 009 | Transaction-driven snapshot + performance backfill | M | **done** |
-| 010 | Research Agent (local LLM via OpenAI-compatible endpoint) | L | planned |
+| 010 | Research Agent (local LLM via OpenAI-compatible endpoint) | L | **done** |
 | 011 | Approval gate | M | planned |
 | 012 | Reports DB table + status dashboard | S | planned |
 | 014 | Backtest harness (point-in-time price factors; valuation factors flagged for look-ahead; survivorship caveat) | L | planned |
