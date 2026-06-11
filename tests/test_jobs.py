@@ -22,7 +22,9 @@ def test_bootstrap_job_uses_configured_db_path_and_seeds_assets(
             for row in conn.execute("SELECT symbol FROM assets ORDER BY asset_id").fetchall()
         ]
 
-    assert symbols == ["AAPL", "MSFT", "NVDA"]
+    # AAPL/MSFT/NVDA seeded as equities; SPY seeded as the ETF market benchmark
+    # (US_ETF_SPY sorts after the US_EQ_* ids).
+    assert symbols == ["AAPL", "MSFT", "NVDA", "SPY"]
 
 
 class EmptyPriceSource:
@@ -42,9 +44,12 @@ def test_daily_pipeline_seeds_assets_before_price_ingestion(tmp_path: Path) -> N
         result = run_daily_pipeline(conn, source=EmptyPriceSource(), log=lambda message: None)
         assets = AssetRepository(conn).list_active(asset_type="equity", country="US")
 
+    # The equity valuation universe excludes the SPY benchmark (it is an ETF)...
     assert [asset.symbol for asset in assets] == ["AAPL", "MSFT", "NVDA"]
+    # ...but price ingestion fetches SPY too, so it is skipped by the empty source.
     assert result.price_result.skipped == {
         "AAPL": "no price rows returned",
         "MSFT": "no price rows returned",
         "NVDA": "no price rows returned",
+        "SPY": "no price rows returned",
     }

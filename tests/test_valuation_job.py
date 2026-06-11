@@ -1,14 +1,16 @@
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
 
+from croesus.assets.seed_benchmarks import seed_benchmarks
 from croesus.assets.seed_us_equities import seed_us_equities
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.factors.equity.compute_valuation import (
     compute_and_store_valuation_factors,
 )
+from croesus.factors.equity.repository import ValuationSnapshotRepository
 from croesus.fundamentals.repository import (
     METRIC_BOOK_VALUE_PER_SHARE,
     METRIC_CASH_AND_EQUIVALENTS,
@@ -109,6 +111,53 @@ def test_valuation_writes_eight_factors_and_dcf_snapshots(tmp_path: Path) -> Non
     # NVDA has a price but no fundamentals: no crash, no multiples, DCF skipped.
     assert result.computed["US_EQ_NVDA"] == 0
     assert "US_EQ_NVDA" in result.dcf_skipped
+
+
+def _series_frame(start: date, closes: list[float]) -> pd.DataFrame:
+    rows = []
+    for i, close in enumerate(closes):
+        d = start + timedelta(days=i)
+        rows.append({"date": d, "open": close, "high": close, "low": close,
+                     "close": close, "adjusted_close": close, "volume": 1000})
+    return pd.DataFrame(rows)
+
+
+def test_beta_regressed_against_seeded_spy(tmp_path: Path) -> None:
+    db_path = tmp_path / "v.duckdb"
+    migrate(db_path)
+    start = date(2026, 3, 4)
+    beta_target = 1.5
+    # Market daily returns; AAPL moves exactly beta_target x the market.
+    market_returns = [0.0] + [0.01 * ((-1) ** i) * (1 + i % 4) for i in range(1, 60)]
+    spy_closes, aapl_closes = [400.0], [100.0]
+    for r in market_returns[1:]:
+        spy_closes.append(spy_closes[-1] * (1 + r))
+        aapl_closes.append(aapl_closes[-1] * (1 + beta_target * r))
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        seed_benchmarks(conn)  # SPY as an ETF benchmark
+        prices = PriceRepository(conn)
+        prices.upsert_daily_prices("US_ETF_SPY", _series_frame(start, spy_closes), source="test")
+        prices.upsert_daily_prices("US_EQ_AAPL", _series_frame(start, aapl_closes), source="test")
+        FundamentalsRepository(conn).upsert_metrics(
+            _fundamentals("US_EQ_AAPL", eps=5.0, bvps=25.0, ebitda=110.0, debt=200.0, cash=100.0, shares=10.0, fcf=[30.0, 40.0, 50.0])
+        )
+
+        result = compute_and_store_valuation_factors(conn, include_dcf=True, as_of=AS_OF)
+        snap = ValuationSnapshotRepository(conn).get("US_EQ_AAPL", AS_OF)
+
+        # SPY itself is an ETF: never a valuation target.
+        spy_snap = conn.execute(
+            "SELECT COUNT(*) FROM valuation_snapshots WHERE asset_id = 'US_ETF_SPY'"
+        ).fetchone()[0]
+
+    assert "US_EQ_AAPL" in result.dcf_computed
+    assert snap is not None
+    # Real beta (~1.5), not the 1.0 fallback; WACC reflects it.
+    assert abs(snap.assumptions["beta"] - beta_target) < 0.05
+    assert abs(snap.wacc - (0.045 + beta_target * 0.055)) < 0.01
+    assert spy_snap == 0
 
 
 def test_daily_run_multiples_without_dcf(tmp_path: Path) -> None:

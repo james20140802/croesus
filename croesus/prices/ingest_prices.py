@@ -26,7 +26,11 @@ def ingest_daily_prices(
     log: Callable[[str], None] = print,
 ) -> IngestionResult:
     source = source or YFinanceDailyPriceSource()
-    assets = AssetRepository(conn).list_active(asset_type="equity", country="US")
+    repo = AssetRepository(conn)
+    # Equities are the valuation universe; ETFs (e.g. the SPY benchmark) are
+    # priced too so the valuation layer can regress betas against the market.
+    assets = repo.list_active(asset_type="equity", country="US")
+    assets += repo.list_active(asset_type="etf", country="US")
     prices = PriceRepository(conn)
     result = IngestionResult()
 

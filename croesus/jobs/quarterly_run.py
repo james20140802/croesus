@@ -21,6 +21,7 @@ from typing import Callable, Sequence
 
 import duckdb
 
+from croesus.assets.seed_benchmarks import seed_benchmarks
 from croesus.assets.seed_us_equities import seed_us_equities
 from croesus.data_sources.fundamentals.base import FundamentalsProvider
 from croesus.db.connection import get_connection
@@ -53,6 +54,7 @@ def run_quarterly_pipeline(
     Expects an already-migrated connection.
     """
     seed_us_equities(conn)
+    seed_benchmarks(conn)
     fundamentals_result = ingest_fundamentals(conn, provider, log=log)
     valuation_result = compute_and_store_valuation_factors(
         conn, include_dcf=True, as_of=as_of, log=log

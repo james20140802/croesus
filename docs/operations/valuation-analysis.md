@@ -55,8 +55,11 @@ discounted at an all-equity CAPM cost of capital.
   (`macro_scores.raw_indicators["DGS10"]`, a percent), defaulting to **4.5%**
   when macro data is absent.
 - **β** = 2-year daily-return regression vs **SPY**, falling back to the
-  **sector median**, then **1.0**. With the default seed universe (no SPY),
-  β = 1.0 and WACC = `Rf + 5.5%`. Add SPY to the universe to get real betas.
+  **sector median**, then **1.0**. SPY is seeded as an ETF benchmark
+  (`seed_benchmarks`) and priced by `daily_run`, so each name gets a real beta
+  once prices exist (e.g. NVDA ≈ 2.0, MSFT ≈ 0.9); the fallbacks only apply
+  before SPY has enough price history. SPY is an ETF, so it is never itself a
+  valuation target — the equity-only loops skip it.
 - **FCF growth** = 5-year CAGR, clipped to `[-5%, +30%]`.
 - **Terminal growth** = 2.5%.
 

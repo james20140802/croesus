@@ -5,6 +5,7 @@ from typing import Callable
 
 import duckdb
 
+from croesus.assets.seed_benchmarks import seed_benchmarks
 from croesus.assets.seed_us_equities import seed_us_equities
 from croesus.data_sources.base import DailyPriceSource
 from croesus.db.connection import get_connection
@@ -39,6 +40,7 @@ def run_daily_pipeline(
     log: Callable[[str], None] = print,
 ) -> DailyRunResult:
     seed_us_equities(conn)
+    seed_benchmarks(conn)
     price_result = ingest_daily_prices(conn, source=source, log=log)
     fx_result = ingest_fx_rates(
         conn,
