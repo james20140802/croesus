@@ -11,6 +11,16 @@ from croesus.portfolio.models import (
     MarkToMarketResult,
     is_cash,
 )
+from croesus.quality.models import (
+    CODE_FX_MISSING,
+    CODE_PRICE_MISSING,
+    CODE_QUANTITY_MISSING,
+    SEVERITY_ERROR,
+    SEVERITY_WARN,
+    DataQualityIssue,
+)
+
+_DOMAIN = "portfolio_snapshot"
 
 
 def mark_to_market(
@@ -24,33 +34,50 @@ def mark_to_market(
 ) -> MarkToMarketResult:
     marked: list[Holding] = []
     warnings: list[str] = []
+    issues: list[DataQualityIssue] = []
 
     normalized_rates = {k.upper(): v for k, v in fx_rates.items()}
     normalized_rates.setdefault("USD", 1.0)
 
     for holding in raw_holdings:
         native_currency = _native_currency(holding, assets_by_id, base_currency)
-        native_mv, price_source, price_warning = _native_market_value(
-            holding, price_lookup
+        native_mv, price_source, price_issue = _native_market_value(
+            holding, price_lookup, as_of_date
         )
-        if price_warning:
-            warnings.append(price_warning)
+        if price_issue:
+            warnings.append(price_issue.message)
+            issues.append(price_issue)
 
         native_cost = _native_cost_basis(holding, native_mv)
-        if _rate_missing(native_currency, normalized_rates):
-            warnings.append(
-                f"FX_MISSING {holding.asset_id}: no {native_currency} rate on or before {as_of_date}; using 1:1"
-            )
-        if _rate_missing(base_currency, normalized_rates):
-            warnings.append(
-                f"FX_MISSING {holding.asset_id}: no {base_currency} base rate on or before {as_of_date}; using 1:1"
-            )
+        fx_fallback = False
+        for currency in {native_currency, base_currency.upper()}:
+            if _rate_missing(currency, normalized_rates):
+                fx_fallback = True
+                message = (
+                    f"FX_MISSING {holding.asset_id}: no {currency} rate on or "
+                    f"before {as_of_date}; using 1:1"
+                )
+                warnings.append(message)
+                issues.append(
+                    DataQualityIssue(
+                        domain=_DOMAIN,
+                        severity=SEVERITY_ERROR,
+                        code=CODE_FX_MISSING,
+                        message=message,
+                        asset_id=holding.asset_id,
+                        currency=currency,
+                        as_of_date=as_of_date,
+                    )
+                )
 
+        # The 1:1 passthrough is only ever reached after the ERROR above has
+        # been recorded — the snapshot still completes, but as DEGRADED.
         market_value = to_base(
             native_mv,
             native_currency=native_currency,
             base_currency=base_currency,
             rates=normalized_rates,
+            fallback_to_one=fx_fallback,
         )
         cost_basis = (
             to_base(
@@ -58,6 +85,7 @@ def mark_to_market(
                 native_currency=native_currency,
                 base_currency=base_currency,
                 rates=normalized_rates,
+                fallback_to_one=fx_fallback,
             )
             if native_cost is not None
             else None
@@ -79,6 +107,8 @@ def mark_to_market(
                 "as_of_date": as_of_date.isoformat(),
             }
         )
+        if fx_fallback:
+            metadata["fx_missing"] = True
         if unrealized_pnl is not None:
             metadata["unrealized_pnl"] = unrealized_pnl
         if return_pct is not None:
@@ -112,6 +142,7 @@ def mark_to_market(
         total_cost_basis=total_cost_basis,
         unrealized_pnl=unrealized_pnl,
         warnings=warnings,
+        issues=issues,
     )
 
 
@@ -135,7 +166,8 @@ def _native_currency(
 def _native_market_value(
     holding: Holding,
     price_lookup: Callable[[str], float | None],
-) -> tuple[float, str, str | None]:
+    as_of_date: date,
+) -> tuple[float, str, DataQualityIssue | None]:
     if is_cash(holding.asset_id):
         return holding.market_value or 0.0, "cash", None
 
@@ -147,21 +179,56 @@ def _native_market_value(
             return (
                 holding.market_value,
                 "manual",
-                f"QUANTITY_MISSING {holding.asset_id}: quantity missing; using manual market_value",
+                _issue(
+                    CODE_QUANTITY_MISSING,
+                    SEVERITY_WARN,
+                    f"QUANTITY_MISSING {holding.asset_id}: quantity missing; using manual market_value",
+                    holding.asset_id,
+                    as_of_date,
+                ),
             )
 
     if holding.market_value is not None:
         return (
             holding.market_value,
             "manual",
-            f"PRICE_MISSING {holding.asset_id}: latest close missing; using manual market_value",
+            _issue(
+                CODE_PRICE_MISSING,
+                SEVERITY_ERROR,
+                f"PRICE_MISSING {holding.asset_id}: latest close missing; using manual market_value",
+                holding.asset_id,
+                as_of_date,
+            ),
         )
 
     fallback = holding.quantity * (holding.avg_cost or 0.0)
     return (
         fallback,
         "cost_basis",
-        f"PRICE_MISSING {holding.asset_id}: latest close missing; using cost_basis fallback",
+        _issue(
+            CODE_PRICE_MISSING,
+            SEVERITY_ERROR,
+            f"PRICE_MISSING {holding.asset_id}: latest close missing; using cost_basis fallback",
+            holding.asset_id,
+            as_of_date,
+        ),
+    )
+
+
+def _issue(
+    code: str,
+    severity: str,
+    message: str,
+    asset_id: str,
+    as_of_date: date,
+) -> DataQualityIssue:
+    return DataQualityIssue(
+        domain=_DOMAIN,
+        severity=severity,
+        code=code,
+        message=message,
+        asset_id=asset_id,
+        as_of_date=as_of_date,
     )
 
 
