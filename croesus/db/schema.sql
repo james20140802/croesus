@@ -301,3 +301,20 @@ CREATE TABLE IF NOT EXISTS valuation_snapshots (
   assumptions_json          TEXT,
   PRIMARY KEY (asset_id, date)
 );
+
+-- Sprint 008a: data-quality issues. Every silent fallback (missing price,
+-- missing FX rate) is recorded here as a persistent, queryable issue instead of
+-- a transient warning string, so reports and the status dashboard can mark a
+-- snapshot DEGRADED rather than presenting misstated values as clean.
+CREATE TABLE IF NOT EXISTS data_quality_issues (
+  issue_id   TEXT PRIMARY KEY,
+  run_id     TEXT,
+  domain     TEXT NOT NULL,     -- 'portfolio_snapshot' | 'price_ingestion' | 'fx'
+  severity   TEXT NOT NULL,     -- 'error' | 'warn' | 'info'
+  asset_id   TEXT,
+  currency   TEXT,
+  as_of_date DATE,
+  code       TEXT NOT NULL,     -- 'PRICE_MISSING' | 'FX_MISSING' | ...
+  message    TEXT,
+  created_at TIMESTAMP DEFAULT now()
+);
