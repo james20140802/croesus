@@ -68,7 +68,7 @@ early.
 | 008a | Asset-class routing & FX integrity | L | **done** |
 | 008b | Screening v2: sub-scores + valuation dimension | M | **done** |
 | 008c | Universe scale: S&P 500 + NASDAQ-100 | M | **done** |
-| 009 | Transaction-driven snapshot + performance backfill | M | planned |
+| 009 | Transaction-driven snapshot + performance backfill | M | **done** |
 | 010 | Research Agent (local LLM via OpenAI-compatible endpoint) | L | planned |
 | 011 | Approval gate | M | planned |
 | 012 | Reports DB table + status dashboard | S | planned |
