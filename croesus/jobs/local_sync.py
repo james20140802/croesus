@@ -249,15 +249,19 @@ def _run_daily(db: Path) -> str:
 
 
 def _run_snapshot(db: Path) -> str:
-    from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
+    from croesus.jobs.portfolio_snapshot import NoHoldingsSource, run_portfolio_snapshot
 
     holdings_path = os.getenv("CROESUS_HOLDINGS_PATH")
-    if not holdings_path or not Path(holdings_path).exists():
-        raise SyncSkip(
-            "no holdings file configured (set CROESUS_HOLDINGS_PATH to a CSV)"
-        )
+    if holdings_path and not Path(holdings_path).exists():
+        # A configured-but-missing CSV is a misconfiguration; falling back to
+        # the ledger here could silently snapshot a different book.
+        raise SyncSkip(f"configured holdings file not found: {holdings_path}")
     with get_connection(db) as conn:
-        result = run_portfolio_snapshot(conn, holdings_path)
+        try:
+            # No CSV configured → derive holdings from the transaction ledger.
+            result = run_portfolio_snapshot(conn, holdings_path or None)
+        except NoHoldingsSource as exc:
+            raise SyncSkip(str(exc)) from exc
     return f"snapshot as_of={result.as_of_date.isoformat()}"
 
 

@@ -18,11 +18,15 @@ from croesus.db.migrate import migrate
 from croesus.fx.ingest_fx_rates import ingest_fx_rates
 from croesus.fx.repository import FxRepository
 from croesus.portfolio.exposure import ExposureLimits, compute_exposures
+from croesus.portfolio.holdings_from_transactions import (
+    derive_holdings_from_transactions,
+)
 from croesus.portfolio.import_holdings import load_holdings_csv
 from croesus.portfolio.mark_to_market import mark_to_market
 from croesus.portfolio.models import AssetAttrs, Portfolio, PortfolioSnapshotResult, is_cash
 from croesus.portfolio.policy import compute_policy_drifts
 from croesus.portfolio.repository import PortfolioRepository
+from croesus.portfolio.transaction_repository import TransactionRepository
 from croesus.prices.repository import PriceRepository
 from croesus.profiles.models import InvestorProfile
 from croesus.profiles.repository import ProfileRepository
@@ -31,10 +35,17 @@ from croesus.quality.repository import DataQualityRepository
 
 _DEFAULT_PORTFOLIO_ID = "default"
 
+# CSV vs ledger quantity gaps beyond this relative tolerance are reported.
+_RECONCILE_REL_TOLERANCE = 0.005
+
+
+class NoHoldingsSource(RuntimeError):
+    """No holdings CSV was given and the portfolio has no recorded transactions."""
+
 
 def run_portfolio_snapshot(
     conn: duckdb.DuckDBPyConnection,
-    holdings_path: str | Path,
+    holdings_path: str | Path | None,
     *,
     portfolio_id: str = _DEFAULT_PORTFOLIO_ID,
     as_of_date: date | None = None,
@@ -49,12 +60,20 @@ def run_portfolio_snapshot(
     drifts, and a snapshot row, then returns the full result. Unknown or
     malformed holdings are skipped (never fatal) so a partial book still yields
     a snapshot.
+
+    Holdings come from one of two sources (Sprint 009):
+      - ``holdings_path`` given → the CSV is authoritative; if transactions are
+        also recorded, the ledger is cross-checked and quantity gaps surface as
+        reconciliation warnings (a stale CSV must not drift silently).
+      - ``holdings_path`` is None → holdings are derived from the transaction
+        ledger, so ``record_transaction`` alone keeps snapshots current.
+        Raises :class:`NoHoldingsSource` when the ledger is empty too.
     """
     as_of = as_of_date or date.today()
     profile_repo = ProfileRepository(conn)
     portfolio_repo = PortfolioRepository(conn)
 
-    profile = _resolve_profile(conn, portfolio_repo, profile_repo, portfolio_id)
+    profile = resolve_profile(conn, portfolio_repo, profile_repo, portfolio_id)
     base_currency = profile.base_currency.value if profile else "USD"
     base_country = (profile.metadata.get("base_country") if profile else None) or "US"
 
@@ -64,31 +83,65 @@ def run_portfolio_snapshot(
         price_source if price_source is not None else YFinanceDailyPriceSource()
     )
 
-    # Pass the target portfolio and its governing base currency down so rows
-    # omitting those columns adopt the right defaults (not the DB default
-    # profile) and rows for other portfolios are skipped + counted honestly.
-    imported = load_holdings_csv(
-        holdings_path,
-        conn,
-        as_of,
-        portfolio_id=portfolio_id,
-        base_currency=base_currency,
-        metadata_provider=(
-            metadata_provider
-            if metadata_provider is not None
-            else YFinanceAssetMetadataProvider()
-        ),
-        price_source=effective_price_source,
+    transactions = TransactionRepository(conn).list_transactions(
+        portfolio_id, up_to=as_of
     )
-    warnings = list(imported.warnings)
-    raw_holdings = imported.holdings
 
-    assets_by_id = _load_asset_attrs(conn, [h.asset_id for h in raw_holdings])
+    if holdings_path is not None:
+        # Pass the target portfolio and its governing base currency down so rows
+        # omitting those columns adopt the right defaults (not the DB default
+        # profile) and rows for other portfolios are skipped + counted honestly.
+        imported = load_holdings_csv(
+            holdings_path,
+            conn,
+            as_of,
+            portfolio_id=portfolio_id,
+            base_currency=base_currency,
+            metadata_provider=(
+                metadata_provider
+                if metadata_provider is not None
+                else YFinanceAssetMetadataProvider()
+            ),
+            price_source=effective_price_source,
+        )
+        warnings = list(imported.warnings)
+        raw_holdings = imported.holdings
+        holdings_skipped = imported.skipped
+        resolver_statuses = imported.resolver_statuses
+        if transactions:
+            ledger = derive_holdings_from_transactions(
+                transactions,
+                portfolio_id=portfolio_id,
+                as_of_date=as_of,
+                base_currency=base_currency,
+            )
+            warnings.extend(
+                _reconciliation_warnings(raw_holdings, ledger.holdings)
+            )
+    else:
+        if not transactions:
+            raise NoHoldingsSource(
+                f"portfolio {portfolio_id!r}: no holdings CSV given and no "
+                "transactions recorded — record one with "
+                "`python -m croesus.jobs.record_transaction` or pass a CSV"
+            )
+        derived = derive_holdings_from_transactions(
+            transactions,
+            portfolio_id=portfolio_id,
+            as_of_date=as_of,
+            base_currency=base_currency,
+        )
+        warnings = list(derived.warnings)
+        raw_holdings = derived.holdings
+        holdings_skipped = 0
+        resolver_statuses = []
+
+    assets_by_id = load_asset_attrs(conn, [h.asset_id for h in raw_holdings])
     price_repo = PriceRepository(conn)
-    required_currencies = _required_currencies(raw_holdings, base_currency)
-    fx_rates = _load_fx_rates(conn, required_currencies, as_of)
+    currencies_needed = required_currencies(raw_holdings, base_currency)
+    fx_rates = load_fx_rates(conn, currencies_needed, as_of)
     missing_currencies = {
-        c for c in required_currencies if c != "USD" and c not in fx_rates
+        c for c in currencies_needed if c != "USD" and c not in fx_rates
     }
     if missing_currencies:
         # First snapshot for a new currency: fetch rates on demand so a KRW
@@ -98,7 +151,7 @@ def run_portfolio_snapshot(
         ingest_fx_rates(
             conn, sorted(missing_currencies), source=effective_price_source, log=log
         )
-        fx_rates = _load_fx_rates(conn, required_currencies, as_of)
+        fx_rates = load_fx_rates(conn, currencies_needed, as_of)
     mark_result = mark_to_market(
         raw_holdings,
         price_lookup=lambda asset_id: price_repo.get_latest_close(asset_id, as_of),
@@ -160,18 +213,49 @@ def run_portfolio_snapshot(
         total_cost_basis=mark_result.total_cost_basis,
         unrealized_pnl=mark_result.unrealized_pnl,
         holdings_imported=len(holdings),
-        holdings_skipped=imported.skipped,
+        holdings_skipped=holdings_skipped,
         exposures=exposures,
         policy_drifts=drift_result.drifts,
         warnings=warnings,
-        resolver_statuses=imported.resolver_statuses,
+        resolver_statuses=resolver_statuses,
         data_quality_errors=data_quality_errors,
     )
     _log_summary(result, log)
     return result
 
 
-def _resolve_profile(
+def _reconciliation_warnings(csv_holdings: list, ledger_holdings: list) -> list[str]:
+    """Quantity gaps between the CSV book and the transaction ledger.
+
+    Cash rows are excluded: the CSV convention allows quantity=1 with a market
+    value while the ledger carries quantity=balance, so comparing them would
+    only produce false alarms. Security positions share one convention.
+    """
+    csv_qty = {
+        h.asset_id: h.quantity or 0.0 for h in csv_holdings if not is_cash(h.asset_id)
+    }
+    ledger_qty = {
+        h.asset_id: h.quantity or 0.0
+        for h in ledger_holdings
+        if not is_cash(h.asset_id)
+    }
+    warnings: list[str] = []
+    for asset_id in sorted(set(csv_qty) | set(ledger_qty)):
+        from_csv = csv_qty.get(asset_id, 0.0)
+        from_ledger = ledger_qty.get(asset_id, 0.0)
+        scale = max(abs(from_csv), abs(from_ledger))
+        if scale <= 0.0:
+            continue
+        if abs(from_csv - from_ledger) / scale > _RECONCILE_REL_TOLERANCE:
+            warnings.append(
+                f"holdings reconciliation: {asset_id} CSV quantity {from_csv:g} vs "
+                f"transaction-derived {from_ledger:g} — update the CSV or record "
+                "the missing transaction"
+            )
+    return warnings
+
+
+def resolve_profile(
     conn: duckdb.DuckDBPyConnection,
     portfolio_repo: PortfolioRepository,
     profile_repo: ProfileRepository,
@@ -216,7 +300,7 @@ def _ensure_portfolio(
     return portfolio
 
 
-def _load_asset_attrs(
+def load_asset_attrs(
     conn: duckdb.DuckDBPyConnection, asset_ids: list[str]
 ) -> dict[str, AssetAttrs]:
     lookup = [a for a in set(asset_ids) if not is_cash(a)]
@@ -246,7 +330,7 @@ def _load_asset_attrs(
     return attrs
 
 
-def _required_currencies(holdings: list, base_currency: str) -> set[str]:
+def required_currencies(holdings: list, base_currency: str) -> set[str]:
     currencies = {base_currency.upper()}
     for holding in holdings:
         if holding.currency:
@@ -258,7 +342,7 @@ def _required_currencies(holdings: list, base_currency: str) -> set[str]:
     return currencies
 
 
-def _load_fx_rates(
+def load_fx_rates(
     conn: duckdb.DuckDBPyConnection,
     currencies: set[str],
     as_of: date,
@@ -331,15 +415,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m croesus.jobs.portfolio_snapshot",
         description=(
-            "Import a manual holdings CSV, compute exposure and policy drift, "
-            "and persist a portfolio snapshot."
+            "Snapshot a portfolio from a holdings CSV (or, without --holdings, "
+            "from the recorded transaction ledger): mark to market, compute "
+            "exposure and policy drift, persist the snapshot."
         ),
     )
     parser.add_argument(
         "--holdings",
-        required=True,
+        default=None,
         metavar="PATH",
-        help="path to the holdings CSV to import",
+        help=(
+            "path to a holdings CSV to import; omit to derive holdings from "
+            "the recorded transaction ledger"
+        ),
     )
     parser.add_argument(
         "--portfolio-id",
@@ -374,7 +462,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 portfolio_id=args.portfolio_id,
                 as_of_date=as_of,
             )
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, NoHoldingsSource) as exc:
             print(exc, file=sys.stderr)
             raise SystemExit(1) from exc
 
