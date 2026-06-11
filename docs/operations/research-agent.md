@@ -48,6 +48,18 @@ rendered in the portfolio action report's `## Research Notes` section.
   `[Macro warning]` line is prepended to the risks — code, not the LLM,
   guarantees that warning.
 
+## Troubleshooting
+
+- **Every request returns HTTP 500 "model failed to load"** — including for
+  models that previously worked: a prior GPU out-of-memory crash (e.g. trying
+  a 32B model on a 32 GB machine) can leave the Ollama runner wedged. Restart
+  the Ollama app/daemon, then rerun. Notes for the failed run are kept with
+  `status = 'failed'` and the exact server error.
+- **First request times out** — the model is still loading into memory or is
+  too slow for the hardware; raise `CROESUS_LLM_TIMEOUT` or pick a smaller
+  `CROESUS_LLM_MODEL`. On a 32 GB Mac, `qwen3:8b` is the realistic choice;
+  `qwen3:32b` needs more unified memory than the OS will grant.
+
 ## Manual verification
 
 ```python
