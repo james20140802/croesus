@@ -272,3 +272,32 @@ CREATE TABLE IF NOT EXISTS portfolio_performance_snapshots (
   metadata JSON,
   PRIMARY KEY (portfolio_id, as_of_date, period)
 );
+
+-- Sprint 007: valuation analysis. fundamentals stores normalized
+-- financial-statement metrics (long format like factor_values), one row per
+-- (asset, period_end, period_type, metric). metric_name strings are a stable
+-- contract. valuation_snapshots records the detailed 2-stage DCF result per
+-- (asset, date): intrinsic value, the CAPM WACC, growth assumptions, and a JSON
+-- blob of every assumption so an LLM override can be audited later.
+CREATE TABLE IF NOT EXISTS fundamentals (
+  asset_id     TEXT NOT NULL,
+  period_end   DATE NOT NULL,
+  period_type  TEXT NOT NULL,   -- 'annual' | 'quarterly'
+  metric_name  TEXT NOT NULL,
+  value        DOUBLE,
+  source       TEXT,
+  PRIMARY KEY (asset_id, period_end, period_type, metric_name)
+);
+
+CREATE TABLE IF NOT EXISTS valuation_snapshots (
+  asset_id                  TEXT NOT NULL,
+  date                      DATE NOT NULL,
+  intrinsic_value_per_share DOUBLE,
+  current_price             DOUBLE,
+  upside_pct                DOUBLE,
+  wacc                      DOUBLE,
+  fcf_growth_rate           DOUBLE,
+  terminal_growth_rate      DOUBLE,
+  assumptions_json          TEXT,
+  PRIMARY KEY (asset_id, date)
+);

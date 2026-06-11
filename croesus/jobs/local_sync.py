@@ -243,7 +243,8 @@ def _run_daily(db: Path) -> str:
     return (
         f"prices={len(result.price_result.succeeded)} "
         f"fx={len(result.fx_result.succeeded)} "
-        f"factors={len(result.factor_result.computed)}"
+        f"factors={len(result.factor_result.computed)} "
+        f"valuation={len(result.valuation_result.computed)}"
     )
 
 

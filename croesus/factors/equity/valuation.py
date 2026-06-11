@@ -1,0 +1,194 @@
+"""
+Pure valuation math (Sprint 007).
+
+DB-free and deterministic: relative-valuation multiples, sector-percentile
+ranking, CAPM WACC, FCF growth estimation, and a 2-stage DCF. The orchestration
+layer (``compute_valuation.py``) reads the database, calls these functions, and
+persists the results. Keeping the math pure makes every formula unit-testable
+without a database or network.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+# CAPM / DCF constants (spec §4).
+EQUITY_RISK_PREMIUM = 0.055
+DEFAULT_RISK_FREE_RATE = 0.045
+DEFAULT_TERMINAL_GROWTH = 0.025
+FCF_GROWTH_FLOOR = -0.05
+FCF_GROWTH_CAP = 0.30
+DCF_EXPLICIT_YEARS = 5
+MIN_BETA_OBSERVATIONS = 30
+
+
+@dataclass(frozen=True)
+class ValuationMultiples:
+    pe_ratio: float | None = None
+    pb_ratio: float | None = None
+    ev_to_ebitda: float | None = None
+    fcf_yield: float | None = None
+
+
+@dataclass(frozen=True)
+class DcfResult:
+    intrinsic_value_per_share: float
+    wacc: float
+    fcf_growth_rate: float
+    terminal_growth_rate: float
+    enterprise_value: float
+    equity_value: float
+    base_fcf: float
+
+
+def compute_multiples(
+    *,
+    price: float | None,
+    eps: float | None,
+    book_value_per_share: float | None,
+    market_cap: float | None,
+    total_debt: float | None,
+    cash: float | None,
+    ebitda: float | None,
+    free_cash_flow: float | None,
+) -> ValuationMultiples:
+    """Relative-valuation multiples; any factor with a 0/None/negative
+    denominator is left ``None`` (a negative multiple would corrupt the
+    cheap→expensive percentile ordering)."""
+    return ValuationMultiples(
+        pe_ratio=_ratio(price, eps),
+        pb_ratio=_ratio(price, book_value_per_share),
+        ev_to_ebitda=_enterprise_value_to_ebitda(market_cap, total_debt, cash, ebitda),
+        fcf_yield=_fcf_yield(free_cash_flow, market_cap),
+    )
+
+
+def _ratio(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    return numerator / denominator
+
+
+def _enterprise_value_to_ebitda(
+    market_cap: float | None,
+    total_debt: float | None,
+    cash: float | None,
+    ebitda: float | None,
+) -> float | None:
+    if market_cap is None or ebitda is None or ebitda <= 0:
+        return None
+    enterprise_value = market_cap + (total_debt or 0.0) - (cash or 0.0)
+    return enterprise_value / ebitda
+
+
+def _fcf_yield(free_cash_flow: float | None, market_cap: float | None) -> float | None:
+    # market_cap is the denominator (always > 0 for a live name); FCF may be
+    # negative, which is a meaningful (expensive) reading, so it is kept.
+    if free_cash_flow is None or market_cap is None or market_cap <= 0:
+        return None
+    return free_cash_flow / market_cap
+
+
+def sector_percentile(value: float, peers: list[float]) -> float | None:
+    """Mid-rank percentile of ``value`` within ``peers`` (which includes itself),
+    on a 0–100 ascending scale: 0 = cheapest (lowest multiple), 100 = priciest."""
+    usable = [p for p in peers if p is not None]
+    if not usable:
+        return None
+    below = sum(1 for p in usable if p < value)
+    equal = sum(1 for p in usable if p == value)
+    return (below + 0.5 * equal) / len(usable) * 100.0
+
+
+def compute_beta(
+    asset_returns: list[float], market_returns: list[float]
+) -> float | None:
+    """OLS slope of asset returns on market returns (``cov/var``).
+
+    Returns ``None`` when the overlapping series is too short or the market has
+    zero variance — the caller then falls back to a sector median, then 1.0.
+    """
+    n = min(len(asset_returns), len(market_returns))
+    if n < MIN_BETA_OBSERVATIONS:
+        return None
+    a = asset_returns[-n:]
+    m = market_returns[-n:]
+    mean_a = sum(a) / n
+    mean_m = sum(m) / n
+    cov = sum((ai - mean_a) * (mi - mean_m) for ai, mi in zip(a, m))
+    var = sum((mi - mean_m) ** 2 for mi in m)
+    if var == 0:
+        return None
+    return cov / var
+
+
+def compute_wacc(
+    risk_free_rate: float, beta: float, *, equity_risk_premium: float = EQUITY_RISK_PREMIUM
+) -> float:
+    """All-equity CAPM cost of capital: ``Rf + β × ERP`` (debt-weighting is out
+    of scope this sprint)."""
+    return risk_free_rate + beta * equity_risk_premium
+
+
+def compute_fcf_growth(annual_fcf: list[float]) -> float | None:
+    """5-year FCF CAGR clipped to ``[-5%, +30%]``.
+
+    Uses up to the most recent five annual figures. Returns ``None`` when there
+    are fewer than two points or either endpoint is non-positive (a CAGR across a
+    sign change is undefined).
+    """
+    recent = annual_fcf[-DCF_EXPLICIT_YEARS:]
+    if len(recent) < 2:
+        return None
+    first, last = recent[0], recent[-1]
+    if first <= 0 or last <= 0:
+        return None
+    years = len(recent) - 1
+    cagr = (last / first) ** (1 / years) - 1
+    return max(FCF_GROWTH_FLOOR, min(FCF_GROWTH_CAP, cagr))
+
+
+def two_stage_dcf(
+    *,
+    base_fcf: float,
+    growth_rate: float,
+    wacc: float,
+    shares_outstanding: float,
+    total_debt: float | None,
+    cash: float | None,
+    terminal_growth_rate: float = DEFAULT_TERMINAL_GROWTH,
+    explicit_years: int = DCF_EXPLICIT_YEARS,
+) -> DcfResult | None:
+    """5-year explicit FCF projection + Gordon-growth terminal value.
+
+    Returns ``None`` (DCF skipped) when inputs make the model invalid: a
+    non-positive FCF base, no shares, or ``WACC ≤ terminal growth`` (the terminal
+    value diverges).
+    """
+    if base_fcf <= 0 or shares_outstanding <= 0:
+        return None
+    if wacc <= terminal_growth_rate:
+        return None
+
+    pv_explicit = 0.0
+    projected_fcf = base_fcf
+    for year in range(1, explicit_years + 1):
+        projected_fcf = base_fcf * (1 + growth_rate) ** year
+        pv_explicit += projected_fcf / (1 + wacc) ** year
+
+    fcf_final = base_fcf * (1 + growth_rate) ** explicit_years
+    terminal_value = fcf_final * (1 + terminal_growth_rate) / (wacc - terminal_growth_rate)
+    pv_terminal = terminal_value / (1 + wacc) ** explicit_years
+
+    enterprise_value = pv_explicit + pv_terminal
+    equity_value = enterprise_value - (total_debt or 0.0) + (cash or 0.0)
+    intrinsic_per_share = equity_value / shares_outstanding
+
+    return DcfResult(
+        intrinsic_value_per_share=intrinsic_per_share,
+        wacc=wacc,
+        fcf_growth_rate=growth_rate,
+        terminal_growth_rate=terminal_growth_rate,
+        enterprise_value=enterprise_value,
+        equity_value=equity_value,
+        base_fcf=base_fcf,
+    )
