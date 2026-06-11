@@ -5,6 +5,7 @@ from typing import Callable
 
 import duckdb
 
+from croesus.assets.classifier import PRICEABLE_ASSET_TYPES
 from croesus.assets.repository import AssetRepository
 from croesus.data_sources.base import DailyPriceSource
 from croesus.data_sources.yfinance_source import YFinanceDailyPriceSource
@@ -27,10 +28,10 @@ def ingest_daily_prices(
 ) -> IngestionResult:
     source = source or YFinanceDailyPriceSource()
     repo = AssetRepository(conn)
-    # Equities are the valuation universe; ETFs (e.g. the SPY benchmark) are
-    # priced too so the valuation layer can regress betas against the market.
-    assets = repo.list_active(asset_type="equity", country="US")
-    assets += repo.list_active(asset_type="etf", country="US")
+    # Every active asset with a fetchable daily close is refreshed — including
+    # international equities, bond/reit ETFs, and crypto held in a portfolio.
+    # Cash and options have no close series and are skipped explicitly.
+    assets = [a for a in repo.list_active() if a.asset_type in PRICEABLE_ASSET_TYPES]
     prices = PriceRepository(conn)
     result = IngestionResult()
 

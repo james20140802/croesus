@@ -8,6 +8,7 @@ import duckdb
 
 from croesus.portfolio.actions import ProposedAction
 from croesus.portfolio.repository import PortfolioRepository
+from croesus.quality.report_block import data_quality_block
 from croesus.reports.paths import report_output_dir
 
 
@@ -28,12 +29,15 @@ def write_portfolio_action_reports(
     markdown_path = output_dir / "portfolio_action.md"
     csv_path = output_dir / "portfolio_action.csv"
 
-    markdown_path.write_text(_render_markdown(run), encoding="utf-8")
+    markdown_path.write_text(
+        _render_markdown(run, quality_lines=data_quality_block(conn)),
+        encoding="utf-8",
+    )
     _write_csv(csv_path, run["actions"])
     return markdown_path, csv_path
 
 
-def _render_markdown(run: dict[str, Any]) -> str:
+def _render_markdown(run: dict[str, Any], *, quality_lines: list[str] | None = None) -> str:
     actions: list[ProposedAction] = run["actions"]
     proposed = [a for a in actions if a.action_type in {"trim", "add", "rebalance_to_band", "raise_cash"}]
     blocked = [a for a in actions if a.action_type == "block_new_buy"]
@@ -44,6 +48,11 @@ def _render_markdown(run: dict[str, Any]) -> str:
     lines = [
         f"# Portfolio Action Report - {run['date']:%Y-%m-%d}",
         "",
+    ]
+    # Unresolved ERROR-level data issues lead the report: a proposal computed
+    # from misstated values must never read as clean.
+    lines.extend(quality_lines or [])
+    lines += [
         "## Summary",
         f"- Portfolio: {run['portfolio_id']}",
         f"- Profile: {run['profile_id']}",

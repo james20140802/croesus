@@ -20,6 +20,7 @@ from croesus.portfolio.performance import (
     PerformanceCheckResult,
     PerformancePeriod,
 )
+from croesus.quality.report_block import data_quality_block
 from croesus.reports.paths import report_output_dir
 
 _GOAL_LABELS = {
@@ -49,22 +50,33 @@ def write_performance_reports(
     result: PerformanceCheckResult,
     *,
     reports_dir: str | Path = "reports",
+    conn=None,
 ) -> tuple[Path, Path]:
-    """Write Markdown and CSV views of ``result``; return their paths."""
+    """Write Markdown and CSV views of ``result``; return their paths.
+
+    When ``conn`` is provided, recent ERROR-level data-quality issues are
+    prepended so a return computed from misstated values never reads as clean.
+    """
     output_dir = report_output_dir(reports_dir, "performance", result.as_of_date)
     markdown_path = output_dir / "performance.md"
     csv_path = output_dir / "performance.csv"
 
-    markdown_path.write_text(render_markdown(result), encoding="utf-8")
+    quality_lines = data_quality_block(conn) if conn is not None else []
+    markdown_path.write_text(
+        render_markdown(result, quality_lines=quality_lines), encoding="utf-8"
+    )
     _write_csv(csv_path, result)
     return markdown_path, csv_path
 
 
-def render_markdown(result: PerformanceCheckResult) -> str:
+def render_markdown(
+    result: PerformanceCheckResult, *, quality_lines: list[str] | None = None
+) -> str:
     """Render ``result`` as a Markdown progress report."""
     lines = [
         f"# Performance and Goal Progress - {result.as_of_date:%Y-%m-%d}",
         "",
+        *(quality_lines or []),
         f"- Portfolio: {result.portfolio_id}",
         "",
         f"> {result.disclaimer}",

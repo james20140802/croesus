@@ -13,7 +13,7 @@ _SATELLITE_METADATA = {
     "asset_types": ["equity", "etf"],
 }
 _DEFENSIVE_METADATA = {
-    "asset_types": ["bond_etf"],
+    "asset_types": ["bond_etf", "bond"],
 }
 _CASH_METADATA = {
     "asset_types": ["cash"],

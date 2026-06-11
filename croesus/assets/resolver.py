@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import duckdb
 
+from croesus.assets.classifier import classify_asset_type
 from croesus.assets.metadata_provider import AssetMetadataProvider
 from croesus.assets.models import Asset
 from croesus.assets.repository import AssetRepository
@@ -59,6 +60,12 @@ class AssetResolver:
                 status="unresolved",
                 message="metadata provider could not resolve symbol",
             )
+
+        # Refine the coarse provider type (e.g. "etf" -> "bond_etf") so policy
+        # sleeves match. Only asset_type changes; the asset_id stays stable.
+        refined_type = classify_asset_type(resolved)
+        if refined_type != resolved.asset_type:
+            resolved = replace(resolved, asset_type=refined_type)
 
         AssetRepository(self.conn).upsert_many([resolved])
         message = self._bootstrap_prices(resolved)

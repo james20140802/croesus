@@ -15,6 +15,7 @@ from croesus.data_sources.yfinance_metadata import YFinanceAssetMetadataProvider
 from croesus.data_sources.yfinance_source import YFinanceDailyPriceSource
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
+from croesus.fx.ingest_fx_rates import ingest_fx_rates
 from croesus.fx.repository import FxRepository
 from croesus.portfolio.exposure import ExposureLimits, compute_exposures
 from croesus.portfolio.import_holdings import load_holdings_csv
@@ -25,6 +26,8 @@ from croesus.portfolio.repository import PortfolioRepository
 from croesus.prices.repository import PriceRepository
 from croesus.profiles.models import InvestorProfile
 from croesus.profiles.repository import ProfileRepository
+from croesus.quality.models import SEVERITY_ERROR
+from croesus.quality.repository import DataQualityRepository
 
 _DEFAULT_PORTFOLIO_ID = "default"
 
@@ -57,6 +60,10 @@ def run_portfolio_snapshot(
 
     portfolio = _ensure_portfolio(portfolio_repo, portfolio_id, profile, base_currency)
 
+    effective_price_source = (
+        price_source if price_source is not None else YFinanceDailyPriceSource()
+    )
+
     # Pass the target portfolio and its governing base currency down so rows
     # omitting those columns adopt the right defaults (not the DB default
     # profile) and rows for other portfolios are skipped + counted honestly.
@@ -71,20 +78,27 @@ def run_portfolio_snapshot(
             if metadata_provider is not None
             else YFinanceAssetMetadataProvider()
         ),
-        price_source=(
-            price_source if price_source is not None else YFinanceDailyPriceSource()
-        ),
+        price_source=effective_price_source,
     )
     warnings = list(imported.warnings)
     raw_holdings = imported.holdings
 
     assets_by_id = _load_asset_attrs(conn, [h.asset_id for h in raw_holdings])
     price_repo = PriceRepository(conn)
-    fx_rates = _load_fx_rates(
-        conn,
-        _required_currencies(raw_holdings, base_currency),
-        as_of,
-    )
+    required_currencies = _required_currencies(raw_holdings, base_currency)
+    fx_rates = _load_fx_rates(conn, required_currencies, as_of)
+    missing_currencies = {
+        c for c in required_currencies if c != "USD" and c not in fx_rates
+    }
+    if missing_currencies:
+        # First snapshot for a new currency: fetch rates on demand so a KRW
+        # holding is never silently valued 1:1 just because daily_run has not
+        # seen the currency yet. The price source serves FX symbols ("KRW=X")
+        # too, so injected fakes keep tests offline.
+        ingest_fx_rates(
+            conn, sorted(missing_currencies), source=effective_price_source, log=log
+        )
+        fx_rates = _load_fx_rates(conn, required_currencies, as_of)
     mark_result = mark_to_market(
         raw_holdings,
         price_lookup=lambda asset_id: price_repo.get_latest_close(asset_id, as_of),
@@ -95,6 +109,12 @@ def run_portfolio_snapshot(
     )
     warnings.extend(mark_result.warnings)
     holdings = mark_result.holdings
+
+    # Persist every fallback as a queryable issue; ERRORs degrade the snapshot.
+    DataQualityRepository(conn).record_many(mark_result.issues)
+    data_quality_errors = [
+        i for i in mark_result.issues if i.severity == SEVERITY_ERROR
+    ]
 
     portfolio_repo.replace_holdings(portfolio_id, as_of, holdings)
 
@@ -145,6 +165,7 @@ def run_portfolio_snapshot(
         policy_drifts=drift_result.drifts,
         warnings=warnings,
         resolver_statuses=imported.resolver_statuses,
+        data_quality_errors=data_quality_errors,
     )
     _log_summary(result, log)
     return result
@@ -265,6 +286,13 @@ def _limits_from_profile(profile: InvestorProfile | None) -> ExposureLimits:
 
 
 def _log_summary(result: PortfolioSnapshotResult, log: Callable[[str], None]) -> None:
+    if result.data_quality_errors:
+        log(
+            f"DATA QUALITY: {len(result.data_quality_errors)} ERROR(s) — "
+            "snapshot is DEGRADED; values below may be misstated"
+        )
+        for issue in result.data_quality_errors:
+            log(f"  {issue.code}: {issue.message}")
     log(
         f"portfolio {result.portfolio_id} @ {result.as_of_date}: "
         f"total={result.total_market_value:.2f} "

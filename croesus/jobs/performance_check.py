@@ -410,7 +410,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.report:
             from croesus.reports.performance import write_performance_reports
 
-            md_path, csv_path = write_performance_reports(result)
+            md_path, csv_path = write_performance_reports(result, conn=conn)
             print(f"wrote {md_path}")
             print(f"wrote {csv_path}")
 

@@ -77,6 +77,9 @@ class MarkToMarketResult:
     total_cost_basis: float | None
     unrealized_pnl: float | None
     warnings: list[str]
+    # Structured ERROR/WARN issues behind the warning strings (Sprint 008a).
+    # Any ERROR here means a value above is misstated -> snapshot is DEGRADED.
+    issues: list[Any] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,9 @@ class PortfolioSnapshotResult:
     policy_drifts: list[PolicyDrift]
     warnings: list[str]
     resolver_statuses: list[ResolverStatus] = field(default_factory=list)
+    # ERROR-level data-quality issues persisted for this snapshot; non-empty
+    # means the snapshot is DEGRADED (some value relies on a fallback).
+    data_quality_errors: list[Any] = field(default_factory=list)
 
 
 def is_cash(asset_id: str) -> bool:

@@ -18,7 +18,13 @@ class AssetType(str, Enum):
 
     EQUITY = "equity"
     ETF = "etf"
+    BOND = "bond"
+    BOND_ETF = "bond_etf"
     REIT = "reit"
+    REIT_ETF = "reit_etf"
+    FUND = "fund"
+    CRYPTO = "crypto"
+    COMMODITY = "commodity"
     CASH = "cash"
     OPTION = "option"
     LEVERAGED_ETF = "leveraged_etf"

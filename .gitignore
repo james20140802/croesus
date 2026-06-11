@@ -226,6 +226,7 @@ storage/
 reports/
 !croesus/reports/
 !croesus/reports/**
+croesus/reports/__pycache__/
 experiments/*/results/*.csv
 experiments/*/results/*.png
 

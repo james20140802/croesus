@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import duckdb
 
+from croesus.assets.classifier import PRICEABLE_ASSET_TYPES
 from croesus.assets.repository import AssetRepository
 from croesus.factors.common import FactorValue, compute_common_factors
 from croesus.prices.repository import PriceRepository
@@ -17,7 +18,14 @@ class FactorComputationResult:
 
 
 def compute_and_store_common_factors(conn: duckdb.DuckDBPyConnection) -> FactorComputationResult:
-    assets = AssetRepository(conn).list_active(asset_type="equity", country="US")
+    # Price-derived factors (momentum, volatility, liquidity, 200d MA) are
+    # asset-type-agnostic: any asset with a daily close series gets them.
+    # Valuation/DCF stays equity-only — that filter lives in compute_valuation.
+    assets = [
+        a
+        for a in AssetRepository(conn).list_active()
+        if a.asset_type in PRICEABLE_ASSET_TYPES
+    ]
     prices = PriceRepository(conn)
     result = FactorComputationResult()
 
