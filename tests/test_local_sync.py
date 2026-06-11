@@ -175,6 +175,7 @@ def test_default_jobs_are_recommendation_only_no_trades() -> None:
     names = [j.name for j in default_sync_jobs()]
     assert names == [
         "daily_macro_run",
+        "universe_refresh",
         "daily_run",
         "quarterly_run",
         "portfolio_snapshot",
