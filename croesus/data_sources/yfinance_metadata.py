@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import yfinance as yf
 
+from croesus.assets.identity import make_asset_id
 from croesus.assets.models import Asset
 
 
@@ -36,7 +36,7 @@ class YFinanceAssetMetadataProvider:
         currency = _first_text(info, "currency", "financialCurrency") or "USD"
 
         return Asset(
-            asset_id=_asset_id(country, asset_type, clean_symbol),
+            asset_id=make_asset_id(country, asset_type, clean_symbol),
             symbol=clean_symbol,
             name=name,
             asset_type=asset_type,
@@ -88,13 +88,3 @@ def _country_code(country: Any) -> str:
         "UNITED KINGDOM": "GB",
     }
     return known.get(normalized, normalized[:2])
-
-
-def _asset_id(country: str, asset_type: str, symbol: str) -> str:
-    type_prefix = {
-        "equity": "EQ",
-        "etf": "ETF",
-        "fund": "FUND",
-    }.get(asset_type, asset_type.upper() or "ASSET")
-    safe_symbol = re.sub(r"[^A-Z0-9]+", "_", symbol.upper()).strip("_")
-    return f"{country}_{type_prefix}_{safe_symbol}"
