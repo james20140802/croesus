@@ -43,10 +43,14 @@ screening:
     - Cautious
     - Defensive
   base_candidate_count: 20
+  # Sprint 008b: a valuation dimension joins the composite. Its 0.10 weight is
+  # redistributed out of trend (0.25 -> 0.15) so the positive-weight total
+  # stays 0.85 and scores remain on the pre-008b scale.
   base_weights:
     momentum: 0.35
     liquidity: 0.25
-    trend: 0.25
+    trend: 0.15
+    valuation: 0.10
     volatility_penalty: 0.15
   # Weighting of momentum horizons inside momentum_score. 1m acts as a
   # short-term reversal signal, so it is downweighted relative to 3m/6m.
@@ -59,12 +63,16 @@ screening:
     Goldilocks:
       momentum: 0.10
       volatility_penalty: -0.05
+      # Risk-on growth regime: momentum leads, cheapness matters less.
+      valuation: -0.05
     Reflation:
       momentum: -0.05
       liquidity: 0.10
     Stagflation:
       momentum: -0.15
       volatility_penalty: 0.15
+      # Stress regime: lean defensive — favor cheap names over chased momentum.
+      valuation: 0.10
       # Stress regime: drop the 1m reversal horizon, lean on 6m trend.
       momentum_horizon_weights:
         momentum_1m: 0.0
@@ -73,6 +81,7 @@ screening:
     Deflation:
       momentum: -0.10
       liquidity: 0.05
+      valuation: 0.05
   amplifier_stress_threshold: 60
   amplifier_stress_filters:
     min_liquidity_multiplier: 1.5
