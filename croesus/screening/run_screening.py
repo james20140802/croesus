@@ -9,18 +9,17 @@ import duckdb
 
 from croesus.assets.models import Asset
 from croesus.assets.repository import AssetRepository
+from croesus.screening.dimensions import (
+    FACTOR_NAMES,
+    SCORE_GROUP_KEYS,
+    VALUATION_CONTEXT_FACTORS,
+    VALUATION_INVERTED,
+    VALUATION_NATURAL,
+)
 from croesus.screening.models import ScreeningCandidate, ScreeningRunResult
 from croesus.screening.normalization import percentile_rank
 from croesus.screening.repository import ScreeningRepository
 
-FACTOR_NAMES = (
-    "momentum_1m",
-    "momentum_3m",
-    "momentum_6m",
-    "liquidity_1m",
-    "above_200d_ma",
-    "volatility_3m",
-)
 SUPPORTED_ASSET_TYPES = {"equity", "etf"}
 
 
@@ -87,7 +86,16 @@ def run_screening(
             ranked_inputs.append(candidate)
 
     ranked_inputs.sort(key=lambda candidate: (-candidate.score, candidate.asset_id))  # type: ignore[arg-type]
-    candidate_count = int(screening_params.get("candidate_count") or 20)
+    # Clamp to the actual ranked pool so "20 candidates from a 12-name universe"
+    # never overstates selectivity; expose the sizes alongside the params.
+    requested_candidate_count = int(screening_params.get("candidate_count") or 20)
+    candidate_count = min(requested_candidate_count, len(ranked_inputs))
+    screening_params = {
+        **screening_params,
+        "universe_size": len(eligible_assets),
+        "ranked_count": len(ranked_inputs),
+        "effective_candidate_count": candidate_count,
+    }
     ranked: list[ScreeningCandidate] = []
     for index, candidate in enumerate(ranked_inputs, start=1):
         blocking = candidate.metadata.get("blocking_exposures") or []
@@ -178,11 +186,22 @@ def _score_asset(
 
     horizon_weights = screening_params.get("momentum_horizon_weights") or {}
     momentum_score = _weighted_momentum(percentiles, horizon_weights)
+    valuation_score = _valuation_score(percentiles)
     factor_scores = {
         "momentum_score": momentum_score,
         "liquidity_score": percentiles.get("liquidity_1m"),
         "trend_score": percentiles.get("above_200d_ma"),
         "volatility_penalty": percentiles.get("volatility_3m"),
+        "valuation_score": valuation_score,
+        # Horizon detail — previously computed then discarded; kept so reports
+        # and the Research Agent can see e.g. a 6m leader with a 1m reversal.
+        "momentum_1m_pct": percentiles.get("momentum_1m"),
+        "momentum_3m_pct": percentiles.get("momentum_3m"),
+        "momentum_6m_pct": percentiles.get("momentum_6m"),
+        # Raw valuation context (not percentiles) for human/LLM judgment.
+        **{name: factors.get(name) for name in VALUATION_CONTEXT_FACTORS},
+        "above_200d_ma": factors.get("above_200d_ma"),
+        "trend_gate_active": trend_gate_active,
     }
     if factor_scores["momentum_score"] is None:
         return _skipped_candidate(
@@ -193,7 +212,10 @@ def _score_asset(
             {"portfolio_fit": "watch"},
             factor_scores=factor_scores,
         )
-    if sum(value is not None for value in factor_scores.values()) < 3:
+    # Eligibility counts only the four price-score groups (SCORE_GROUP_KEYS):
+    # valuation is additive context — an asset without fundamentals must rank,
+    # not skip, so its weight renormalizes away below instead.
+    if sum(factor_scores[key] is not None for key in SCORE_GROUP_KEYS) < 3:
         return _skipped_candidate(
             run_id,
             asset.asset_id,
@@ -208,11 +230,14 @@ def _score_asset(
     # factor must not be double-counted as both gate and score.
     weights = screening_params.get("factor_weights") or {}
     if trend_gate_active:
-        weights = _renormalize_without_trend(weights)
+        weights = _renormalize_without(weights, "trend")
+    if valuation_score is None and weights.get("valuation"):
+        weights = _renormalize_without(weights, "valuation")
     score = (
         float(weights.get("momentum", 0.0)) * (factor_scores["momentum_score"] or 0.0)
         + float(weights.get("liquidity", 0.0)) * (factor_scores["liquidity_score"] or 0.0)
         + float(weights.get("trend", 0.0)) * (factor_scores["trend_score"] or 0.0)
+        + float(weights.get("valuation", 0.0)) * (valuation_score or 0.0)
         - float(weights.get("volatility_penalty", 0.0)) * (factor_scores["volatility_penalty"] or 0.0)
     )
     blocking = _blocking_exposures_for(asset, exposure_overlay)
@@ -405,18 +430,45 @@ def _scale_momentum_values(
     return scaled
 
 
-def _renormalize_without_trend(weights: Mapping[str, float]) -> dict[str, float]:
+def _renormalize_without(weights: Mapping[str, float], dropped: str) -> dict[str, float]:
     """
-    Drop the trend weight and scale the remaining weights so their total
-    magnitude is preserved — keeps the score on the same scale as a full run.
+    Drop one weight and scale the remaining weights so their total magnitude is
+    preserved — keeps the score on the same scale as a full run. Used when the
+    trend gate replaces the trend score, and when an asset has no valuation
+    data (missing fundamentals must not zero out a chunk of the score range).
     """
     total = sum(abs(float(value)) for value in weights.values())
-    remaining = {key: float(value) for key, value in weights.items() if key != "trend"}
+    remaining = {key: float(value) for key, value in weights.items() if key != dropped}
     remaining_total = sum(abs(value) for value in remaining.values())
     if remaining_total == 0.0:
         return remaining
     scale = total / remaining_total
     return {key: round(value * scale, 4) for key, value in remaining.items()}
+
+
+def _renormalize_without_trend(weights: Mapping[str, float]) -> dict[str, float]:
+    return _renormalize_without(weights, "trend")
+
+
+def _valuation_score(percentiles: Mapping[str, float | None]) -> float | None:
+    """
+    Average the available valuation percentiles into one higher-is-cheaper
+    score. Multiples and price_to_intrinsic invert (low percentile = cheap =
+    good); fcf_yield is already higher-is-better. Returns None when no scored
+    valuation factor is present (the caller renormalizes the weight away).
+    """
+    sub_scores: list[float] = []
+    for name in VALUATION_INVERTED:
+        pct = percentiles.get(name)
+        if pct is not None:
+            sub_scores.append(1.0 - pct)
+    for name in VALUATION_NATURAL:
+        pct = percentiles.get(name)
+        if pct is not None:
+            sub_scores.append(pct)
+    if not sub_scores:
+        return None
+    return sum(sub_scores) / len(sub_scores)
 
 
 def _skipped_candidate(
