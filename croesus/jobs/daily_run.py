@@ -13,6 +13,10 @@ from croesus.factors.compute_common_factors import (
     FactorComputationResult,
     compute_and_store_common_factors,
 )
+from croesus.factors.equity.compute_valuation import (
+    ValuationComputationResult,
+    compute_and_store_valuation_factors,
+)
 from croesus.fx.ingest_fx_rates import FxIngestionResult, ingest_fx_rates
 from croesus.macro._loader import load_latest_macro_state
 from croesus.macro.screening_adapter import get_screening_params, neutral_screening_params
@@ -24,6 +28,7 @@ class DailyRunResult:
     price_result: IngestionResult
     fx_result: FxIngestionResult
     factor_result: FactorComputationResult
+    valuation_result: ValuationComputationResult
     screening_params: dict
 
 
@@ -42,6 +47,13 @@ def run_daily_pipeline(
     )
     factor_result = compute_and_store_common_factors(conn)
 
+    # Valuation multiples move with today's price, so they refresh daily; the
+    # DCF (price_to_intrinsic) is recomputed quarterly by quarterly_run against
+    # freshly-ingested statements.
+    valuation_result = compute_and_store_valuation_factors(
+        conn, include_dcf=False, log=log
+    )
+
     # Consume the latest MacroState (from daily_macro_run) to adjust screening
     # parameters. Falls back to neutral defaults if no macro data is available.
     macro_state = load_latest_macro_state(conn)
@@ -55,6 +67,7 @@ def run_daily_pipeline(
         price_result=price_result,
         fx_result=fx_result,
         factor_result=factor_result,
+        valuation_result=valuation_result,
         screening_params=screening_params,
     )
 
@@ -81,7 +94,8 @@ def main() -> None:
         "daily run complete: "
         f"{len(result.price_result.succeeded)} price downloads succeeded, "
         f"{len(result.price_result.failed)} failed, "
-        f"{len(result.factor_result.computed)} assets with factors"
+        f"{len(result.factor_result.computed)} assets with common factors, "
+        f"{len(result.valuation_result.computed)} assets with valuation multiples"
     )
     print(
         "macro-adjusted screening params: "
