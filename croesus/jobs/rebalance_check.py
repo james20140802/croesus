@@ -19,6 +19,8 @@ from croesus.portfolio.rebalancing import generate_proposed_actions
 from croesus.portfolio.repository import PortfolioRepository
 from croesus.profiles.repository import ProfileRepository
 from croesus.reports.portfolio_action import write_portfolio_action_reports
+from croesus.research.agent import generate_research_notes
+from croesus.research.llm_client import ChatClient
 from croesus.screening.repository import ScreeningRepository
 
 _DEFAULT_PORTFOLIO_ID = "default"
@@ -32,9 +34,16 @@ def run_rebalance_check(
     profile_id: str = _DEFAULT_PROFILE_ID,
     as_of_date: date | None = None,
     reports_dir: str | Path = "reports",
+    llm_client: ChatClient | None = None,
     log: Callable[[str], None] = print,
 ) -> RebalanceRunResult:
-    """Generate proposed actions, write portfolio action reports, and return result."""
+    """Generate proposed actions, write portfolio action reports, and return result.
+
+    Actions flagged ``requires_research`` get a local-LLM research note
+    (Sprint 010) attached to the report; an unreachable LLM server only logs a
+    warning — the run itself never blocks on it. ``llm_client`` is injectable
+    for tests.
+    """
     profile_repo = ProfileRepository(conn)
     portfolio_repo = PortfolioRepository(conn)
 
@@ -93,6 +102,18 @@ def run_rebalance_check(
         metadata=metadata,
     )
     portfolio_repo.replace_proposed_actions(run_id, actions)
+    # Notes only annotate persisted proposals; they are generated before the
+    # report so the report can render them, and never alter the actions.
+    generate_research_notes(
+        conn,
+        run_id=run_id,
+        as_of_date=as_of,
+        actions=actions,
+        screening_candidates=screening_candidates,
+        macro_state=macro_state,
+        client=llm_client,
+        log=log,
+    )
     markdown_path, csv_path = write_portfolio_action_reports(
         conn, run_id, reports_dir=reports_dir
     )
