@@ -136,6 +136,17 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
             c, "SELECT MAX(as_of_date) FROM portfolio_performance_snapshots"
         ),
     ),
+    # Index constituents drift slowly; a weekly refresh tracks additions and
+    # removals closely enough. The assets table has no timestamp column, so the
+    # data date is the last successful refresh recorded in job_runs.
+    DomainSpec(
+        "asset_universe", "universe_refresh", 24.0 * 8,
+        lambda c: _scalar_date(
+            c,
+            "SELECT MAX(finished_at) FROM job_runs "
+            "WHERE job_name = 'universe_refresh' AND status = 'success'",
+        ),
+    ),
 )
 
 DOMAINS_BY_NAME: dict[str, DomainSpec] = {spec.domain: spec for spec in DOMAIN_REGISTRY}

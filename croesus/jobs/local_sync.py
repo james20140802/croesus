@@ -281,6 +281,14 @@ def _run_performance_check(db: Path) -> str:
     return f"performance as_of={result.as_of_date.isoformat()}"
 
 
+def _run_universe_refresh(db: Path) -> str:
+    from croesus.jobs.universe_refresh import run_universe_refresh, summarize
+
+    with get_connection(db) as conn:
+        result = run_universe_refresh(conn)
+    return f"universe {summarize(result)}"
+
+
 def _run_screening(db: Path) -> str:
     from croesus.jobs.screening_run import run_screening_job
 
@@ -301,6 +309,10 @@ def default_sync_jobs() -> list[SyncJob]:
     """The real local pipeline, in dependency order (Sprint 006b §3)."""
     return [
         SyncJob("daily_macro_run", ("macro_daily",), _run_daily_macro),
+        # No depends_on (the weekly asset_universe threshold alone decides when
+        # it is due), but ordered before daily_run so freshly registered index
+        # constituents get their 1y price backfill in the same cycle.
+        SyncJob("universe_refresh", ("asset_universe",), _run_universe_refresh),
         SyncJob("daily_run", ("prices", "fx"), _run_daily),
         # No depends_on: a dependency edge would re-run this every time
         # daily_run refreshes (i.e. daily). The quarterly freshness threshold
