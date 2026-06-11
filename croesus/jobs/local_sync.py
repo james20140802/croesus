@@ -261,6 +261,26 @@ def _run_snapshot(db: Path) -> str:
     return f"snapshot as_of={result.as_of_date.isoformat()}"
 
 
+def _run_quarterly(db: Path) -> str:
+    from croesus.jobs.quarterly_run import run_quarterly_pipeline
+
+    with get_connection(db) as conn:
+        result = run_quarterly_pipeline(conn)
+    fr, vr = result.fundamentals_result, result.valuation_result
+    return (
+        f"fundamentals={len(fr.succeeded)} "
+        f"dcf={len(vr.dcf_computed)} dcf_skipped={len(vr.dcf_skipped)}"
+    )
+
+
+def _run_performance_check(db: Path) -> str:
+    from croesus.jobs.performance_check import run_performance_check
+
+    with get_connection(db) as conn:
+        result = run_performance_check(conn)
+    return f"performance as_of={result.as_of_date.isoformat()}"
+
+
 def _run_screening(db: Path) -> str:
     from croesus.jobs.screening_run import run_screening_job
 
@@ -282,6 +302,11 @@ def default_sync_jobs() -> list[SyncJob]:
     return [
         SyncJob("daily_macro_run", ("macro_daily",), _run_daily_macro),
         SyncJob("daily_run", ("prices", "fx"), _run_daily),
+        # No depends_on: a dependency edge would re-run this every time
+        # daily_run refreshes (i.e. daily). The quarterly freshness threshold
+        # on the fundamentals domain alone decides when it is due; list order
+        # still guarantees prices exist before the DCF runs.
+        SyncJob("quarterly_run", ("fundamentals",), _run_quarterly),
         SyncJob(
             "portfolio_snapshot", ("portfolio_snapshot",), _run_snapshot,
             depends_on=("daily_run",),
@@ -293,6 +318,10 @@ def default_sync_jobs() -> list[SyncJob]:
         SyncJob(
             "rebalance_check", ("rebalance_report",), _run_rebalance,
             depends_on=("portfolio_snapshot", "screening_run", "daily_macro_run"),
+        ),
+        SyncJob(
+            "performance_check", ("performance",), _run_performance_check,
+            depends_on=("portfolio_snapshot",),
         ),
     ]
 

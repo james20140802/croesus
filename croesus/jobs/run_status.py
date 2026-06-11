@@ -124,6 +124,18 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
         "rebalance_report", "rebalance_check", 24.0 * 8,
         lambda c: _scalar_date(c, "SELECT MAX(date) FROM rebalance_runs"),
     ),
+    # Financial statements change on a quarterly filing cadence; ~92 days keeps
+    # the DCF refreshed once per reporting season without daily refetches.
+    DomainSpec(
+        "fundamentals", "quarterly_run", 24.0 * 92,
+        lambda c: _scalar_date(c, "SELECT MAX(period_end) FROM fundamentals"),
+    ),
+    DomainSpec(
+        "performance", "performance_check", 48.0,
+        lambda c: _scalar_date(
+            c, "SELECT MAX(as_of_date) FROM portfolio_performance_snapshots"
+        ),
+    ),
 )
 
 DOMAINS_BY_NAME: dict[str, DomainSpec] = {spec.domain: spec for spec in DOMAIN_REGISTRY}
