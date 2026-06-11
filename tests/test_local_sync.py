@@ -176,9 +176,11 @@ def test_default_jobs_are_recommendation_only_no_trades() -> None:
     assert names == [
         "daily_macro_run",
         "daily_run",
+        "quarterly_run",
         "portfolio_snapshot",
         "screening_run",
         "rebalance_check",
+        "performance_check",
     ]
     # The scheduler must never wire an order-submission / execution job.
     assert not any(
