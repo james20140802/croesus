@@ -66,7 +66,7 @@ early.
 | Sprint | Title | Size | Status |
 |---|---|---|---|
 | 008a | Asset-class routing & FX integrity | L | **done** |
-| 008b | Screening v2: sub-scores + valuation dimension | M | planned |
+| 008b | Screening v2: sub-scores + valuation dimension | M | **done** |
 | 008c | Universe scale: S&P 500 + NASDAQ-100 | M | planned |
 | 009 | Transaction-driven snapshot + performance backfill | M | planned |
 | 010 | Research Agent (local LLM via OpenAI-compatible endpoint) | L | planned |

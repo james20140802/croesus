@@ -35,7 +35,12 @@ DCF 가정값(WACC, 성장률)은 코드가 자동 계산(CAPM + 과거 FCF CAGR
 ## Rationale
 
 - 기술적 팩터만으로는 "좋은 비즈니스를 싸게 사는" 원칙을 구현할 수 없다.
-- `factor_values` 롱포맷은 새 팩터를 스키마 변경 없이 행 추가로 흡수한다. Screening Engine 변경 불필요.
+- `factor_values` 롱포맷은 새 팩터를 스키마 변경 없이 행 추가로 흡수한다.
+  ~~Screening Engine 변경 불필요.~~ **(2026-06-11 정정, Sprint 008b)** 이 가정은
+  틀렸다: 스크리닝 엔진은 등록된 팩터 이름만 로드하고 점수식도 차원별로
+  명시적이므로, 새 팩터는 `croesus/screening/dimensions.py`에 이름·방향을
+  등록하고 점수 차원에 연결해야 실제로 소비된다. 저장 스키마가 무변경인 것은
+  맞지만 "자동 통합"은 아니다.
 - DCF 결과를 `valuation_snapshots`에 별도 저장하면 LLM이 나중에 "왜 이 종목이 저평가인가"를 구조화된 데이터로 설명할 수 있다.
 - `FundamentalsProvider` 추상화는 Valuation sprint에서 yfinance를 쓰고, 이후 FMP 등 유료 소스로 교체할 때 다운스트림 코드를 건드리지 않는다.
 - WACC의 `overrides` 파라미터는 구현 비용 없이 LLM 확장 포인트를 열어둔다.
@@ -55,7 +60,11 @@ DCF는 float 하나(내재 가치)로 표현하기에 정보가 너무 많다. W
 ### Positive
 
 - 가격 기반 기술적 팩터에 펀더멘털 밸류에이션이 추가되어 스크리닝 품질 향상.
-- Screening Engine 변경 없이 밸류에이션 팩터가 자동 통합됨.
+- ~~Screening Engine 변경 없이 밸류에이션 팩터가 자동 통합됨.~~
+  **(2026-06-11 정정, Sprint 008b)** 자동 통합되지 않았다. Sprint 008b가
+  `dimensions.py` 팩터 등록 + `valuation_score` 차원 + `valuation` 가중치로
+  명시적으로 통합했다. 단, 저장 측 이점(스키마 무변경, LLM이 읽을 구조화
+  데이터)은 그대로 유효하다.
 - DCF 기록이 구조화되어 Research Agent가 "왜 저평가인가"를 설명하는 데 사용 가능.
 - `FundamentalsProvider` 추상화로 데이터 소스 교체 비용 최소화.
 

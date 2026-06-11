@@ -99,8 +99,13 @@ def generate_markdown(
         "",
         "## Factor Breakdown",
         "",
-        "| Rank | Symbol | Momentum | Liquidity | Trend | Volatility Penalty |",
-        "|---:|---|---:|---:|---:|---:|",
+        "_Valuation: composite of inverted multiple percentiles + FCF yield"
+        " (higher = cheaper). '-' means no fundamentals; the weight"
+        " renormalizes away._",
+        "",
+        "| Rank | Symbol | Momentum | Liquidity | Trend | Volatility Penalty"
+        " | Valuation | P/E | P/B | Price/Intrinsic |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for candidate in candidates:
         asset = assets.get(candidate.asset_id, {})
@@ -112,7 +117,11 @@ def generate_markdown(
             f"{_fmt(fs.get('momentum_score'))} | "
             f"{_fmt(fs.get('liquidity_score'))} | "
             f"{_fmt(fs.get('trend_score'))} | "
-            f"{_fmt(fs.get('volatility_penalty'))} |"
+            f"{_fmt(fs.get('volatility_penalty'))} | "
+            f"{_fmt(fs.get('valuation_score'))} | "
+            f"{_fmt(fs.get('pe_ratio'))} | "
+            f"{_fmt(fs.get('pb_ratio'))} | "
+            f"{_fmt(fs.get('price_to_intrinsic'))} |"
         )
 
     _append_scores(lines, "Sector Scores", sector_theme_scores, "sector")
@@ -151,12 +160,14 @@ def _candidate_explanation(
     momentum = (weights.get("momentum", 0.0), fs.get("momentum_score"))
     liquidity = (weights.get("liquidity", 0.0), fs.get("liquidity_score"))
     trend = (weights.get("trend", 0.0), fs.get("trend_score"))
+    valuation = (weights.get("valuation", 0.0), fs.get("valuation_score"))
     volatility = (weights.get("volatility_penalty", 0.0), fs.get("volatility_penalty"))
 
     contributions = [
         ("momentum", _product(*momentum)),
         ("liquidity", _product(*liquidity)),
         ("trend", _product(*trend)),
+        ("valuation", _product(*valuation)),
     ]
     best_name, best_value = max(contributions, key=lambda item: item[1])
     penalty = _product(*volatility)
@@ -221,6 +232,15 @@ def _write_csv(
         "liquidity_score",
         "trend_score",
         "volatility_penalty",
+        "valuation_score",
+        "momentum_1m_pct",
+        "momentum_3m_pct",
+        "momentum_6m_pct",
+        "pe_ratio",
+        "pb_ratio",
+        "ev_to_ebitda",
+        "fcf_yield",
+        "price_to_intrinsic",
     ]
     candidates = [*result.candidates, *result.skipped]
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -245,6 +265,15 @@ def _write_csv(
                     "liquidity_score": fs.get("liquidity_score"),
                     "trend_score": fs.get("trend_score"),
                     "volatility_penalty": fs.get("volatility_penalty"),
+                    "valuation_score": fs.get("valuation_score"),
+                    "momentum_1m_pct": fs.get("momentum_1m_pct"),
+                    "momentum_3m_pct": fs.get("momentum_3m_pct"),
+                    "momentum_6m_pct": fs.get("momentum_6m_pct"),
+                    "pe_ratio": fs.get("pe_ratio"),
+                    "pb_ratio": fs.get("pb_ratio"),
+                    "ev_to_ebitda": fs.get("ev_to_ebitda"),
+                    "fcf_yield": fs.get("fcf_yield"),
+                    "price_to_intrinsic": fs.get("price_to_intrinsic"),
                 }
             )
 
