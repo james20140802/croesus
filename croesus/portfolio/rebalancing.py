@@ -17,6 +17,12 @@ _EXPOSURE_REASON_CODES = {
     "currency": "CURRENCY_OVER_MAX",
 }
 
+# A candidate trading this far above its DCF intrinsic value is not added
+# mechanically — it goes to the watchlist for qualitative research first
+# (Sprint 008b; the VALUATION_TOO_EXPENSIVE code existed in the spec since
+# Sprint 006 but nothing generated it). Only fires when a DCF exists.
+_VALUATION_EXPENSIVE_THRESHOLD = 1.25
+
 _ACTION_PRIORITY = {
     "hold": 1,
     "raise_cash": 2,
@@ -268,6 +274,27 @@ def generate_proposed_actions(
                         candidate,
                         ["QUALITATIVE_RESEARCH_REQUIRED"],
                         "Candidate requires qualitative research before action.",
+                    )
+                )
+                counter += 1
+                continue
+
+            price_to_intrinsic = candidate.factor_scores.get("price_to_intrinsic")
+            if (
+                price_to_intrinsic is not None
+                and price_to_intrinsic > _VALUATION_EXPENSIVE_THRESHOLD
+            ):
+                premium_pct = (price_to_intrinsic - 1.0) * 100.0
+                actions.append(
+                    _watch_action(
+                        run_id,
+                        counter,
+                        candidate,
+                        ["VALUATION_TOO_EXPENSIVE", "QUALITATIVE_RESEARCH_REQUIRED"],
+                        (
+                            f"Candidate trades {premium_pct:.0f}% above DCF intrinsic "
+                            "value; research before adding."
+                        ),
                     )
                 )
                 counter += 1
