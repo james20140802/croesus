@@ -56,6 +56,12 @@ class SyncJob:
     domains: tuple[str, ...]
     runner: JobRunner
     depends_on: tuple[str, ...] = field(default_factory=tuple)
+    # Soft trigger: when one of these jobs RAN successfully this cycle, this
+    # job runs too — but unlike depends_on, their failure or skip never blocks
+    # this job. Use for "B should react to A's changes" without coupling B's
+    # availability to A's (e.g. fresh universe constituents need prices, yet a
+    # Wikipedia outage must not stop daily price ingestion).
+    soft_depends_on: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -136,7 +142,9 @@ def run_local_sync(
         domains_due = any(
             (initial.get(d) is None) or initial[d].is_due for d in job.domains
         )
-        dep_refreshed = any(d in ran_ok for d in job.depends_on)
+        dep_refreshed = any(
+            d in ran_ok for d in (*job.depends_on, *job.soft_depends_on)
+        )
         if not (force or domains_due or dep_refreshed):
             reason = "up to date"
             _record(resolved, run_id, job, started, started, RUN_SKIPPED, reason, None)
@@ -237,6 +245,20 @@ def _run_daily_macro(_db: Path) -> str:
     return "daily macro state refreshed"
 
 
+def _run_weekly_macro(_db: Path) -> str:
+    from croesus.jobs import weekly_macro_run
+
+    weekly_macro_run.main()
+    return "weekly macro state refreshed"
+
+
+def _run_monthly_macro(_db: Path) -> str:
+    from croesus.jobs import monthly_macro_run
+
+    monthly_macro_run.main()
+    return "monthly macro state refreshed"
+
+
 def _run_daily(db: Path) -> str:
     from croesus.jobs.daily_run import run_daily_pipeline
 
@@ -297,10 +319,15 @@ def _run_universe_refresh(db: Path) -> str:
 
 def _run_screening(db: Path) -> str:
     from croesus.jobs.screening_run import run_screening_job
+    from croesus.screening.report import save_report
 
     with get_connection(db) as conn:
         result = run_screening_job(conn)
-    return f"screening {result.run_id}: {len(result.candidates)} ranked"
+        # The scheduled pipeline must leave the same artifact a manual
+        # `screening_run --save-report` does — a ranking that exists only in
+        # the DB is invisible on the status dashboard.
+        md_path, _ = save_report(conn, result)
+    return f"screening {result.run_id}: {len(result.candidates)} ranked ({md_path})"
 
 
 def _run_rebalance(db: Path) -> str:
@@ -315,11 +342,22 @@ def default_sync_jobs() -> list[SyncJob]:
     """The real local pipeline, in dependency order (Sprint 006b §3)."""
     return [
         SyncJob("daily_macro_run", ("macro_daily",), _run_daily_macro),
+        # Their own freshness thresholds (8d / 40d) gate how often these run;
+        # without registration the macro_weekly/monthly domains sat permanently
+        # at "missing" and dragged the dashboard verdict to STALE.
+        SyncJob("weekly_macro_run", ("macro_weekly",), _run_weekly_macro),
+        SyncJob("monthly_macro_run", ("macro_monthly",), _run_monthly_macro),
         # No depends_on (the weekly asset_universe threshold alone decides when
         # it is due), but ordered before daily_run so freshly registered index
         # constituents get their 1y price backfill in the same cycle.
         SyncJob("universe_refresh", ("asset_universe",), _run_universe_refresh),
-        SyncJob("daily_run", ("prices", "fx"), _run_daily),
+        # soft_depends_on: a successful universe refresh forces a price run in
+        # the same cycle (new constituents must not wait out the 48h prices
+        # threshold), while a refresh failure leaves daily ingestion untouched.
+        SyncJob(
+            "daily_run", ("prices", "fx"), _run_daily,
+            soft_depends_on=("universe_refresh",),
+        ),
         # No depends_on: a dependency edge would re-run this every time
         # daily_run refreshes (i.e. daily). The quarterly freshness threshold
         # on the fundamentals domain alone decides when it is due; list order
