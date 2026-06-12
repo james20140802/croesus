@@ -318,3 +318,25 @@ CREATE TABLE IF NOT EXISTS data_quality_issues (
   message    TEXT,
   created_at TIMESTAMP DEFAULT now()
 );
+
+-- Sprint 010: qualitative research notes from the local LLM. Notes annotate
+-- rebalance proposals only — nothing in this table can create, size, or
+-- execute a trade. ``model`` records which local model wrote the note;
+-- ``knowledge_cutoff_caveat`` flags that the model had no web access and may
+-- be unaware of events after its training cutoff.
+CREATE TABLE IF NOT EXISTS research_notes (
+  note_id    TEXT PRIMARY KEY,
+  run_id     TEXT NOT NULL,     -- rebalance run the note annotates
+  action_id  TEXT,
+  asset_id   TEXT NOT NULL,
+  as_of_date DATE NOT NULL,
+  model      TEXT NOT NULL,
+  status     TEXT NOT NULL,     -- 'generated' | 'failed'
+  business_summary TEXT,
+  catalysts  TEXT,
+  risk_factors TEXT,
+  knowledge_cutoff_caveat BOOLEAN DEFAULT TRUE,
+  error      TEXT,
+  metadata   JSON,
+  created_at TIMESTAMP DEFAULT now()
+);
