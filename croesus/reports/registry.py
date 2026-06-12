@@ -89,16 +89,25 @@ def register_many(
 ) -> None:
     """Register multiple files of the same ``report_type`` in one call.
 
-    Each file's format is inferred from its suffix independently.
+    Each file's format is inferred from its suffix independently. The batch
+    shares one transaction so DuckDB's transaction-scoped now() gives every
+    companion file the same created_at — which is what lets latest_reports
+    prefer the markdown artifact over its csv twin.
     """
-    for path in paths:
-        register_report(
-            conn,
-            report_type=report_type,
-            path=path,
-            as_of_date=as_of_date,
-            run_id=run_id,
-        )
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        for path in paths:
+            register_report(
+                conn,
+                report_type=report_type,
+                path=path,
+                as_of_date=as_of_date,
+                run_id=run_id,
+            )
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    conn.execute("COMMIT")
 
 
 def latest_reports(conn: duckdb.DuckDBPyConnection) -> list[RegisteredReport]:
