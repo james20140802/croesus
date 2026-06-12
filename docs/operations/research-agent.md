@@ -57,8 +57,19 @@ rendered in the portfolio action report's `## Research Notes` section.
   `status = 'failed'` and the exact server error.
 - **First request times out** — the model is still loading into memory or is
   too slow for the hardware; raise `CROESUS_LLM_TIMEOUT` or pick a smaller
-  `CROESUS_LLM_MODEL`. On a 32 GB Mac, `qwen3:8b` is the realistic choice;
-  `qwen3:32b` needs more unified memory than the OS will grant.
+  `CROESUS_LLM_MODEL`.
+
+### Verified hardware guidance (32 GB Apple Silicon)
+
+- `qwen3:8b` (~11 GB loaded) generates notes reliably — the live run produced
+  3/3 grounded notes. Use it via `CROESUS_LLM_MODEL=qwen3:8b`.
+- `qwen3:32b` (~20 GB weights + KV cache) exceeds what macOS grants the GPU
+  on a 32 GB machine: it OOM-crashed in live testing *and* wedged the runner
+  (see above). Don't run it here; `qwen3:14b` is the largest sensible step up.
+- Ollama loads qwen3 models with a 40,960-token context by default; the
+  research prompts are 1–2 K tokens, so starting the server with
+  `OLLAMA_CONTEXT_LENGTH=8192` reclaims several GB of KV-cache headroom if
+  you want to try a larger model.
 
 ## Manual verification
 
