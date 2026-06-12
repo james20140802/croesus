@@ -149,8 +149,11 @@ def test_build_period_without_snapshots_is_insufficient_not_fabricated() -> None
 
 
 def _profile(
-    *, expected_annual_return: float = 0.10, max_drawdown: float = 0.20
+    *, expected_annual_return: float = 0.10, max_drawdown: float = -0.20
 ) -> InvestorProfile:
+    # max_drawdown follows the profile convention enforced by validate_profile:
+    # a NEGATIVE signed loss (-0.20 = "tolerate a 20% decline"). The job must
+    # convert it before comparing against the positive-fraction drawdown.
     return InvestorProfile(
         profile_id="default",
         name="Test",

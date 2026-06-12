@@ -70,7 +70,10 @@ def run_performance_check(
     profile = _resolve_profile(conn, portfolio_id)
     base_currency = profile.base_currency.value if profile else "USD"
     target_return_pct = profile.expected_annual_return if profile else None
-    max_tolerable_drawdown = profile.max_tolerable_drawdown if profile else None
+    # The profile stores the tolerance as a signed loss (validate_profile
+    # requires it negative, e.g. -0.25); the risk math compares it against a
+    # positive-fraction drawdown, so convert to magnitude here.
+    max_tolerable_drawdown = abs(profile.max_tolerable_drawdown) if profile else None
 
     perf_repo = PerformanceRepository(conn)
     portfolio_repo = PortfolioRepository(conn)
