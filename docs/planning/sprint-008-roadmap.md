@@ -73,7 +73,7 @@ early.
 | 011 | Approval gate | M | **done** |
 | 012 | Reports DB table + status dashboard | S | **done** |
 | 014 | Backtest harness (point-in-time price factors; valuation factors flagged for look-ahead; survivorship caveat) | L | **done** |
-| 013 | Post-approval execution hook (paper broker) | L | planned |
+| 013 | Post-approval execution hook (paper broker) | L | **done** |
 
 ### Screening methodology decision (resolves the single-score question)
 
