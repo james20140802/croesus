@@ -350,3 +350,20 @@ ALTER TABLE proposed_actions ADD COLUMN IF NOT EXISTS approval_status TEXT;
 ALTER TABLE proposed_actions ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
 ALTER TABLE proposed_actions ADD COLUMN IF NOT EXISTS approval_notes TEXT;
 ALTER TABLE proposed_actions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+
+-- Sprint 012: reports registry. Every report file written by the pipeline is
+-- registered here so the status dashboard can show the latest report path per
+-- report type without scanning the filesystem. ``report_type`` is a stable
+-- product contract: 'macro' | 'screening' | 'portfolio_action' | 'performance'.
+-- ``format`` is inferred from the file suffix when not provided by the writer.
+-- ``run_id`` links back to the rebalance_run or screening_run that generated
+-- the report so a dashboard can correlate freshness, actions, and files.
+CREATE TABLE IF NOT EXISTS reports (
+  report_id   TEXT PRIMARY KEY,
+  report_type TEXT NOT NULL,   -- 'macro' | 'screening' | 'portfolio_action' | 'performance' | ...
+  as_of_date  DATE,
+  path        TEXT NOT NULL,
+  format      TEXT,            -- 'markdown' | 'csv'
+  run_id      TEXT,
+  created_at  TIMESTAMP DEFAULT now()
+);
