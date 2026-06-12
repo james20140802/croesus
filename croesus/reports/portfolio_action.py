@@ -10,6 +10,7 @@ from croesus.portfolio.actions import ProposedAction
 from croesus.portfolio.repository import PortfolioRepository
 from croesus.quality.report_block import data_quality_block
 from croesus.reports.paths import report_output_dir
+from croesus.reports.registry import REPORT_TYPE_PORTFOLIO_ACTION, register_many
 from croesus.research.models import STATUS_GENERATED, ResearchNote
 from croesus.research.repository import ResearchNoteRepository
 
@@ -40,6 +41,13 @@ def write_portfolio_action_reports(
         encoding="utf-8",
     )
     _write_csv(csv_path, run["actions"])
+    register_many(
+        conn,
+        REPORT_TYPE_PORTFOLIO_ACTION,
+        [markdown_path, csv_path],
+        as_of_date=as_of,
+        run_id=run_id,
+    )
     return markdown_path, csv_path
 
 
