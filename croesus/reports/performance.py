@@ -22,6 +22,7 @@ from croesus.portfolio.performance import (
 )
 from croesus.quality.report_block import data_quality_block
 from croesus.reports.paths import report_output_dir
+from croesus.reports.registry import REPORT_TYPE_PERFORMANCE, register_many
 
 _GOAL_LABELS = {
     GOAL_AHEAD: "ahead of goal",
@@ -66,6 +67,13 @@ def write_performance_reports(
         render_markdown(result, quality_lines=quality_lines), encoding="utf-8"
     )
     _write_csv(csv_path, result)
+    if conn is not None:
+        register_many(
+            conn,
+            REPORT_TYPE_PERFORMANCE,
+            [markdown_path, csv_path],
+            as_of_date=result.as_of_date,
+        )
     return markdown_path, csv_path
 
 

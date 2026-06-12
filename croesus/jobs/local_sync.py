@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Callable, Sequence
 from uuid import uuid4
 
+import duckdb
+
 from croesus.db.connection import get_connection, resolve_db_path
 from croesus.db.migrate import migrate
 from croesus.jobs.run_status import (
@@ -391,6 +393,61 @@ def render_launchd_plist(
 """
 
 
+VERDICT_READY = "READY"
+VERDICT_DEGRADED = "DEGRADED"
+VERDICT_STALE = "STALE"
+
+
+def build_status_summary(
+    conn: duckdb.DuckDBPyConnection,
+    states: list[FreshnessState],
+) -> list[str]:
+    """Assemble the dashboard lines appended after the freshness table.
+
+    Pure-ish: reads from ``conn`` but never writes.  Returns a list of
+    human-readable lines for the caller to print or assert against in tests.
+
+    Verdict rules (precedence order):
+    - DEGRADED: any data-quality ERROR in the last 48 h.
+    - STALE:    any freshness domain is due (no errors).
+    - READY:    no errors and all domains are up to date.
+    """
+    from croesus.portfolio.approvals import list_pending_approvals
+    from croesus.quality.repository import DataQualityRepository
+    from croesus.reports.registry import latest_reports
+
+    lines: list[str] = []
+
+    # ── Latest reports ────────────────────────────────────────────────────────
+    lines.append("Latest reports:")
+    reports = latest_reports(conn)
+    if reports:
+        for r in reports:
+            as_of = r.as_of_date.isoformat() if r.as_of_date else "—"
+            lines.append(f"  {r.report_type:<20} as_of={as_of}  {r.path}")
+    else:
+        lines.append("  (none registered)")
+
+    # ── Data-quality errors ───────────────────────────────────────────────────
+    error_count = DataQualityRepository(conn).error_count(hours=48.0)
+    lines.append(f"Data quality: {error_count} error(s) in last 48h")
+
+    # ── Pending approvals ────────────────────────────────────────────────────
+    pending = list_pending_approvals(conn)
+    lines.append(f"Approvals: {len(pending)} pending")
+
+    # ── Overall verdict ───────────────────────────────────────────────────────
+    if error_count > 0:
+        verdict = VERDICT_DEGRADED
+    elif any(s.is_due for s in states):
+        verdict = VERDICT_STALE
+    else:
+        verdict = VERDICT_READY
+    lines.append(f"Overall: {verdict}")
+
+    return lines
+
+
 def _print_freshness(states: list[FreshnessState], log: Callable[[str], None]) -> None:
     log("Data freshness:")
     for s in states:
@@ -442,7 +499,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         migrate(resolved)
         with get_connection(resolved) as conn:
             states = RunStatusRepository(conn).refresh_freshness(_now_utc())
-        _print_freshness(states, print)
+            _print_freshness(states, print)
+            for line in build_status_summary(conn, states):
+                print(line)
         return 0
 
     result = run_local_sync(db_path=args.db_path, force=args.force)

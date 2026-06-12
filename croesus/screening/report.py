@@ -8,6 +8,7 @@ from typing import Any
 import duckdb
 
 from croesus.reports.paths import report_output_dir
+from croesus.reports.registry import REPORT_TYPE_SCREENING, register_many
 from croesus.screening.models import ScreeningCandidate, ScreeningRunResult
 from croesus.screening.sector_theme import compute_sector_theme_scores
 
@@ -36,6 +37,13 @@ def save_report(
         encoding="utf-8",
     )
     _write_csv(csv_path, result, assets)
+    register_many(
+        conn,
+        REPORT_TYPE_SCREENING,
+        [md_path, csv_path],
+        as_of_date=result.as_of_date,
+        run_id=result.run_id,
+    )
     return md_path, csv_path
 
 

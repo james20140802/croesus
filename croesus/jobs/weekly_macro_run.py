@@ -9,11 +9,13 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.macro._loader import load_raw, store_macro_state
 from croesus.macro.data_sources.fred_source import DAILY_SERIES, WEEKLY_SERIES
 from croesus.macro.engine import compute_macro_state
 from croesus.macro.report import save_report
+from croesus.reports.registry import REPORT_TYPE_MACRO, register_many
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -32,6 +34,14 @@ def main() -> None:
 
     store_macro_state(state)
     md_path, csv_path = save_report(state, raw_indicators=state.raw_indicators)
+
+    with get_connection() as conn:
+        register_many(
+            conn,
+            REPORT_TYPE_MACRO,
+            [md_path, csv_path],
+            as_of_date=state.date,
+        )
 
     logger.info(
         "MacroState: regime=%s positioning=%s amp=%.1f conf=%.2f",
