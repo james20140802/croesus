@@ -43,6 +43,7 @@ _CSV_FIELDS = [
     "return_gap_pct",
     "max_drawdown_pct",
     "risk_status",
+    "risk_reasons",
     "status",
 ]
 
@@ -95,6 +96,9 @@ def render_markdown(
         "|---|---|---|---|---|---|---|---|",
     ]
     for period in result.periods:
+        risk = period.risk_status.replace("_", " ")
+        if period.risk_reasons:
+            risk = f"{risk} — {'; '.join(period.risk_reasons)}"
         lines.append(
             "| {period} | {goal} | {ret} | {ann} | {target} | {gap} | {risk} | {dd} |".format(
                 period=period.period,
@@ -103,7 +107,7 @@ def render_markdown(
                 ann=_pct(period.annualized_return_pct),
                 target=_pct(period.target_return_pct),
                 gap=_pct(period.return_gap_pct),
-                risk=period.risk_status.replace("_", " "),
+                risk=risk,
                 dd=_pct(period.max_drawdown_pct),
             )
         )
@@ -151,6 +155,7 @@ def _csv_row(period: PerformancePeriod) -> dict[str, object]:
         "return_gap_pct": period.return_gap_pct,
         "max_drawdown_pct": period.max_drawdown_pct,
         "risk_status": period.risk_status,
+        "risk_reasons": "; ".join(period.risk_reasons),
         "status": period.status,
     }
 

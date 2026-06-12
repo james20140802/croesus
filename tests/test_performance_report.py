@@ -4,9 +4,12 @@ import csv
 from datetime import date
 from pathlib import Path
 
+from dataclasses import replace
+
 from croesus.portfolio.performance import (
     GOAL_AHEAD,
     GOAL_INSUFFICIENT,
+    RISK_OVER,
     RISK_WITHIN,
     Attribution,
     PerformanceCheckResult,
@@ -79,6 +82,33 @@ def test_render_markdown_includes_goal_risk_and_disclaimer() -> None:
     # Attribution only appears for periods with a real return.
     assert "Market movement" in md
     assert "Dividends: 25.00" in md
+
+
+def test_reports_name_the_risk_drivers(tmp_path: Path) -> None:
+    # over_budget beside drawdown=0.0% must explain itself: the Risk cell and
+    # the CSV carry the drivers, so the verdict never reads as a contradiction.
+    base = _result()
+    over = replace(
+        base.periods[0],
+        max_drawdown_pct=0.0,
+        risk_status=RISK_OVER,
+        risk_reasons=["8 concentration violations"],
+    )
+    result = PerformanceCheckResult(
+        portfolio_id=base.portfolio_id,
+        as_of_date=base.as_of_date,
+        periods=[over, base.periods[1]],
+    )
+
+    md = render_markdown(result)
+    assert "over budget — 8 concentration violations" in md
+
+    _, csv_path = write_performance_reports(result, reports_dir=tmp_path)
+    with csv_path.open(encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    by_period = {r["period"]: r for r in rows}
+    assert by_period["6m"]["risk_reasons"] == "8 concentration violations"
+    assert by_period["1m"]["risk_reasons"] == ""
 
 
 def test_render_markdown_surfaces_warnings() -> None:

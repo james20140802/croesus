@@ -129,6 +129,7 @@ def _metadata_for(period: PerformancePeriod) -> dict[str, Any]:
     metadata = dict(period.metadata)
     metadata["annualized_return_pct"] = period.annualized_return_pct
     metadata["attribution"] = asdict(period.attribution)
+    metadata["risk_reasons"] = period.risk_reasons
     return metadata
 
 
@@ -151,6 +152,7 @@ def _row_to_period(row: dict[str, Any]) -> PerformancePeriod:
         risk_status=row["risk_status"],
         status=row["status"],
         attribution=attribution,
+        risk_reasons=list(metadata.get("risk_reasons") or []),
         metadata=metadata,
     )
 

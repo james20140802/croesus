@@ -17,8 +17,10 @@ from croesus.portfolio.performance import (
     GOAL_NEAR,
     RISK_OVER,
     RISK_UNKNOWN,
+    RISK_WATCH,
     RISK_WITHIN,
     annualize_return,
+    assess_risk,
     build_performance_period,
     classify_goal,
     classify_risk,
@@ -126,6 +128,49 @@ def test_classify_risk_precedence() -> None:
     ) == RISK_OVER
 
 
+def test_assess_risk_names_its_drivers() -> None:
+    # The live-run confusion: ``over_budget`` beside ``drawdown=0.0%`` read as
+    # a contradiction because nothing said the verdict came from concentration
+    # violations. The reasons must name the actual driver.
+    status, reasons = assess_risk(
+        n_violations=8, n_drift_outside=0, max_drawdown_pct=0.0,
+        max_tolerable_drawdown=0.20, has_data=True,
+    )
+    assert status == RISK_OVER
+    assert reasons == ["8 concentration violations"]
+
+    status, reasons = assess_risk(
+        n_violations=0, n_drift_outside=0, max_drawdown_pct=0.25,
+        max_tolerable_drawdown=0.20, has_data=True,
+    )
+    assert status == RISK_OVER
+    assert reasons == ["drawdown 25.0% >= limit 20.0%"]
+
+    status, reasons = assess_risk(
+        n_violations=0, n_drift_outside=1, max_drawdown_pct=0.17,
+        max_tolerable_drawdown=0.20, has_data=True,
+    )
+    assert status == RISK_WATCH
+    assert reasons == [
+        "1 sleeve outside drift band",
+        "drawdown 17.0% >= 80% of limit 20.0%",
+    ]
+
+    status, reasons = assess_risk(
+        n_violations=0, n_drift_outside=0, max_drawdown_pct=0.05,
+        max_tolerable_drawdown=0.20, has_data=True,
+    )
+    assert status == RISK_WITHIN
+    assert reasons == []
+
+    status, reasons = assess_risk(
+        n_violations=0, n_drift_outside=0, max_drawdown_pct=None,
+        max_tolerable_drawdown=0.20, has_data=False,
+    )
+    assert status == RISK_UNKNOWN
+    assert reasons == ["no snapshot to assess"]
+
+
 def test_max_drawdown_peak_to_trough() -> None:
     assert max_drawdown([100, 120, 90, 110]) == pytest.approx((120 - 90) / 120)
     assert max_drawdown([100]) is None  # need at least two points
@@ -149,8 +194,11 @@ def test_build_period_without_snapshots_is_insufficient_not_fabricated() -> None
 
 
 def _profile(
-    *, expected_annual_return: float = 0.10, max_drawdown: float = 0.20
+    *, expected_annual_return: float = 0.10, max_drawdown: float = -0.20
 ) -> InvestorProfile:
+    # max_drawdown follows the profile convention enforced by validate_profile:
+    # a NEGATIVE signed loss (-0.20 = "tolerate a 20% decline"). The job must
+    # convert it before comparing against the positive-fraction drawdown.
     return InvestorProfile(
         profile_id="default",
         name="Test",
@@ -306,10 +354,22 @@ def test_run_performance_check_flags_concentration_as_over_budget(tmp_path: Path
             """,
             [AS_OF],
         )
+        logs: list[str] = []
         result = run_performance_check(
-            conn, as_of_date=AS_OF, periods=["since_inception"], log=lambda _: None
+            conn, as_of_date=AS_OF, periods=["since_inception"], log=logs.append
         )
-    assert result.periods[0].risk_status == RISK_OVER
+        stored = PerformanceRepository(conn).get_period(
+            "default", AS_OF, "since_inception"
+        )
+    period = result.periods[0]
+    assert period.risk_status == RISK_OVER
+    # The value only rose, so over_budget beside a 0.0% drawdown would read as
+    # a contradiction unless the verdict names its driver everywhere.
+    assert period.max_drawdown_pct == 0.0
+    assert period.risk_reasons == ["1 concentration violation"]
+    assert any("over_budget (1 concentration violation)" in line for line in logs)
+    assert stored is not None
+    assert stored.risk_reasons == ["1 concentration violation"]
 
 
 def test_run_performance_check_ignores_null_valued_snapshot(tmp_path: Path) -> None:
