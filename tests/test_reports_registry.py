@@ -12,9 +12,6 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-import duckdb
-import pytest
-
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.jobs.local_sync import (
@@ -27,7 +24,6 @@ from croesus.jobs.run_status import (
     STATUS_FRESH,
     STATUS_MISSING,
     FreshnessState,
-    RunStatusRepository,
 )
 from croesus.portfolio.actions import ProposedAction
 from croesus.portfolio.repository import PortfolioRepository
@@ -38,7 +34,6 @@ from croesus.reports.registry import (
     REPORT_TYPE_MACRO,
     REPORT_TYPE_PORTFOLIO_ACTION,
     REPORT_TYPE_SCREENING,
-    RegisteredReport,
     latest_reports,
     register_many,
     register_report,
@@ -228,7 +223,7 @@ def test_status_summary_ready_when_no_errors_and_fresh(tmp_path: Path) -> None:
         states = [_fresh_state("prices")]
         lines = build_status_summary(conn, states)
 
-    verdicts = [l for l in lines if l.startswith("Overall:")]
+    verdicts = [line for line in lines if line.startswith("Overall:")]
     assert len(verdicts) == 1
     assert VERDICT_READY in verdicts[0]
 
@@ -253,10 +248,10 @@ def test_status_summary_degraded_when_error_row_exists(tmp_path: Path) -> None:
         states = [_fresh_state("prices")]
         lines = build_status_summary(conn, states)
 
-    verdicts = [l for l in lines if l.startswith("Overall:")]
+    verdicts = [line for line in lines if line.startswith("Overall:")]
     assert VERDICT_DEGRADED in verdicts[0]
     # The error count line should report 1.
-    error_lines = [l for l in lines if "error(s)" in l]
+    error_lines = [line for line in lines if "error(s)" in line]
     assert error_lines
     assert "1 error" in error_lines[0]
 
@@ -268,7 +263,7 @@ def test_status_summary_stale_when_domain_is_due(tmp_path: Path) -> None:
         states = [_stale_state("prices")]
         lines = build_status_summary(conn, states)
 
-    verdicts = [l for l in lines if l.startswith("Overall:")]
+    verdicts = [line for line in lines if line.startswith("Overall:")]
     assert VERDICT_STALE in verdicts[0]
 
 
@@ -292,7 +287,7 @@ def test_status_summary_degraded_takes_precedence_over_stale(tmp_path: Path) -> 
         states = [_stale_state("prices")]
         lines = build_status_summary(conn, states)
 
-    verdicts = [l for l in lines if l.startswith("Overall:")]
+    verdicts = [line for line in lines if line.startswith("Overall:")]
     assert VERDICT_DEGRADED in verdicts[0]
 
 
@@ -301,7 +296,7 @@ def test_status_summary_reports_none_registered(tmp_path: Path) -> None:
     with get_connection(db_path) as conn:
         lines = build_status_summary(conn, [_fresh_state()])
 
-    report_lines = [l for l in lines if "(none registered)" in l]
+    report_lines = [line for line in lines if "(none registered)" in line]
     assert report_lines
 
 
@@ -316,7 +311,7 @@ def test_status_summary_shows_registered_report(tmp_path: Path) -> None:
         )
         lines = build_status_summary(conn, [_fresh_state()])
 
-    report_lines = [l for l in lines if REPORT_TYPE_MACRO in l]
+    report_lines = [line for line in lines if REPORT_TYPE_MACRO in line]
     assert report_lines
     assert "/reports/macro/2026-06-01/macro.md" in report_lines[0]
 
@@ -333,7 +328,7 @@ def test_status_summary_pending_approvals_count(tmp_path: Path) -> None:
         repo.replace_proposed_actions("run-1", [_action()])
         lines = build_status_summary(conn, [_fresh_state()])
 
-    approval_lines = [l for l in lines if "Approvals:" in l]
+    approval_lines = [line for line in lines if "Approvals:" in line]
     assert approval_lines
     assert "1 pending" in approval_lines[0]
 
@@ -343,6 +338,6 @@ def test_status_summary_approval_zero_when_none_pending(tmp_path: Path) -> None:
     with get_connection(db_path) as conn:
         lines = build_status_summary(conn, [_fresh_state()])
 
-    approval_lines = [l for l in lines if "Approvals:" in l]
+    approval_lines = [line for line in lines if "Approvals:" in line]
     assert approval_lines
     assert "0 pending" in approval_lines[0]
