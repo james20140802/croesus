@@ -340,3 +340,13 @@ CREATE TABLE IF NOT EXISTS research_notes (
   metadata   JSON,
   created_at TIMESTAMP DEFAULT now()
 );
+
+-- Sprint 011: approval gate. Trade proposals carry an explicit approval
+-- record; nothing downstream may act on an action that is not 'approved' and
+-- unexpired. Approval state lives on the action row itself; a new rebalance
+-- run writes new rows under a new run_id, so earlier decisions are never
+-- overwritten.
+ALTER TABLE proposed_actions ADD COLUMN IF NOT EXISTS approval_status TEXT;
+ALTER TABLE proposed_actions ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+ALTER TABLE proposed_actions ADD COLUMN IF NOT EXISTS approval_notes TEXT;
+ALTER TABLE proposed_actions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
