@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -103,7 +104,12 @@ def test_portfolio_repository_persists_rebalance_run_and_actions(tmp_path: Path)
     assert loaded["run_id"] == "run-1"
     assert loaded["decision"] == "rebalance_recommended"
     assert loaded["metadata"] == {"screening_run_id": "screen-1"}
-    assert loaded["actions"] == [action]
+    # Persisting stamps the approval gate (Sprint 011); everything else
+    # round-trips unchanged.
+    [persisted] = loaded["actions"]
+    assert persisted.approval_status == "pending"
+    assert persisted.expires_at is not None
+    assert replace(persisted, approval_status=None, expires_at=None) == action
 
 
 def test_load_latest_rebalance_run_prefers_newest_date(tmp_path: Path) -> None:
@@ -400,7 +406,11 @@ def test_run_rebalance_check_persists_actions_and_returns_result(tmp_path: Path)
     assert result.csv_report_path is not None
     assert latest is not None
     assert latest["run_id"] == result.run_id
-    assert latest["actions"] == result.actions
+    # The persisted copies additionally carry the approval-gate stamp.
+    assert [
+        replace(a, approval_status=None, expires_at=None) for a in latest["actions"]
+    ] == result.actions
+    assert all(a.approval_status == "pending" for a in latest["actions"])
 
 
 def test_run_rebalance_check_does_not_submit_or_prepare_broker_orders(tmp_path: Path) -> None:
