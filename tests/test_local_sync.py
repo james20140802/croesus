@@ -175,6 +175,8 @@ def test_default_jobs_are_recommendation_only_no_trades() -> None:
     names = [j.name for j in default_sync_jobs()]
     assert names == [
         "daily_macro_run",
+        "weekly_macro_run",
+        "monthly_macro_run",
         "universe_refresh",
         "daily_run",
         "quarterly_run",
@@ -212,3 +214,83 @@ def test_scheduling_templates_render() -> None:
     assert "com.example.test" in plist
     assert "<plist" in plist
     assert "croesus.jobs.local_sync" in plist
+
+
+def _make_soft_job(
+    name: str,
+    domains: list[str],
+    calls: list[str],
+    *,
+    soft_depends_on: tuple[str, ...] = (),
+    raises: Exception | None = None,
+) -> SyncJob:
+    def runner(_db: Path) -> str:
+        calls.append(name)
+        if raises is not None:
+            raise raises
+        return f"{name} ok"
+
+    return SyncJob(name, tuple(domains), runner, soft_depends_on=soft_depends_on)
+
+
+def test_soft_dependency_triggers_fresh_dependent(tmp_path: Path) -> None:
+    # universe_refresh scenario: daily_run's own domain is fresh, but a
+    # successful refresh this cycle must still force a price run.
+    db_path = tmp_path / "sync.duckdb"
+    migrate(db_path)
+    _seed_success(db_path, "daily_run", NOW)  # prices fresh
+    calls: list[str] = []
+    jobs = [
+        _make_soft_job("universe_refresh", ["asset_universe"], calls),
+        _make_soft_job(
+            "daily_run", ["prices"], calls, soft_depends_on=("universe_refresh",)
+        ),
+    ]
+    result = run_local_sync(
+        db_path, jobs=jobs, now=NOW, clock=lambda: NOW, log=lambda *_: None
+    )
+    assert calls == ["universe_refresh", "daily_run"]
+    assert result.outcome("daily_run").status == "success"
+
+
+def test_soft_dependency_failure_does_not_block_dependent(tmp_path: Path) -> None:
+    # A Wikipedia outage (universe_refresh fails) must never stop daily price
+    # ingestion — unlike a hard depends_on, the dependent still runs when due.
+    db_path = tmp_path / "sync.duckdb"
+    calls: list[str] = []
+    jobs = [
+        _make_soft_job(
+            "universe_refresh", ["asset_universe"], calls,
+            raises=RuntimeError("wikipedia down"),
+        ),
+        _make_soft_job(
+            "daily_run", ["prices"], calls, soft_depends_on=("universe_refresh",)
+        ),
+    ]
+    result = run_local_sync(
+        db_path, jobs=jobs, now=NOW, clock=lambda: NOW, log=lambda *_: None
+    )
+    assert result.outcome("universe_refresh").status == "failed"
+    assert result.outcome("daily_run").status == "success"  # not blocked
+    assert calls == ["universe_refresh", "daily_run"]
+
+
+def test_soft_dependency_skip_leaves_fresh_dependent_skipped(tmp_path: Path) -> None:
+    # When the soft dependency is merely up to date, a fresh dependent stays
+    # skipped — the trigger fires only on an actual run.
+    db_path = tmp_path / "sync.duckdb"
+    migrate(db_path)
+    _seed_success(db_path, "universe_refresh", NOW)  # asset_universe fresh
+    _seed_success(db_path, "daily_run", NOW)         # prices fresh
+    calls: list[str] = []
+    jobs = [
+        _make_soft_job("universe_refresh", ["asset_universe"], calls),
+        _make_soft_job(
+            "daily_run", ["prices"], calls, soft_depends_on=("universe_refresh",)
+        ),
+    ]
+    result = run_local_sync(
+        db_path, jobs=jobs, now=NOW, clock=lambda: NOW, log=lambda *_: None
+    )
+    assert calls == []
+    assert result.outcome("daily_run").status == "skipped"
