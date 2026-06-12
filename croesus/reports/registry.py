@@ -104,8 +104,10 @@ def register_many(
 def latest_reports(conn: duckdb.DuckDBPyConnection) -> list[RegisteredReport]:
     """Return the newest row per ``report_type``.
 
-    Ordering: max ``created_at``, tie-break max ``report_id`` (lexicographic on
-    UUID hex is stable and cheap without a secondary timestamp column).
+    Ordering: max ``created_at``; companion files written in the same batch
+    (markdown + csv) share a timestamp, so ties prefer markdown — the
+    human-facing artifact the dashboard should point at — then fall back to
+    ``report_id`` for full determinism.
     """
     rows = conn.execute(
         """
@@ -114,7 +116,9 @@ def latest_reports(conn: duckdb.DuckDBPyConnection) -> list[RegisteredReport]:
                 report_type, as_of_date, path, format, run_id, created_at,
                 ROW_NUMBER() OVER (
                     PARTITION BY report_type
-                    ORDER BY created_at DESC, report_id DESC
+                    ORDER BY created_at DESC,
+                             (format = 'markdown') DESC,
+                             report_id DESC
                 ) AS rn
             FROM reports
         )
