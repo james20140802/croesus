@@ -127,6 +127,7 @@ class PerformancePeriod:
     risk_status: str
     status: str
     attribution: Attribution
+    risk_reasons: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -237,6 +238,58 @@ def classify_goal(
     return GOAL_NEAR
 
 
+def assess_risk(
+    *,
+    n_violations: int,
+    n_drift_outside: int,
+    max_drawdown_pct: float | None,
+    max_tolerable_drawdown: float | None,
+    has_data: bool,
+) -> tuple[str, list[str]]:
+    """Risk status beside the return, with the drivers behind the verdict.
+
+    ``over_budget`` on any hard concentration violation or a drawdown at/over
+    the profile's tolerance; ``watch`` on policy drift outside band or a
+    drawdown within 80% of tolerance; ``within_budget`` otherwise.
+    ``unknown`` when there is no snapshot to assess.
+
+    The reasons name what triggered the status — a concentration-driven
+    ``over_budget`` next to a 0.0% drawdown reads as a contradiction unless
+    every surface can say why.
+    """
+    if not has_data:
+        return RISK_UNKNOWN, ["no snapshot to assess"]
+
+    # ``is not None`` (not truthiness): a 0.0 tolerance means "any drawdown is a
+    # breach", which is the opposite of "no limit set" (None).
+    has_limit = max_tolerable_drawdown is not None
+    measurable = max_drawdown_pct is not None and has_limit
+
+    reasons: list[str] = []
+    if n_violations > 0:
+        plural = "s" if n_violations != 1 else ""
+        reasons.append(f"{n_violations} concentration violation{plural}")
+    if measurable and max_drawdown_pct >= max_tolerable_drawdown:
+        reasons.append(
+            f"drawdown {max_drawdown_pct:.1%} >= limit {max_tolerable_drawdown:.1%}"
+        )
+    if reasons:
+        return RISK_OVER, reasons
+
+    if n_drift_outside > 0:
+        plural = "s" if n_drift_outside != 1 else ""
+        reasons.append(f"{n_drift_outside} sleeve{plural} outside drift band")
+    if measurable and max_drawdown_pct >= 0.8 * max_tolerable_drawdown:
+        reasons.append(
+            f"drawdown {max_drawdown_pct:.1%} >= 80% of "
+            f"limit {max_tolerable_drawdown:.1%}"
+        )
+    if reasons:
+        return RISK_WATCH, reasons
+
+    return RISK_WITHIN, []
+
+
 def classify_risk(
     *,
     n_violations: int,
@@ -245,36 +298,14 @@ def classify_risk(
     max_tolerable_drawdown: float | None,
     has_data: bool,
 ) -> str:
-    """Risk status beside the return.
-
-    ``over_budget`` on any hard concentration violation or a drawdown at/over
-    the profile's tolerance; ``watch`` on policy drift outside band or a
-    drawdown within 80% of tolerance; ``within_budget`` otherwise.
-    ``unknown`` when there is no snapshot to assess.
-    """
-    if not has_data:
-        return RISK_UNKNOWN
-
-    # ``is not None`` (not truthiness): a 0.0 tolerance means "any drawdown is a
-    # breach", which is the opposite of "no limit set" (None).
-    has_limit = max_tolerable_drawdown is not None
-    breach = (
-        max_drawdown_pct is not None
-        and has_limit
-        and max_drawdown_pct >= max_tolerable_drawdown
-    )
-    if n_violations > 0 or breach:
-        return RISK_OVER
-
-    near_breach = (
-        max_drawdown_pct is not None
-        and has_limit
-        and max_drawdown_pct >= 0.8 * max_tolerable_drawdown
-    )
-    if n_drift_outside > 0 or near_breach:
-        return RISK_WATCH
-
-    return RISK_WITHIN
+    """Status-only view of :func:`assess_risk`."""
+    return assess_risk(
+        n_violations=n_violations,
+        n_drift_outside=n_drift_outside,
+        max_drawdown_pct=max_drawdown_pct,
+        max_tolerable_drawdown=max_tolerable_drawdown,
+        has_data=has_data,
+    )[0]
 
 
 def max_drawdown(values: list[float]) -> float | None:
@@ -326,7 +357,7 @@ def build_performance_period(
     no fabricated return number.
     """
     notes = list(extra_notes or [])
-    risk_status = classify_risk(
+    risk_status, risk_reasons = assess_risk(
         n_violations=n_violations,
         n_drift_outside=n_drift_outside,
         max_drawdown_pct=max_drawdown_pct,
@@ -358,6 +389,7 @@ def build_performance_period(
             risk_status=risk_status,
             status=GOAL_INSUFFICIENT,
             attribution=attribution,
+            risk_reasons=risk_reasons,
             metadata={"annualized_return_pct": None},
         )
 
@@ -404,5 +436,6 @@ def build_performance_period(
         risk_status=risk_status,
         status=status,
         attribution=attribution,
+        risk_reasons=risk_reasons,
         metadata={"annualized_return_pct": annualized_pct},
     )

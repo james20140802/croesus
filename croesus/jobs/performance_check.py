@@ -345,8 +345,11 @@ def _log_summary(
         f"(target annual return {_fmt_pct(target)}):"
     )
     for period in result.periods:
+        risk = period.risk_status
+        if period.risk_reasons:
+            risk = f"{risk} ({'; '.join(period.risk_reasons)})"
         log(
-            f"  {period.period}: goal={period.status} risk={period.risk_status} "
+            f"  {period.period}: goal={period.status} risk={risk} "
             f"return={_fmt_pct(period.investment_return_pct)} "
             f"annualized={_fmt_pct(period.annualized_return_pct)} "
             f"gap={_fmt_pct(period.return_gap_pct)} "
