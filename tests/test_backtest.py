@@ -449,3 +449,50 @@ def test_engine_benchmark_starts_at_initial_capital(tmp_path: Path) -> None:
     bench = results["__benchmark__"]
     if len(bench.equity_curve) > 0:
         assert bench.equity_curve.iloc[0] == pytest.approx(50_000.0)
+
+
+def test_liquidity_ranks_by_dollar_volume_not_price_level(tmp_path: Path) -> None:
+    """Regression: liquidity_1m must use stored volume, not a placeholder.
+
+    LOW trades at a lower price but with 100× SPY-scale volume injected via a
+    custom seed; HIGH is expensive but thin. With a liquidity-only scheme the
+    cheap liquid name must win — a constant-volume placeholder would invert
+    this by ranking liquidity on price level.
+    """
+    with _open_db(tmp_path) as conn:
+        _seed_assets(conn)
+        rows = []
+        day = START
+        while day <= END:
+            if day.weekday() < 5:
+                # HIGH: price 1000, volume 1k  -> $1m/day
+                rows.append((AID_HIGH, day, 1000.0, 1_000.0, "test"))
+                # LOW: price 10, volume 10m    -> $100m/day (top dollar volume)
+                rows.append((AID_LOW, day, 10.0, 10_000_000.0, "test"))
+                # SPY: thin here on purpose -> $400k/day (benchmark only)
+                rows.append((AID_SPY, day, 400.0, 1_000.0, "test"))
+            day += timedelta(days=1)
+        conn.executemany(
+            "INSERT INTO prices_daily (asset_id, date, close, volume, source) "
+            "VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+    config = BacktestConfig(
+        # Starts after 200 trading days have accumulated (factor minimum).
+        start_date="2021-12-01",
+        end_date="2022-06-30",
+        top_n=1,
+        cost_bps=0.0,
+        weight_schemes={"liquidity_only": {"liquidity": 1.0}},
+        benchmark_symbol="SPY",
+    )
+    results = run_backtest(config, db_path=str(tmp_path / "bt.duckdb"))
+    rebalances = results["liquidity_only"].rebalances
+
+    assert rebalances, "expected at least one rebalance"
+    for record in rebalances:
+        assert record.holdings == [AID_LOW], (
+            f"liquidity-only scheme must pick the high-dollar-volume asset; "
+            f"got {record.holdings} on {record.rebalance_date}"
+        )

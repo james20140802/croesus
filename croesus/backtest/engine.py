@@ -84,7 +84,7 @@ def run_backtest(
     from croesus.db.connection import get_connection
 
     with get_connection(db_path) as conn:
-        prices_wide, asset_ids = _load_prices(conn, lookback_start, end)
+        prices_wide, volume_wide, asset_ids = _load_prices(conn, lookback_start, end)
         benchmark_series = _load_benchmark(conn, config.benchmark_symbol, start, end)
 
     rebalance_dates = _monthly_rebalance_dates(prices_wide.index, start, end)
@@ -95,6 +95,7 @@ def run_backtest(
             scheme_name=scheme_name,
             weights=weights,
             prices_wide=prices_wide,
+            volume_wide=volume_wide,
             asset_ids=asset_ids,
             rebalance_dates=rebalance_dates,
             start=start,
@@ -122,13 +123,12 @@ def _load_prices(
     conn: duckdb.DuckDBPyConnection,
     start: date,
     end: date,
-) -> tuple[pd.DataFrame, list[str]]:
-    """Return (prices_wide, asset_ids).
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """Return (prices_wide, volume_wide, asset_ids).
 
-    *prices_wide*: DataFrame with date index and one column per asset_id
-    (close price).  A separate ``_volume_wide`` is kept in a closure; we
-    return a single wide frame here for simplicity and reconstruct volume
-    below when computing factors.
+    Both wide frames share a date index with one column per asset_id. Volume
+    travels alongside close because ``liquidity_1m`` is mean(close × volume) —
+    scoring with a placeholder volume would rank liquidity by price level.
     """
     rows = conn.execute(
         """
@@ -146,13 +146,14 @@ def _load_prices(
     ).fetchall()
 
     if not rows:
-        return pd.DataFrame(), []
+        return pd.DataFrame(), pd.DataFrame(), []
 
     df = pd.DataFrame(rows, columns=["asset_id", "date", "close", "volume"])
     df["date"] = pd.to_datetime(df["date"]).dt.date
     asset_ids = sorted(df["asset_id"].unique().tolist())
     prices_wide = df.pivot(index="date", columns="asset_id", values="close").sort_index()
-    return prices_wide, asset_ids
+    volume_wide = df.pivot(index="date", columns="asset_id", values="volume").sort_index()
+    return prices_wide, volume_wide, asset_ids
 
 
 def _load_benchmark(
@@ -205,6 +206,7 @@ def _run_scheme(
     scheme_name: str,
     weights: dict[str, float],
     prices_wide: pd.DataFrame,
+    volume_wide: pd.DataFrame,
     asset_ids: list[str],
     rebalance_dates: list[date],
     start: date,
@@ -231,12 +233,7 @@ def _run_scheme(
             total_turnover=0.0,
         )
 
-    # Build volume wide frame for factor computation.
-    # We need to reload from prices_wide structure — volume was not stored
-    # in prices_wide; reload it from the price DataFrame by accessing the
-    # engine's internal helper.  Instead, we pass prices_wide and volume data
-    # together in a combined structure via _build_asset_frames.
-    asset_frames = _build_asset_frames(prices_wide, asset_ids)
+    asset_frames = _build_asset_frames(prices_wide, volume_wide, asset_ids)
 
     # State: current weights as dict asset_id -> weight (equal weight per holding)
     current_weights: dict[str, float] = {}
@@ -301,16 +298,15 @@ def _run_scheme(
 
 def _build_asset_frames(
     prices_wide: pd.DataFrame,
+    volume_wide: pd.DataFrame,
     asset_ids: list[str],
 ) -> dict[str, pd.DataFrame]:
-    """Build per-asset DataFrames with date and close columns.
+    """Build per-asset DataFrames with date, close, and real volume columns.
 
-    Volume data is not available in prices_wide (it was pivoted on close only).
-    We set volume to a constant 1 so that ``compute_common_factors`` can still
-    compute ``liquidity_1m = close * volume`` — the relative ranking is
-    preserved even when absolute volume is unavailable from this in-memory
-    structure.  When the full price+volume table is loaded (see _load_prices),
-    we reconstruct properly.
+    Volume must be the stored series, not a placeholder: ``liquidity_1m`` is
+    mean(close × volume), so a constant volume would silently rank liquidity
+    by price level. Days with a close but no stored volume contribute zero
+    dollar volume (matching the loader's COALESCE).
     """
     frames: dict[str, pd.DataFrame] = {}
     for aid in asset_ids:
@@ -319,10 +315,15 @@ def _build_asset_frames(
         col = prices_wide[aid].dropna()
         if col.empty:
             continue
+        volume = (
+            volume_wide[aid].reindex(col.index).fillna(0.0)
+            if aid in volume_wide.columns
+            else pd.Series(0.0, index=col.index)
+        )
         frames[aid] = pd.DataFrame({
             "date": col.index.tolist(),
             "close": col.values,
-            "volume": [1_000_000.0] * len(col),  # placeholder; relative rank is valid
+            "volume": volume.values,
         })
     return frames
 
