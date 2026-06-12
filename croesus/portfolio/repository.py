@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import duckdb
 
-from croesus.portfolio.actions import ProposedAction
+from croesus.portfolio.actions import (
+    APPROVAL_PENDING,
+    APPROVAL_TTL_DAYS,
+    ProposedAction,
+)
 from croesus.portfolio.models import Exposure, Holding, PolicyDrift, Portfolio
 
 
@@ -328,8 +333,19 @@ class PortfolioRepository:
         )
 
     def replace_proposed_actions(
-        self, run_id: str, actions: list[ProposedAction]
+        self,
+        run_id: str,
+        actions: list[ProposedAction],
+        *,
+        now: datetime | None = None,
     ) -> None:
+        """Replace this run's actions; other runs (and their approvals) are untouched.
+
+        Approval gate invariant (Sprint 011): every persisted action that
+        requires user approval carries a 'pending' status and a 7-day expiry,
+        stamped here so no caller can persist an approvable action without an
+        approval record. Actions already carrying approval state keep it.
+        """
         self.conn.execute("BEGIN TRANSACTION")
         try:
             self.conn.execute("DELETE FROM proposed_actions WHERE run_id = ?", [run_id])
@@ -340,16 +356,35 @@ class PortfolioRepository:
                       action_id, run_id, asset_id, sleeve_name, action_type,
                       current_weight, target_weight, proposed_weight,
                       estimated_trade_value, reason_codes, human_readable_reason,
-                      requires_research, requires_user_approval
+                      requires_research, requires_user_approval,
+                      approval_status, approved_at, approval_notes, expires_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    [self._action_to_params(action) for action in actions],
+                    [
+                        self._action_to_params(self._with_approval_default(action, now))
+                        for action in actions
+                    ],
                 )
         except Exception:
             self.conn.execute("ROLLBACK")
             raise
         self.conn.execute("COMMIT")
+
+    @staticmethod
+    def _with_approval_default(
+        action: ProposedAction, now: datetime | None
+    ) -> ProposedAction:
+        if not action.requires_user_approval or action.approval_status is not None:
+            return action
+        stamp = now or datetime.now(timezone.utc)
+        if stamp.tzinfo is not None:
+            stamp = stamp.astimezone(timezone.utc).replace(tzinfo=None)
+        return replace(
+            action,
+            approval_status=APPROVAL_PENDING,
+            expires_at=stamp + timedelta(days=APPROVAL_TTL_DAYS),
+        )
 
     def get_rebalance_run(self, run_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
@@ -440,6 +475,10 @@ class PortfolioRepository:
             action.human_readable_reason,
             action.requires_research,
             action.requires_user_approval,
+            action.approval_status,
+            action.approved_at,
+            action.approval_notes,
+            action.expires_at,
         )
 
     @staticmethod
@@ -458,6 +497,10 @@ class PortfolioRepository:
             human_readable_reason=row["human_readable_reason"],
             requires_research=bool(row["requires_research"]),
             requires_user_approval=bool(row["requires_user_approval"]),
+            approval_status=row.get("approval_status"),
+            approved_at=row.get("approved_at"),
+            approval_notes=row.get("approval_notes"),
+            expires_at=row.get("expires_at"),
         )
 
 

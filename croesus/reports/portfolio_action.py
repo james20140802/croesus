@@ -80,9 +80,16 @@ def _render_markdown(
     lines.extend(["", "## Proposed Actions"])
     if proposed:
         lines.extend(
-            f"{index}. {action.human_readable_reason}"
+            f"{index}. {action.human_readable_reason}{_approval_suffix(action)}"
             for index, action in enumerate(proposed, start=1)
         )
+        if any(a.approval_status == "pending" for a in proposed):
+            lines += [
+                "",
+                "Approve or reject with `python -m croesus.jobs.approve_action "
+                "<action_id>`; pending proposals expire after 7 days. Nothing "
+                "executes without an explicit approval.",
+            ]
     else:
         lines.append("- No trade action is proposed.")
 
@@ -141,6 +148,8 @@ def _write_csv(path: Path, actions: list[ProposedAction]) -> None:
                 "human_readable_reason",
                 "requires_research",
                 "requires_user_approval",
+                "approval_status",
+                "expires_at",
             ],
         )
         writer.writeheader()
@@ -160,8 +169,21 @@ def _write_csv(path: Path, actions: list[ProposedAction]) -> None:
                     "human_readable_reason": action.human_readable_reason,
                     "requires_research": action.requires_research,
                     "requires_user_approval": action.requires_user_approval,
+                    "approval_status": action.approval_status or "",
+                    "expires_at": (
+                        action.expires_at.isoformat() if action.expires_at else ""
+                    ),
                 }
             )
+
+
+def _approval_suffix(action: ProposedAction) -> str:
+    if action.approval_status is None:
+        return ""
+    suffix = f" — approval: {action.approval_status}"
+    if action.approval_status == "pending" and action.expires_at is not None:
+        suffix += f" (id `{action.action_id}`, expires {action.expires_at:%Y-%m-%d})"
+    return suffix
 
 
 def _research_notes_section(notes: list[ResearchNote]) -> list[str]:
