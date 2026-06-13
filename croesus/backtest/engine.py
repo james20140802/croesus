@@ -24,6 +24,7 @@ import pandas as pd
 from croesus.backtest.config import BacktestConfig
 from croesus.factors.common import compute_common_factors
 from croesus.screening.normalization import percentile_rank
+from croesus.screening.redundancy import group_keys
 
 # Lookback window needed to compute momentum_6m (126 bars) + above_200d_ma
 # (200 bars) plus a buffer for non-trading days (~1.4×).
@@ -86,6 +87,7 @@ def run_backtest(
     with get_connection(db_path) as conn:
         prices_wide, volume_wide, asset_ids = _load_prices(conn, lookback_start, end)
         benchmark_series = _load_benchmark(conn, config.benchmark_symbol, start, end)
+        group_of = _load_redundancy_groups(conn)
 
     rebalance_dates = _monthly_rebalance_dates(prices_wide.index, start, end)
 
@@ -101,6 +103,7 @@ def run_backtest(
             start=start,
             end=end,
             config=config,
+            group_of=group_of,
         )
         results[scheme_name] = result
 
@@ -117,6 +120,21 @@ def run_backtest(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _load_redundancy_groups(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
+    """Map asset_id → redundancy-group key for the active universe.
+
+    Share classes of one issuer and ETFs on one index collapse to a shared
+    key so portfolio construction can cap their combined weight; every other
+    asset maps to its own asset_id. Derived from registry names — no ticker
+    list.
+    """
+    rows = conn.execute(
+        "SELECT asset_id, name, asset_type FROM assets WHERE is_active"
+    ).fetchall()
+    items = {aid: (name or "", asset_type or "") for aid, name, asset_type in rows}
+    return group_keys(items)
 
 
 def _load_prices(
@@ -212,6 +230,7 @@ def _run_scheme(
     start: date,
     end: date,
     config: BacktestConfig,
+    group_of: dict[str, str],
 ) -> SchemeResult:
     """Walk-forward simulation for a single weight scheme."""
     if prices_wide.empty or not rebalance_dates:
@@ -255,16 +274,21 @@ def _run_scheme(
 
         # Rebalance on designated dates.
         if today in rebalance_set:
-            new_holdings, scores = _select_holdings(
+            ranked, scores = _select_holdings(
                 asset_ids=asset_ids,
                 asset_frames=asset_frames,
                 as_of=today,
                 weights=weights,
+            )
+            new_holdings = _hysteresis_select(
+                ranked,
+                list(current_weights),
                 top_n=config.top_n,
+                buffer=config.rebalance_buffer,
             )
 
             if new_holdings:
-                new_weights = {aid: 1.0 / len(new_holdings) for aid in new_holdings}
+                new_weights = _group_weights(new_holdings, group_of)
                 turnover = _compute_turnover(current_weights, new_weights)
                 total_turnover += turnover
                 # Apply round-trip cost on changed weight.
@@ -281,7 +305,7 @@ def _run_scheme(
                 RebalanceRecord(
                     rebalance_date=today,
                     holdings=list(new_holdings),
-                    scores=scores,
+                    scores={aid: scores[aid] for aid in new_holdings if aid in scores},
                 )
             )
 
@@ -328,17 +352,67 @@ def _build_asset_frames(
     return frames
 
 
+def _group_weights(
+    holdings: list[str], group_of: dict[str, str]
+) -> dict[str, float]:
+    """Equal-weight by redundancy group, splitting each group's slot evenly.
+
+    A group of economically redundant securities (Alphabet's two classes, two
+    S&P 500 ETFs) receives one slot's weight — ``1 / number_of_groups`` —
+    divided among its members, so holding both halves of a pair never buys two
+    slots of the same exposure. With no redundancy this is plain equal weight.
+    """
+    if not holdings:
+        return {}
+    groups: dict[str, list[str]] = {}
+    for aid in holdings:
+        groups.setdefault(group_of.get(aid, aid), []).append(aid)
+    per_group = 1.0 / len(groups)
+    weights: dict[str, float] = {}
+    for members in groups.values():
+        share = per_group / len(members)
+        for aid in members:
+            weights[aid] = share
+    return weights
+
+
+def _hysteresis_select(
+    ranked: list[str], current: list[str], *, top_n: int, buffer: float
+) -> list[str]:
+    """Pick ``top_n`` holdings, retaining incumbents inside a rank buffer.
+
+    An incumbent still ranked within ``top_n * buffer`` is kept rather than
+    swapped for a marginally higher newcomer, which suppresses churn driven by
+    rank noise. Freed slots are filled from the top of the ranking. A
+    ``buffer`` of 1.0 disables hysteresis and returns the plain top-N.
+    """
+    if buffer <= 1.0:
+        return ranked[:top_n]
+    band = int(top_n * buffer)
+    rank = {aid: i for i, aid in enumerate(ranked)}
+    kept = [aid for aid in current if rank.get(aid, len(ranked) + 1) < band]
+    kept_set = set(kept)
+    selected = list(kept[:top_n])
+    for aid in ranked:
+        if len(selected) >= top_n:
+            break
+        if aid not in kept_set:
+            selected.append(aid)
+    return selected[:top_n]
+
+
 def _select_holdings(
     *,
     asset_ids: list[str],
     asset_frames: dict[str, pd.DataFrame],
     as_of: date,
     weights: dict[str, float],
-    top_n: int,
 ) -> tuple[list[str], dict[str, float]]:
-    """Score all assets point-in-time as of *as_of* and return top_n.
+    """Score all assets point-in-time as of *as_of*; return the full ranking.
 
-    Returns (selected_asset_ids, scores_dict).
+    Returns ``(ranked_asset_ids, scores)`` — every scoreable asset, best first
+    (ties broken by asset_id). Selecting the top-N (with optional hysteresis)
+    and weighting are the caller's job.
     """
     factor_values: dict[str, dict[str, float]] = {}
 
@@ -379,8 +453,7 @@ def _select_holdings(
 
     # Sort deterministically: descending score, then ascending asset_id for ties.
     ranked_ids = sorted(composite.keys(), key=lambda a: (-composite[a], a))
-    selected = ranked_ids[:top_n]
-    return selected, {aid: composite[aid] for aid in selected}
+    return ranked_ids, composite
 
 
 def _composite_score(
