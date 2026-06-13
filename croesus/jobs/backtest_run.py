@@ -35,6 +35,12 @@ def main() -> None:
     parser.add_argument("--top-n", type=int, default=5, help="Holdings per rebalance (default 5)")
     parser.add_argument("--cost-bps", type=float, default=10.0, help="One-way cost in bps (default 10)")
     parser.add_argument(
+        "--buffer",
+        type=float,
+        default=1.0,
+        help="Churn hysteresis: keep incumbents within top_n*buffer (default 1.0 = off)",
+    )
+    parser.add_argument(
         "--reports-dir",
         type=Path,
         default=Path("reports"),
@@ -52,13 +58,17 @@ def main() -> None:
         end_date=args.end,
         top_n=args.top_n,
         cost_bps=args.cost_bps,
+        rebalance_buffer=args.buffer,
         weight_schemes=_default_schemes(),
         benchmark_symbol="SPY",
     )
 
     print(f"Running backtest {config.start_date} → {config.end_date}")
     print(f"  Schemes: {', '.join(config.weight_schemes)}")
-    print(f"  Top-N: {config.top_n}, Cost: {config.cost_bps} bps, Benchmark: {config.benchmark_symbol}")
+    print(
+        f"  Top-N: {config.top_n}, Cost: {config.cost_bps} bps, "
+        f"Buffer: {config.rebalance_buffer}, Benchmark: {config.benchmark_symbol}"
+    )
     print()
 
     results = run_backtest(config, db_path=args.db_path)

@@ -15,7 +15,7 @@ import pytest
 from croesus.assets.models import Asset
 from croesus.assets.repository import AssetRepository
 from croesus.backtest.config import BacktestConfig, default_config
-from croesus.backtest.engine import run_backtest
+from croesus.backtest.engine import _group_weights, _hysteresis_select, run_backtest
 from croesus.backtest.metrics import cagr, max_drawdown, sharpe, summarize, total_return
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
@@ -131,6 +131,66 @@ def test_config_is_frozen() -> None:
     cfg = default_config()
     with pytest.raises((AttributeError, TypeError)):
         cfg.top_n = 99  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Group-weight cap + churn hysteresis unit tests
+# ---------------------------------------------------------------------------
+
+def test_group_weights_cap_a_redundant_pair_at_one_slot() -> None:
+    # GOOG + GOOGL share a redundancy group; the other three are singletons.
+    # Holding both must not buy two slots of Alphabet — the group's combined
+    # weight is capped at one slot (1/4 here), split between its members.
+    holdings = ["US_EQ_GOOG", "US_EQ_GOOGL", "US_EQ_AAPL", "US_EQ_MSFT", "US_EQ_NVDA"]
+    group_of = {
+        "US_EQ_GOOG": "issuer:alphabet",
+        "US_EQ_GOOGL": "issuer:alphabet",
+        "US_EQ_AAPL": "US_EQ_AAPL",
+        "US_EQ_MSFT": "US_EQ_MSFT",
+        "US_EQ_NVDA": "US_EQ_NVDA",
+    }
+    w = _group_weights(holdings, group_of)
+    assert sum(w.values()) == pytest.approx(1.0)
+    assert w["US_EQ_GOOG"] == pytest.approx(0.125)
+    assert w["US_EQ_GOOGL"] == pytest.approx(0.125)
+    assert w["US_EQ_GOOG"] + w["US_EQ_GOOGL"] == pytest.approx(0.25)  # one slot
+    assert w["US_EQ_AAPL"] == pytest.approx(0.25)
+
+
+def test_group_weights_plain_when_no_redundancy() -> None:
+    holdings = ["A", "B", "C", "D"]
+    group_of = {a: a for a in holdings}
+    w = _group_weights(holdings, group_of)
+    assert all(v == pytest.approx(0.25) for v in w.values())
+
+
+def test_hysteresis_keeps_incumbents_inside_the_band() -> None:
+    # Ranked best→worst. top_n=3, buffer=2.0 → an incumbent is retained while
+    # it stays within rank top_n*buffer = 6. C drifted to rank 5 (still inside
+    # the band) so it is kept over the higher-ranked newcomer D, suppressing
+    # churn; only the freed slot is filled from the top.
+    ranked = ["A", "B", "D", "E", "C", "F"]
+    current = ["A", "B", "C"]
+    selected = _hysteresis_select(ranked, current, top_n=3, buffer=2.0)
+    assert set(selected) == {"A", "B", "C"}  # no churn — all incumbents held
+
+
+def test_hysteresis_drops_incumbent_outside_the_band() -> None:
+    # C fell to rank 7, outside top_n*buffer = 6 → it is dropped and the best
+    # available newcomer takes the slot.
+    ranked = ["A", "B", "D", "E", "F", "G", "C"]
+    current = ["A", "B", "C"]
+    selected = _hysteresis_select(ranked, current, top_n=3, buffer=2.0)
+    assert "C" not in selected
+    assert selected[:2] == ["A", "B"]
+    assert "D" in selected
+
+
+def test_hysteresis_buffer_one_is_plain_top_n() -> None:
+    ranked = ["A", "B", "D", "E", "C"]
+    current = ["A", "B", "C"]
+    selected = _hysteresis_select(ranked, current, top_n=3, buffer=1.0)
+    assert selected == ["A", "B", "D"]  # buffer 1.0 disables hysteresis
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,11 @@ class BacktestConfig:
     cost_bps:
         One-way transaction cost in basis points. Round-trip cost on a
         changed weight is ``2 * cost_bps / 10_000``.
+    rebalance_buffer:
+        Churn hysteresis. An incumbent holding is retained while it stays
+        within ``top_n * rebalance_buffer`` in the ranking, rather than being
+        swapped for a marginally higher newcomer. ``1.0`` disables hysteresis
+        (plain top-N); ``2.0`` keeps incumbents through the top ``2 * top_n``.
     weight_schemes:
         Mapping of scheme name → dimension weight dict. Each dict maps
         dimension name to weight. The standard dimensions are:
@@ -39,6 +44,7 @@ class BacktestConfig:
     rebalance_frequency: str = "monthly"
     top_n: int = 5
     cost_bps: float = 10.0
+    rebalance_buffer: float = 1.0
     weight_schemes: dict[str, dict[str, float]] = field(
         default_factory=lambda: _default_schemes()
     )
@@ -56,6 +62,15 @@ def _default_schemes() -> dict[str, dict[str, float]]:
         },
         "momentum_only": {
             "momentum": 1.0,
+        },
+        # Drawdown-aware tilt: heavier momentum, a real volatility penalty, no
+        # liquidity term in the score (liquidity stays a gate). Validated in the
+        # 2021–2026 A/B as the most profile-compatible scheme — MDD inside the
+        # -25% tolerance at every top-N, unlike composite_v1 at top-N 5.
+        "momentum_tilt": {
+            "momentum": 0.60,
+            "trend": 0.15,
+            "volatility_penalty": 0.25,
         },
     }
 
