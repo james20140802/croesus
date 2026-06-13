@@ -63,6 +63,15 @@ def _default_schemes() -> dict[str, dict[str, float]]:
         "momentum_only": {
             "momentum": 1.0,
         },
+        # Drawdown-aware tilt: heavier momentum, a real volatility penalty, no
+        # liquidity term in the score (liquidity stays a gate). Validated in the
+        # 2021–2026 A/B as the most profile-compatible scheme — MDD inside the
+        # -25% tolerance at every top-N, unlike composite_v1 at top-N 5.
+        "momentum_tilt": {
+            "momentum": 0.60,
+            "trend": 0.15,
+            "volatility_penalty": 0.25,
+        },
     }
 
 
