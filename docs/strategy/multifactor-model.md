@@ -6,6 +6,8 @@ candidate weight schemes, and the test results so far — with an honest reading
 what each number means and *why* it came out that way.
 
 It is the strategy companion to:
+- `docs/strategy/strategy-report.ko.md` — **한국어 종합 보고서**: 사용자 관점 프로그램
+  흐름 + 지금까지 테스트한 모든 전략(설명·결과·인사이트).
 - `docs/operations/backtest.md` — the historical walk-forward harness.
 - `docs/operations/forward-test.md` — the out-of-sample track record.
 
