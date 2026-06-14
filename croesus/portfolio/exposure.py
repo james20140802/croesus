@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from croesus.portfolio.models import AssetAttrs, Exposure, Holding, is_cash
+from croesus.screening.redundancy import redundancy_key
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,30 @@ def compute_exposures(
                     bucket[name], total, cap,
                 )
             )
+
+    # redundancy group: share classes of one issuer (GOOG/GOOGL) or ETFs on one
+    # index (SPY/VOO) are distinct instruments but a single economic bet. Their
+    # combined weight is capped at the single-position limit, so holding both
+    # halves can never quietly double a position. Only emitted when two or more
+    # held assets share a group — a lone member has no redundant peer.
+    group_mv: dict[str, float] = defaultdict(float)
+    group_members: dict[str, set[str]] = defaultdict(set)
+    for h in holdings:
+        a = attrs_for(h)
+        key = redundancy_key(a.name or "", a.asset_type or "")
+        if key is None:
+            continue
+        group_mv[key] += _market_value(h)
+        group_members[key].add(h.asset_id)
+    for key in sorted(group_mv):
+        if len(group_members[key]) < 2:
+            continue
+        exposures.append(
+            _exposure(
+                portfolio_id, as_of_date, "redundancy_group", key,
+                group_mv[key], total, limits.max_single_position_weight,
+            )
+        )
 
     # theme: a holding contributes its full value to each of its tags; untagged
     # holdings are skipped entirely (theme weights need not sum to 1.0).
