@@ -367,3 +367,22 @@ CREATE TABLE IF NOT EXISTS reports (
   run_id      TEXT,
   created_at  TIMESTAMP DEFAULT now()
 );
+
+-- Forward-test harness (post-roadmap). Valuation cannot be backtested without
+-- point-in-time fundamentals (look-ahead), so candidate weight schemes are
+-- forward-tested: each cohort records the top-N a scheme would buy on a given
+-- date, with the entry price, and realized return is measured from stored
+-- prices over time vs SPY. No look-ahead — every figure is out-of-sample.
+-- A cohort is one (scheme, as_of_date); one row per pick. weight is the
+-- redundancy-group-capped construction weight at entry.
+CREATE TABLE IF NOT EXISTS forward_test_cohorts (
+  cohort_scheme TEXT NOT NULL,
+  as_of_date    DATE NOT NULL,
+  asset_id      TEXT NOT NULL,
+  rank          INTEGER,
+  score         DOUBLE,
+  weight        DOUBLE,
+  entry_price   DOUBLE,
+  created_at    TIMESTAMP DEFAULT now(),
+  PRIMARY KEY (cohort_scheme, as_of_date, asset_id)
+);

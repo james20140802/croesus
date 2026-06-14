@@ -24,7 +24,7 @@ import pandas as pd
 from croesus.backtest.config import BacktestConfig
 from croesus.factors.common import compute_common_factors
 from croesus.screening.normalization import percentile_rank
-from croesus.screening.redundancy import group_keys
+from croesus.screening.redundancy import group_equal_weights, group_keys
 
 # Lookback window needed to compute momentum_6m (126 bars) + above_200d_ma
 # (200 bars) plus a buffer for non-trading days (~1.4×).
@@ -355,25 +355,8 @@ def _build_asset_frames(
 def _group_weights(
     holdings: list[str], group_of: dict[str, str]
 ) -> dict[str, float]:
-    """Equal-weight by redundancy group, splitting each group's slot evenly.
-
-    A group of economically redundant securities (Alphabet's two classes, two
-    S&P 500 ETFs) receives one slot's weight — ``1 / number_of_groups`` —
-    divided among its members, so holding both halves of a pair never buys two
-    slots of the same exposure. With no redundancy this is plain equal weight.
-    """
-    if not holdings:
-        return {}
-    groups: dict[str, list[str]] = {}
-    for aid in holdings:
-        groups.setdefault(group_of.get(aid, aid), []).append(aid)
-    per_group = 1.0 / len(groups)
-    weights: dict[str, float] = {}
-    for members in groups.values():
-        share = per_group / len(members)
-        for aid in members:
-            weights[aid] = share
-    return weights
+    """Equal-weight by redundancy group (shared with the forward-test builder)."""
+    return group_equal_weights(holdings, group_of)
 
 
 def _hysteresis_select(
