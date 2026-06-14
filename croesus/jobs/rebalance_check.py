@@ -186,14 +186,14 @@ def _load_asset_attrs(
     placeholders = ", ".join("?" for _ in lookup)
     rows = conn.execute(
         f"""
-        SELECT asset_id, asset_type, sector, industry, country, currency, metadata
+        SELECT asset_id, asset_type, sector, industry, country, currency, name, metadata
         FROM assets
         WHERE asset_id IN ({placeholders})
         """,
         lookup,
     ).fetchall()
     attrs: dict[str, AssetAttrs] = {}
-    for asset_id, asset_type, sector, industry, country, currency, metadata in rows:
+    for asset_id, asset_type, sector, industry, country, currency, name, metadata in rows:
         if isinstance(metadata, str):
             metadata = json.loads(metadata)
         attrs[asset_id] = AssetAttrs(
@@ -203,6 +203,7 @@ def _load_asset_attrs(
             country=country,
             currency=currency,
             theme_tags=list((metadata or {}).get("theme_tags") or []),
+            name=name,
         )
     return attrs
 

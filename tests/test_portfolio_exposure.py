@@ -240,3 +240,50 @@ def test_policy_drift_emits_row_for_empty_sleeve() -> None:
     assert core.current_weight == 0.0
     assert abs(core.drift - (0.0 - 0.55)) < 1e-9
     assert core.is_outside_band is True  # 0.0 < min 0.45
+
+
+# -- redundancy group (combined-weight cap on share classes / same-index ETFs) --
+
+
+def _alphabet_attrs():
+    return {
+        "US_EQ_GOOG": AssetAttrs(
+            asset_type="equity", name="Alphabet Inc. (Class C)", sector="Communication"
+        ),
+        "US_EQ_GOOGL": AssetAttrs(
+            asset_type="equity", name="Alphabet Inc.", sector="Communication"
+        ),
+        "US_EQ_AAPL": AssetAttrs(
+            asset_type="equity", name="Apple Inc.", sector="Technology"
+        ),
+    }
+
+
+def test_redundancy_group_caps_combined_weight_of_two_share_classes() -> None:
+    # GOOG 7% + GOOGL 7% = 14% of Alphabet — each is under the 10% single-name
+    # cap, so neither position trips, but the combined redundancy group must.
+    holdings = [_h("US_EQ_GOOG", 700), _h("US_EQ_GOOGL", 700), _h("US_EQ_AAPL", 8600)]
+    limits = ExposureLimits(max_single_position_weight=0.10)
+
+    exposures = _exposures(holdings, _alphabet_attrs(), limits)
+    positions = _by_type(exposures, "position")
+    groups = _by_type(exposures, "redundancy_group")
+
+    # Neither individual Alphabet class violates the single-position cap.
+    assert positions["US_EQ_GOOG"].is_violation is False
+    assert positions["US_EQ_GOOGL"].is_violation is False
+    # The combined Alphabet group does, against the same single-position limit.
+    [(name, group)] = groups.items()
+    assert "alphabet" in name
+    assert abs(group.weight - 0.14) < 1e-9
+    assert group.limit_weight == 0.10
+    assert group.is_violation is True
+
+
+def test_redundancy_group_not_emitted_for_a_lone_member() -> None:
+    # Only GOOG held (no GOOGL): no redundant peer present → no group row.
+    holdings = [_h("US_EQ_GOOG", 1500), _h("US_EQ_AAPL", 8500)]
+    exposures = _exposures(
+        holdings, _alphabet_attrs(), ExposureLimits(max_single_position_weight=0.10)
+    )
+    assert _by_type(exposures, "redundancy_group") == {}

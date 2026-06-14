@@ -43,6 +43,9 @@ class AssetAttrs:
     country: str | None = None
     currency: str | None = None
     theme_tags: list[str] = field(default_factory=list)
+    # Issuer/fund name — used only to derive redundancy groups (share classes,
+    # same-index ETFs). Optional so existing call sites stay valid.
+    name: str | None = None
 
 
 @dataclass(frozen=True)
