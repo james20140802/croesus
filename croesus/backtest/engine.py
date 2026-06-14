@@ -39,6 +39,7 @@ _PRICE_FACTOR_NAMES = (
     "volatility_3m",
     "liquidity_1m",
     "above_200d_ma",
+    "beta_1y",
 )
 
 
@@ -87,7 +88,20 @@ def run_backtest(
     with get_connection(db_path) as conn:
         prices_wide, volume_wide, asset_ids = _load_prices(conn, lookback_start, end)
         benchmark_series = _load_benchmark(conn, config.benchmark_symbol, start, end)
+        # Market returns for the beta factor, over the full loaded window (the
+        # lookback is included). Intersecting on each asset's point-in-time dates
+        # keeps beta look-ahead-free.
+        market_full = _load_benchmark(conn, config.benchmark_symbol, lookback_start, end)
         group_of = _load_redundancy_groups(conn)
+
+    market_returns = (
+        {}
+        if market_full.empty
+        else {
+            d.date() if hasattr(d, "date") else d: r
+            for d, r in market_full.pct_change().dropna().items()
+        }
+    )
 
     rebalance_dates = _monthly_rebalance_dates(prices_wide.index, start, end)
 
@@ -104,6 +118,7 @@ def run_backtest(
             end=end,
             config=config,
             group_of=group_of,
+            market_returns=market_returns,
         )
         results[scheme_name] = result
 
@@ -231,6 +246,7 @@ def _run_scheme(
     end: date,
     config: BacktestConfig,
     group_of: dict[str, str],
+    market_returns: dict,
 ) -> SchemeResult:
     """Walk-forward simulation for a single weight scheme."""
     if prices_wide.empty or not rebalance_dates:
@@ -279,6 +295,7 @@ def _run_scheme(
                 asset_frames=asset_frames,
                 as_of=today,
                 weights=weights,
+                market_returns=market_returns,
             )
             new_holdings = _hysteresis_select(
                 ranked,
@@ -390,6 +407,7 @@ def _select_holdings(
     asset_frames: dict[str, pd.DataFrame],
     as_of: date,
     weights: dict[str, float],
+    market_returns: dict,
 ) -> tuple[list[str], dict[str, float]]:
     """Score all assets point-in-time as of *as_of*; return the full ranking.
 
@@ -408,7 +426,7 @@ def _select_holdings(
         pit = frame[mask]
         if pit.empty:
             continue
-        factor_list = compute_common_factors(aid, pit)
+        factor_list = compute_common_factors(aid, pit, market_returns=market_returns)
         if not factor_list:
             continue  # insufficient history — skip, never crash
         factor_values[aid] = {fv.factor_name: fv.value for fv in factor_list}
@@ -467,6 +485,10 @@ def _composite_score(
     liquidity_score = pcts.get("liquidity_1m")
     trend_score = pcts.get("above_200d_ma")
     vol_penalty = pcts.get("volatility_3m")
+    # Low-beta: invert the beta percentile so low systematic risk scores high
+    # (the BAB factor). None when beta is unavailable → renormalized away.
+    beta_pct = pcts.get("beta_1y")
+    low_beta_score = None if beta_pct is None else 1.0 - beta_pct
 
     # Build effective weights dropping missing dimensions and renormalizing.
     dimension_scores: dict[str, float | None] = {
@@ -474,6 +496,7 @@ def _composite_score(
         "liquidity": liquidity_score,
         "trend": trend_score,
         "volatility_penalty": vol_penalty,
+        "low_beta": low_beta_score,
     }
     available = {k: v for k, v in dimension_scores.items() if v is not None}
     total_w = sum(abs(weights.get(k, 0.0)) for k in available)

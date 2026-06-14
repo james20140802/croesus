@@ -72,6 +72,17 @@ def _default_schemes() -> dict[str, dict[str, float]]:
             "trend": 0.15,
             "volatility_penalty": 0.25,
         },
+        # Defensive multi-factor: momentum + trend + a low-beta tilt (the
+        # backtestable BAB factor — low systematic risk scores high). Tests
+        # whether adding beta on top of momentum lowers drawdown without
+        # surrendering return. Valuation/quality stay out (look-ahead) — those
+        # are tracked only in the forward-test.
+        "multifactor_lowbeta": {
+            "momentum": 0.45,
+            "trend": 0.15,
+            "low_beta": 0.25,
+            "volatility_penalty": 0.15,
+        },
     }
 
 

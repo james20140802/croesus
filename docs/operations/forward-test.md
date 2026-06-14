@@ -17,6 +17,12 @@ evidence accrues over months, not in one run.
 - **composite_v2_value** — valuation raised 0.10 → 0.30, funded from momentum and
   liquidity. Value is negatively correlated with momentum, so the blend should
   lower risk; whether it also lifts return is what this harness measures.
+- **composite_v3_multifactor** — the completed multi-factor blend: momentum 0.25
+  + valuation 0.25 + quality 0.20 + low-beta 0.15 + trend 0.15. Combines the
+  value/momentum negative correlation with the "control your junk" quality screen
+  and the low-beta (BAB) defensive tilt — the levers the institutional-alpha
+  research flagged as most defensible for a no-leverage long-only system. This is
+  the scheme the forward-test exists to validate.
 - **momentum_aggressive** — concentrated momentum (0.85) for a risk-tolerant
   user. `momentum_only` posted the highest raw backtest return *and* the deepest
   drawdown; this tracks its **realized** drawdown live before any capital follows
