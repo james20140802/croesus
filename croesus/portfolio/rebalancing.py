@@ -8,6 +8,7 @@ from croesus.portfolio.models import AssetAttrs, Exposure, Holding, PolicyDrift
 from croesus.profiles.models import InvestorProfile
 from croesus.profiles.validation import validate_profile
 from croesus.screening.models import ScreeningCandidate
+from croesus.screening.redundancy import redundancy_key
 
 _EXPOSURE_REASON_CODES = {
     "sector": "SECTOR_OVER_MAX",
@@ -15,6 +16,7 @@ _EXPOSURE_REASON_CODES = {
     "theme": "THEME_OVER_MAX",
     "country": "COUNTRY_OVER_MAX",
     "currency": "CURRENCY_OVER_MAX",
+    "redundancy_group": "REDUNDANT_GROUP_OVER_MAX",
 }
 
 # A candidate trading this far above its DCF intrinsic value is not added
@@ -548,6 +550,11 @@ def _holding_matches_exposure(
         return attrs.country == exposure.exposure_name
     if exposure.exposure_type == "currency":
         return (attrs.currency or holding.currency) == exposure.exposure_name
+    if exposure.exposure_type == "redundancy_group":
+        return (
+            redundancy_key(attrs.name or "", attrs.asset_type or "")
+            == exposure.exposure_name
+        )
     return False
 
 

@@ -231,6 +231,40 @@ def test_severe_sector_over_max_also_trims_largest_holding_in_sector() -> None:
     assert "SECTOR_OVER_MAX" in trims[0].reason_codes
 
 
+def test_redundancy_group_over_max_blocks_buys_and_trims_largest_member() -> None:
+    # GOOG 8% + GOOGL 6% = 14% combined Alphabet, over the 10% single-name cap.
+    # The group over-exposure must block new Alphabet buys and trim the larger
+    # of the two classes (GOOG), even though neither class trips on its own.
+    actions = generate_proposed_actions(
+        "run-1",
+        portfolio_id="default",
+        as_of_date=AS_OF,
+        profile=_profile(max_single_position_weight=0.10, rebalance_band=0.02),
+        total_market_value=100_000.0,
+        exposures=[_exposure("redundancy_group", "issuer:alphabet", 0.14, 0.10)],
+        holdings=[
+            _holding("US_EQ_GOOG", 8_000.0),
+            _holding("US_EQ_GOOGL", 6_000.0),
+            _holding("US_EQ_AAPL", 86_000.0),
+        ],
+        assets_by_id={
+            "US_EQ_GOOG": AssetAttrs(
+                asset_type="equity", name="Alphabet Inc. (Class C)"
+            ),
+            "US_EQ_GOOGL": AssetAttrs(asset_type="equity", name="Alphabet Inc."),
+            "US_EQ_AAPL": AssetAttrs(asset_type="equity", name="Apple Inc."),
+        },
+    )
+
+    block = _one(actions, "block_new_buy")
+    assert block.sleeve_name == "issuer:alphabet"
+    assert block.reason_codes == ["REDUNDANT_GROUP_OVER_MAX"]
+
+    trims = [a for a in actions if a.action_type == "trim"]
+    assert trims[0].asset_id == "US_EQ_GOOG"  # the larger Alphabet class
+    assert "REDUNDANT_GROUP_OVER_MAX" in trims[0].reason_codes
+
+
 def test_sleeve_under_min_creates_rebalance_to_band() -> None:
     actions = generate_proposed_actions(
         "run-1",
