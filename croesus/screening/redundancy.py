@@ -101,6 +101,31 @@ def redundancy_key(name: str, asset_type: str) -> str | None:
     return None
 
 
+def group_equal_weights(
+    holdings: list[str], group_of: dict[str, str]
+) -> dict[str, float]:
+    """Equal-weight ``holdings`` by redundancy group, splitting each group's slot.
+
+    A redundancy group (share classes of one issuer, ETFs on one index) receives
+    one slot's weight — ``1 / number_of_groups`` — divided evenly among its
+    members, so holding both halves of a pair never buys two slots of the same
+    exposure. With no redundancy this is plain equal weight. Used by both the
+    backtest construction and the forward-test cohort builder.
+    """
+    if not holdings:
+        return {}
+    groups: dict[str, list[str]] = {}
+    for asset_id in holdings:
+        groups.setdefault(group_of.get(asset_id, asset_id), []).append(asset_id)
+    per_group = 1.0 / len(groups)
+    weights: dict[str, float] = {}
+    for members in groups.values():
+        share = per_group / len(members)
+        for asset_id in members:
+            weights[asset_id] = share
+    return weights
+
+
 def group_keys(items: dict[str, tuple[str, str]]) -> dict[str, str]:
     """Map each ``asset_id`` to its redundancy-group key.
 

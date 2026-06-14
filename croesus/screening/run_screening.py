@@ -30,6 +30,7 @@ def run_screening(
     as_of_date: date | None = None,
     portfolio_id: str | None = None,
     run_id: str | None = None,
+    persist: bool = True,
 ) -> ScreeningRunResult:
     actual_as_of = as_of_date or _latest_factor_date(conn) or date.today()
     actual_run_id = run_id or f"screening-{actual_as_of.isoformat()}-{uuid4().hex[:8]}"
@@ -125,7 +126,10 @@ def run_screening(
             )
         )
 
-    ScreeningRepository(conn).upsert_results([*ranked, *skipped])
+    # The forward-test harness re-scores with candidate weight schemes; it must
+    # not overwrite the canonical screening_results, so it passes persist=False.
+    if persist:
+        ScreeningRepository(conn).upsert_results([*ranked, *skipped])
     return ScreeningRunResult(
         run_id=actual_run_id,
         as_of_date=actual_as_of,
