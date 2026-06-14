@@ -132,3 +132,29 @@ def test_price_repository_returns_latest_close_at_or_before_date(tmp_path: Path)
         assert repo.get_latest_close("US_EQ_AAPL", date(2026, 5, 30)) == 188.0
         assert repo.get_latest_close("US_EQ_AAPL", date(2026, 6, 2)) == 190.0
         assert repo.get_latest_close("US_EQ_AAPL", date(2026, 5, 1)) is None
+
+
+def test_compute_common_factors_adds_beta_when_market_returns_given() -> None:
+    # Stock moves exactly 1.5x the market each day → beta must be 1.5.
+    from croesus.factors.common import compute_common_factors
+
+    n = 260
+    base = date(2024, 1, 1)
+    dates = [base + timedelta(days=i) for i in range(n)]
+    mkt_ret = [0.01 if i % 2 == 0 else -0.005 for i in range(n)]
+    m_close = [100.0]
+    s_close = [50.0]
+    for i in range(1, n):
+        m_close.append(m_close[-1] * (1 + mkt_ret[i]))
+        s_close.append(s_close[-1] * (1 + 1.5 * mkt_ret[i]))
+    frame = pd.DataFrame({"date": dates, "close": s_close, "volume": [1e6] * n})
+    market_returns = {dates[i]: m_close[i] / m_close[i - 1] - 1 for i in range(1, n)}
+
+    with_beta = {
+        f.factor_name: f.value
+        for f in compute_common_factors("X", frame, market_returns=market_returns)
+    }
+    assert abs(with_beta["beta_1y"] - 1.5) < 1e-6
+    # No market series → beta is simply absent (never crashes, never fabricated).
+    without = {f.factor_name for f in compute_common_factors("X", frame)}
+    assert "beta_1y" not in without

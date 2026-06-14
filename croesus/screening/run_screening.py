@@ -13,6 +13,8 @@ from croesus.screening.dimensions import (
     FACTOR_NAMES,
     SCORE_GROUP_KEYS,
     VALUATION_CONTEXT_FACTORS,
+    QUALITY_INVERTED,
+    QUALITY_NATURAL,
     VALUATION_INVERTED,
     VALUATION_NATURAL,
 )
@@ -191,12 +193,22 @@ def _score_asset(
     horizon_weights = screening_params.get("momentum_horizon_weights") or {}
     momentum_score = _weighted_momentum(percentiles, horizon_weights)
     valuation_score = _valuation_score(percentiles)
+    quality_score = _quality_score(percentiles)
+    # Low-beta: invert beta percentile so low systematic risk scores high (BAB).
+    beta_pct = percentiles.get("beta_1y")
+    low_beta_score = None if beta_pct is None else 1.0 - beta_pct
     factor_scores = {
         "momentum_score": momentum_score,
         "liquidity_score": percentiles.get("liquidity_1m"),
         "trend_score": percentiles.get("above_200d_ma"),
         "volatility_penalty": percentiles.get("volatility_3m"),
         "valuation_score": valuation_score,
+        "quality_score": quality_score,
+        "low_beta_score": low_beta_score,
+        "beta_1y": factors.get("beta_1y"),
+        "roe": factors.get("roe"),
+        "net_margin": factors.get("net_margin"),
+        "debt_to_equity": factors.get("debt_to_equity"),
         # Horizon detail — previously computed then discarded; kept so reports
         # and the Research Agent can see e.g. a 6m leader with a 1m reversal.
         "momentum_1m_pct": percentiles.get("momentum_1m"),
@@ -235,13 +247,22 @@ def _score_asset(
     weights = screening_params.get("factor_weights") or {}
     if trend_gate_active:
         weights = _renormalize_without(weights, "trend")
+    # Fundamental/optional dimensions renormalize away when absent, so an asset
+    # missing fundamentals (or beta) is never penalized — its weight is
+    # redistributed across the dimensions it does have.
     if valuation_score is None and weights.get("valuation"):
         weights = _renormalize_without(weights, "valuation")
+    if quality_score is None and weights.get("quality"):
+        weights = _renormalize_without(weights, "quality")
+    if low_beta_score is None and weights.get("low_beta"):
+        weights = _renormalize_without(weights, "low_beta")
     score = (
         float(weights.get("momentum", 0.0)) * (factor_scores["momentum_score"] or 0.0)
         + float(weights.get("liquidity", 0.0)) * (factor_scores["liquidity_score"] or 0.0)
         + float(weights.get("trend", 0.0)) * (factor_scores["trend_score"] or 0.0)
         + float(weights.get("valuation", 0.0)) * (valuation_score or 0.0)
+        + float(weights.get("quality", 0.0)) * (quality_score or 0.0)
+        + float(weights.get("low_beta", 0.0)) * (low_beta_score or 0.0)
         - float(weights.get("volatility_penalty", 0.0)) * (factor_scores["volatility_penalty"] or 0.0)
     )
     blocking = _blocking_exposures_for(asset, exposure_overlay)
@@ -470,6 +491,27 @@ def _valuation_score(percentiles: Mapping[str, float | None]) -> float | None:
         pct = percentiles.get(name)
         if pct is not None:
             sub_scores.append(pct)
+    if not sub_scores:
+        return None
+    return sum(sub_scores) / len(sub_scores)
+
+
+def _quality_score(percentiles: Mapping[str, float | None]) -> float | None:
+    """Average available quality percentiles into one higher-is-better score.
+
+    ROE and net margin are natural (high = good); debt_to_equity is leverage,
+    so its percentile inverts (low leverage = good). Returns None when no
+    quality factor is present, so the caller renormalizes the weight away.
+    """
+    sub_scores: list[float] = []
+    for name in QUALITY_NATURAL:
+        pct = percentiles.get(name)
+        if pct is not None:
+            sub_scores.append(pct)
+    for name in QUALITY_INVERTED:
+        pct = percentiles.get(name)
+        if pct is not None:
+            sub_scores.append(1.0 - pct)
     if not sub_scores:
         return None
     return sum(sub_scores) / len(sub_scores)

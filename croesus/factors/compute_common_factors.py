@@ -1,13 +1,36 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
 import duckdb
+import pandas as pd
 
 from croesus.assets.classifier import PRICEABLE_ASSET_TYPES
 from croesus.assets.repository import AssetRepository
 from croesus.factors.common import FactorValue, compute_common_factors
 from croesus.prices.repository import PriceRepository
+
+# Market proxy for beta (kept in sync with the valuation pipeline's benchmark).
+_BENCHMARK_SYMBOL = "SPY"
+
+
+def _market_returns(
+    conn: duckdb.DuckDBPyConnection, prices: PriceRepository
+) -> dict[date, float]:
+    """Daily benchmark returns by date, for the beta factor."""
+    row = conn.execute(
+        "SELECT asset_id FROM assets WHERE symbol = ? LIMIT 1", [_BENCHMARK_SYMBOL]
+    ).fetchone()
+    if row is None:
+        return {}
+    frame = prices.load_daily_prices(row[0]).sort_values("date")
+    closes = [(d, c) for d, c in zip(frame["date"], frame["close"]) if c is not None]
+    out: dict[date, float] = {}
+    for (_, prev), (cur_date, cur) in zip(closes, closes[1:]):
+        if prev:
+            out[pd.Timestamp(cur_date).date()] = float(cur) / float(prev) - 1.0
+    return out
 
 
 @dataclass(frozen=True)
@@ -28,11 +51,14 @@ def compute_and_store_common_factors(conn: duckdb.DuckDBPyConnection) -> FactorC
     ]
     prices = PriceRepository(conn)
     result = FactorComputationResult()
+    market_returns = _market_returns(conn, prices)
 
     for asset in assets:
         try:
             frame = prices.load_daily_prices(asset.asset_id)
-            factor_values = compute_common_factors(asset.asset_id, frame)
+            factor_values = compute_common_factors(
+                asset.asset_id, frame, market_returns=market_returns
+            )
             if not factor_values:
                 result.skipped[asset.asset_id] = "insufficient price history"
                 print(f"skip factors for {asset.symbol}: insufficient price history")

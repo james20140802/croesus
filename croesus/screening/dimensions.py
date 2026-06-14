@@ -18,6 +18,7 @@ same multiples sector-relative, and averaging both would double-count P/E.
 from __future__ import annotations
 
 # Price-derived factors (Sprint 001/005) — the pre-008b FACTOR_NAMES.
+# beta_1y (systematic risk vs SPY) feeds the low_beta dimension, inverted.
 PRICE_FACTOR_NAMES = (
     "momentum_1m",
     "momentum_3m",
@@ -25,6 +26,7 @@ PRICE_FACTOR_NAMES = (
     "liquidity_1m",
     "above_200d_ma",
     "volatility_3m",
+    "beta_1y",
 )
 
 # Valuation factors (Sprint 007). All eight are loaded and persisted in
@@ -40,7 +42,14 @@ VALUATION_FACTOR_NAMES = (
     "price_to_intrinsic",
 )
 
-FACTOR_NAMES = PRICE_FACTOR_NAMES + VALUATION_FACTOR_NAMES
+# Quality factors (multi-factor completion). ROE and net margin are
+# higher-is-better; debt_to_equity is leverage — lower is better, so its
+# percentile is inverted before averaging into quality_score.
+QUALITY_FACTOR_NAMES = ("roe", "net_margin", "debt_to_equity")
+QUALITY_NATURAL = ("roe", "net_margin")
+QUALITY_INVERTED = ("debt_to_equity",)
+
+FACTOR_NAMES = PRICE_FACTOR_NAMES + VALUATION_FACTOR_NAMES + QUALITY_FACTOR_NAMES
 
 # Scored valuation inputs: lower raw value = cheaper = better → invert pct.
 VALUATION_INVERTED = (

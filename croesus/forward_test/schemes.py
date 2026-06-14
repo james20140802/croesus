@@ -37,6 +37,18 @@ FORWARD_TEST_SCHEMES: dict[str, dict[str, float]] = {
         "valuation": 0.30,
         "volatility_penalty": 0.15,
     },
+    # composite_v3: the completed multi-factor blend — momentum + value +
+    # quality + low-beta, exploiting the value/momentum negative correlation and
+    # the "control your junk" quality screen the research flagged as the most
+    # defensible levers. Trend stays a small participation tilt. This is the
+    # scheme the forward-test exists to validate.
+    "composite_v3_multifactor": {
+        "momentum": 0.25,
+        "valuation": 0.25,
+        "quality": 0.20,
+        "low_beta": 0.15,
+        "trend": 0.15,
+    },
     # Aggressive sleeve for a risk-tolerant user. momentum_only posted the
     # highest raw backtest return (also the deepest drawdown); this concentrated
     # momentum scheme is tracked so its REALIZED drawdown is observed live
