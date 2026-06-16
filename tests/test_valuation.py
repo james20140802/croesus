@@ -88,7 +88,7 @@ def test_two_stage_dcf_knobs_change_value() -> None:
         shares_outstanding=10.0, total_debt=50.0, cash=20.0,
     )
     default = two_stage_dcf(**base_args)
-    # A longer competitive-advantage period raises intrinsic value.
+    # growth_rate > 0, so a longer CAP captures more high-growth FCF → higher value
     longer_cap = two_stage_dcf(**base_args, knobs=DcfKnobs(explicit_years=10))
     assert longer_cap.intrinsic_value_per_share > default.intrinsic_value_per_share
     # A higher terminal growth raises intrinsic value and is reflected on the result.

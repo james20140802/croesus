@@ -232,9 +232,10 @@ def value_with_knobs(
     cash: float | None,
     knobs: DcfKnobs = DEFAULT_DCF_KNOBS,
 ) -> DcfResult | None:
-    """Single recompute path: derive WACC (with the knob's risk premium) and run
-    the two-stage DCF under one ``knobs`` set. Callers (the valuation job today,
-    a thesis-revision step later) recompute by passing a different ``knobs``.
+    """Single recompute path: derive WACC (with the knob bundle's
+    ``wacc_risk_premium``) and run the two-stage DCF under one ``knobs`` set.
+    Callers (the valuation job today, a thesis-revision step later) recompute
+    by passing a different ``knobs``.
     """
     wacc = compute_wacc(risk_free_rate, beta, risk_premium=knobs.wacc_risk_premium)
     return two_stage_dcf(
