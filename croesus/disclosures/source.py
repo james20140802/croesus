@@ -17,6 +17,14 @@ _TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
 _SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 
 
+class CikMapUnavailableError(Exception):
+    """Raised when the EDGAR ticker->CIK map cannot be fetched.
+
+    Propagated out of ``ingest_disclosures`` so the local_sync runner marks
+    the whole job failed rather than recording N misleading per-asset failures.
+    """
+
+
 class DisclosureSource(Protocol):
     def fetch_recent_filings(self, symbol: str) -> list[RawFiling]:
         """Return recent filings for a ticker, newest first; empty if unknown."""
@@ -63,11 +71,17 @@ class EdgarDisclosureSource:
 
     def _ensure_cik_map(self) -> dict[str, str]:
         if self._cik_map is None:
-            resp = requests.get(
-                _TICKER_MAP_URL, headers=self._headers(), timeout=self._timeout
-            )
-            resp.raise_for_status()
-            self._cik_map = build_cik_map(resp.json())
+            try:
+                resp = requests.get(
+                    _TICKER_MAP_URL, headers=self._headers(), timeout=self._timeout
+                )
+                resp.raise_for_status()
+                self._cik_map = build_cik_map(resp.json())
+            except Exception as exc:
+                # Leave self._cik_map as None so a later run can retry.
+                raise CikMapUnavailableError(
+                    "could not fetch EDGAR ticker->CIK map"
+                ) from exc
         return self._cik_map
 
     def _headers(self) -> dict[str, str]:

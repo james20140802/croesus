@@ -8,7 +8,11 @@ import duckdb
 from croesus.assets.repository import AssetRepository
 from croesus.disclosures.models import Disclosure
 from croesus.disclosures.repository import DisclosureRepository
-from croesus.disclosures.source import DisclosureSource, EdgarDisclosureSource
+from croesus.disclosures.source import (
+    CikMapUnavailableError,
+    DisclosureSource,
+    EdgarDisclosureSource,
+)
 
 # US operating companies are the EDGAR filers we care about. ETFs/funds rarely
 # file the narrative 8-Ks the event funnel keys on, and non-US filers won't be
@@ -57,6 +61,8 @@ def ingest_disclosures(
             rows = repo.upsert(disclosures)
             result.succeeded.append(asset.symbol)
             log(f"stored {rows} disclosures for {asset.symbol}")
+        except CikMapUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001 - per-asset failures must not stop the run.
             result.failed[asset.symbol] = str(exc)
             log(f"failed {asset.symbol}: {exc}")

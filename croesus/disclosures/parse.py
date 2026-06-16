@@ -24,7 +24,10 @@ def build_cik_map(company_tickers_payload: dict) -> dict[str, str]:
         cik = entry.get("cik_str")
         if not ticker or cik is None:
             continue
-        cik_map[ticker] = f"{int(cik):010d}"
+        try:
+            cik_map[ticker] = f"{int(cik):010d}"
+        except (ValueError, TypeError):
+            continue
     return cik_map
 
 
@@ -37,9 +40,10 @@ def parse_recent_filings(
 ) -> list[RawFiling]:
     """Parse EDGAR ``submissions`` JSON into ``RawFiling`` records, newest first.
 
-    ``forms`` (e.g. ``{"10-K", "10-Q", "8-K"}``) filters by form type; ``None``
-    keeps every form. Rows missing an accession number or a parseable filing
-    date are dropped. Stops after ``limit`` kept rows.
+    ``cik`` must be a numeric string (zero-padded to 10 digits, as produced by
+    ``build_cik_map``). ``forms`` (e.g. ``{"10-K", "10-Q", "8-K"}``) filters by
+    form type; ``None`` keeps every form. Rows missing an accession number or a
+    parseable filing date are dropped. Stops after ``limit`` kept rows.
     """
     recent = (submissions_payload.get("filings") or {}).get("recent") or {}
     accessions = recent.get("accessionNumber") or []

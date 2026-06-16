@@ -14,7 +14,7 @@ class DisclosureRepository:
 
         Idempotent: re-ingesting the same accession overwrites the mutable
         fields rather than duplicating the row. Returns the number of rows
-        written.
+        submitted.
         """
         if not disclosures:
             return 0

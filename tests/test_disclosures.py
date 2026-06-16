@@ -230,3 +230,59 @@ def test_disclosures_registered_in_sync_pipeline() -> None:
     # Needs the universe but must not be blocked by a universe-refresh failure.
     assert disclosures_job.soft_depends_on == ("universe_refresh",)
     assert disclosures_job.depends_on == ()
+
+
+def test_parse_recent_filings_missing_primary_document_yields_none_url() -> None:
+    from croesus.disclosures.parse import parse_recent_filings
+
+    payload = {
+        "filings": {
+            "recent": {
+                "accessionNumber": ["0000320193-24-000123", "0000320193-24-000124"],
+                "filingDate": ["2024-11-01", "2024-10-01"],
+                "reportDate": ["2024-09-28", ""],
+                "form": ["10-K", "8-K"],
+                "primaryDocument": ["", None],
+                "primaryDocDescription": ["10-K", "8-K"],
+            }
+        }
+    }
+    filings = parse_recent_filings(payload, cik="0000320193")
+    assert len(filings) == 2
+    # Empty string primaryDocument -> None URL.
+    assert filings[0].primary_doc_url is None
+    # None/absent primaryDocument -> None URL.
+    assert filings[1].primary_doc_url is None
+
+
+def test_build_cik_map_skips_non_numeric_cik() -> None:
+    from croesus.disclosures.parse import build_cik_map
+
+    payload = {
+        "0": {"cik_str": "N/A", "ticker": "BAD", "title": "bad cik"},
+        "1": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+    }
+    # Must not raise; bad entry is silently skipped.
+    result = build_cik_map(payload)
+    assert result == {"AAPL": "0000320193"}
+    assert "BAD" not in result
+
+
+def test_ingest_disclosures_aborts_when_cik_map_unavailable(tmp_path: Path) -> None:
+    import pytest
+
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.disclosures.ingest import ingest_disclosures
+    from croesus.disclosures.source import CikMapUnavailableError
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    class BrokenSource:
+        def fetch_recent_filings(self, symbol: str) -> list:
+            raise CikMapUnavailableError("could not fetch EDGAR ticker->CIK map")
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        with pytest.raises(CikMapUnavailableError):
+            ingest_disclosures(conn, BrokenSource())
