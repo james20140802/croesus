@@ -62,6 +62,13 @@ def test_compute_wacc() -> None:
     assert math.isclose(compute_wacc(0.04, 1.2), 0.04 + 1.2 * EQUITY_RISK_PREMIUM)
 
 
+def test_compute_wacc_risk_premium() -> None:
+    base = compute_wacc(0.045, 1.0)
+    assert compute_wacc(0.045, 1.0, risk_premium=0.02) == base + 0.02
+    # default is unchanged
+    assert compute_wacc(0.045, 1.0, risk_premium=0.0) == base
+
+
 def test_compute_beta_slope_and_insufficient_data() -> None:
     # market series; asset = 2x market exactly -> beta 2.0
     market = [((-1) ** i) * 0.01 * (1 + i % 3) for i in range(60)]
@@ -71,6 +78,25 @@ def test_compute_beta_slope_and_insufficient_data() -> None:
 
     assert compute_beta([0.01, 0.02], [0.01, 0.02]) is None  # too short
     assert compute_beta([0.01] * 40, [0.0] * 40) is None  # zero market variance
+
+
+def test_two_stage_dcf_knobs_change_value() -> None:
+    from croesus.factors.equity.valuation import DcfKnobs
+
+    base_args = dict(
+        base_fcf=100.0, growth_rate=0.10, wacc=0.09,
+        shares_outstanding=10.0, total_debt=50.0, cash=20.0,
+    )
+    default = two_stage_dcf(**base_args)
+    # Here growth_rate (0.10) > wacc (0.09), so each extra explicit year adds
+    # positive discounted FCF → a longer CAP raises value. (Not universal: with
+    # wacc >> growth a longer CAP can instead lower it.)
+    longer_cap = two_stage_dcf(**base_args, knobs=DcfKnobs(explicit_years=10))
+    assert longer_cap.intrinsic_value_per_share > default.intrinsic_value_per_share
+    # A higher terminal growth raises intrinsic value and is reflected on the result.
+    higher_term = two_stage_dcf(**base_args, knobs=DcfKnobs(terminal_growth_rate=0.030))
+    assert higher_term.intrinsic_value_per_share > default.intrinsic_value_per_share
+    assert higher_term.terminal_growth_rate == 0.030
 
 
 def test_compute_fcf_growth_clipping_and_negatives() -> None:
@@ -85,6 +111,49 @@ def test_compute_fcf_growth_clipping_and_negatives() -> None:
     # sign change / non-positive endpoint -> None
     assert compute_fcf_growth([-10.0, 50.0]) is None
     assert compute_fcf_growth([50.0]) is None
+
+
+def test_dcf_knobs_defaults_reproduce_constants() -> None:
+    from croesus.factors.equity.valuation import (
+        DcfKnobs,
+        DEFAULT_DCF_KNOBS,
+        DCF_EXPLICIT_YEARS,
+        DEFAULT_TERMINAL_GROWTH,
+    )
+    assert DEFAULT_DCF_KNOBS == DcfKnobs()
+    assert DEFAULT_DCF_KNOBS.explicit_years == DCF_EXPLICIT_YEARS
+    assert DEFAULT_DCF_KNOBS.terminal_growth_rate == DEFAULT_TERMINAL_GROWTH
+    assert DEFAULT_DCF_KNOBS.wacc_risk_premium == 0.0
+
+
+def test_value_with_knobs_wires_wacc_and_dcf() -> None:
+    from croesus.factors.equity.valuation import (
+        DcfKnobs,
+        compute_wacc,
+        two_stage_dcf,
+        value_with_knobs,
+    )
+
+    args = dict(
+        base_fcf=100.0, growth_rate=0.10, risk_free_rate=0.045, beta=1.0,
+        shares_outstanding=10.0, total_debt=50.0, cash=20.0,
+    )
+    # Default knobs == explicit compute_wacc + two_stage_dcf with default knobs.
+    expected_wacc = compute_wacc(0.045, 1.0)
+    expected = two_stage_dcf(
+        base_fcf=100.0, growth_rate=0.10, wacc=expected_wacc,
+        shares_outstanding=10.0, total_debt=50.0, cash=20.0,
+    )
+    got = value_with_knobs(**args)
+    assert got.intrinsic_value_per_share == expected.intrinsic_value_per_share
+
+    # The risk_premium knob raises WACC, lowering intrinsic value.
+    riskier = value_with_knobs(**args, knobs=DcfKnobs(wacc_risk_premium=0.02))
+    assert riskier.intrinsic_value_per_share < got.intrinsic_value_per_share
+    assert riskier.wacc == compute_wacc(0.045, 1.0, risk_premium=0.02)
+
+    # Invalid inputs propagate as None (guard not swallowed by the wrapper).
+    assert value_with_knobs(**{**args, "shares_outstanding": 0.0}) is None
 
 
 def test_two_stage_dcf_value_and_guards() -> None:

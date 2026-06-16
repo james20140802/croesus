@@ -23,6 +23,7 @@ from croesus.fundamentals.repository import (
     FundamentalMetric,
     FundamentalsRepository,
 )
+from croesus.factors.equity.valuation import DEFAULT_DCF_KNOBS
 from croesus.prices.repository import PriceRepository
 
 AS_OF = date(2026, 6, 1)
@@ -158,6 +159,24 @@ def test_beta_regressed_against_seeded_spy(tmp_path: Path) -> None:
     assert abs(snap.assumptions["beta"] - beta_target) < 0.05
     assert abs(snap.wacc - (0.045 + beta_target * 0.055)) < 0.01
     assert spy_snap == 0
+
+
+def test_snapshot_assumptions_include_dcf_knobs(tmp_path: Path) -> None:
+    db_path = tmp_path / "v.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        _seed(conn)
+
+        result = compute_and_store_valuation_factors(conn, include_dcf=True, as_of=AS_OF)
+        asset_id = "US_EQ_AAPL"
+        assert asset_id in result.dcf_computed
+
+        snap = ValuationSnapshotRepository(conn).get(asset_id, AS_OF)
+
+    assert snap is not None
+    assert snap.assumptions["explicit_years"] == DEFAULT_DCF_KNOBS.explicit_years
+    assert snap.assumptions["terminal_growth_rate"] == DEFAULT_DCF_KNOBS.terminal_growth_rate
+    assert snap.assumptions["wacc_risk_premium"] == DEFAULT_DCF_KNOBS.wacc_risk_premium
 
 
 def test_daily_run_multiples_without_dcf(tmp_path: Path) -> None:

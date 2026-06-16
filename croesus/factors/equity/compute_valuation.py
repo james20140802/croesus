@@ -32,14 +32,14 @@ from croesus.factors.equity.repository import (
     ValuationSnapshotRepository,
 )
 from croesus.factors.equity.valuation import (
+    DEFAULT_DCF_KNOBS,
     DEFAULT_RISK_FREE_RATE,
     ValuationMultiples,
     compute_beta,
     compute_fcf_growth,
     compute_multiples,
-    compute_wacc,
     sector_percentile,
-    two_stage_dcf,
+    value_with_knobs,
 )
 from croesus.fundamentals.repository import (
     METRIC_BOOK_VALUE_PER_SHARE,
@@ -266,14 +266,16 @@ def _compute_dcf(
         return None
 
     beta = calc.beta if calc.beta is not None else _DEFAULT_BETA
-    wacc = compute_wacc(rf, beta)
-    dcf = two_stage_dcf(
+    knobs = DEFAULT_DCF_KNOBS  # Phase A: mechanical defaults; Phase C revises from thesis grades
+    dcf = value_with_knobs(
         base_fcf=calc.annual_fcf[-1],
         growth_rate=growth,
-        wacc=wacc,
+        risk_free_rate=rf,
+        beta=beta,
         shares_outstanding=calc.shares or 0.0,
         total_debt=calc.fundamentals["total_debt"],
         cash=calc.fundamentals["cash_and_equivalents"],
+        knobs=knobs,
     )
     if dcf is None:
         result.dcf_skipped[asset_id] = "DCF inputs invalid (WACC<=g, base FCF<=0, or no shares)"
@@ -298,7 +300,9 @@ def _compute_dcf(
                 "base_fcf": dcf.base_fcf,
                 "enterprise_value": dcf.enterprise_value,
                 "equity_value": dcf.equity_value,
-                "explicit_years": 5,
+                "explicit_years": knobs.explicit_years,
+                "terminal_growth_rate": knobs.terminal_growth_rate,
+                "wacc_risk_premium": knobs.wacc_risk_premium,
             },
         )
     )

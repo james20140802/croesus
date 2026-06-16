@@ -22,6 +22,23 @@ MIN_BETA_OBSERVATIONS = 30
 
 
 @dataclass(frozen=True)
+class DcfKnobs:
+    """Forward-looking DCF assumptions a thesis may later revise.
+
+    Phase A exposes them as a named, overridable bundle; Phase C drives them
+    from structural-thesis grades (moat → CAP, sector → terminal, disruption →
+    risk premium). The defaults reproduce the pre-Phase-A behavior exactly.
+    """
+
+    explicit_years: int = DCF_EXPLICIT_YEARS          # competitive-advantage period (CAP)
+    terminal_growth_rate: float = DEFAULT_TERMINAL_GROWTH
+    wacc_risk_premium: float = 0.0                    # added to the CAPM WACC
+
+
+DEFAULT_DCF_KNOBS = DcfKnobs()
+
+
+@dataclass(frozen=True)
 class ValuationMultiples:
     pe_ratio: float | None = None
     pb_ratio: float | None = None
@@ -122,11 +139,19 @@ def compute_beta(
 
 
 def compute_wacc(
-    risk_free_rate: float, beta: float, *, equity_risk_premium: float = EQUITY_RISK_PREMIUM
+    risk_free_rate: float,
+    beta: float,
+    *,
+    equity_risk_premium: float = EQUITY_RISK_PREMIUM,
+    risk_premium: float = 0.0,
 ) -> float:
-    """All-equity CAPM cost of capital: ``Rf + β × ERP`` (debt-weighting is out
-    of scope this sprint)."""
-    return risk_free_rate + beta * equity_risk_premium
+    """All-equity CAPM cost of capital: ``Rf + β × ERP + risk_premium``.
+
+    ``risk_premium`` is a thesis-driven add-on (e.g. disruption risk); it
+    defaults to 0.0 so existing callers are unchanged. Debt-weighting remains
+    out of scope.
+    """
+    return risk_free_rate + beta * equity_risk_premium + risk_premium
 
 
 def compute_fcf_growth(annual_fcf: list[float]) -> float | None:
@@ -136,6 +161,10 @@ def compute_fcf_growth(annual_fcf: list[float]) -> float | None:
     are fewer than two points or either endpoint is non-positive (a CAGR across a
     sign change is undefined).
     """
+    # NOTE: this look-back window is pinned to the module constant, not
+    # knobs.explicit_years. Identical today (DEFAULT_DCF_KNOBS.explicit_years ==
+    # DCF_EXPLICIT_YEARS). Phase C, which lets a thesis stretch the CAP, must
+    # decide whether the CAGR window should track that or stay a fixed history.
     recent = annual_fcf[-DCF_EXPLICIT_YEARS:]
     if len(recent) < 2:
         return None
@@ -155,15 +184,17 @@ def two_stage_dcf(
     shares_outstanding: float,
     total_debt: float | None,
     cash: float | None,
-    terminal_growth_rate: float = DEFAULT_TERMINAL_GROWTH,
-    explicit_years: int = DCF_EXPLICIT_YEARS,
+    knobs: DcfKnobs = DEFAULT_DCF_KNOBS,
 ) -> DcfResult | None:
-    """5-year explicit FCF projection + Gordon-growth terminal value.
+    """Explicit FCF projection over the competitive-advantage period + Gordon
+    terminal value. The projection horizon and terminal growth come from
+    ``knobs`` (defaults reproduce the prior 5-year / 2.5% behavior).
 
     Returns ``None`` (DCF skipped) when inputs make the model invalid: a
-    non-positive FCF base, no shares, or ``WACC ≤ terminal growth`` (the terminal
-    value diverges).
+    non-positive FCF base, no shares, or ``WACC ≤ terminal growth``.
     """
+    terminal_growth_rate = knobs.terminal_growth_rate
+    explicit_years = knobs.explicit_years
     if base_fcf <= 0 or shares_outstanding <= 0:
         return None
     if wacc <= terminal_growth_rate:
@@ -191,4 +222,32 @@ def two_stage_dcf(
         enterprise_value=enterprise_value,
         equity_value=equity_value,
         base_fcf=base_fcf,
+    )
+
+
+def value_with_knobs(
+    *,
+    base_fcf: float,
+    growth_rate: float,
+    risk_free_rate: float,
+    beta: float,
+    shares_outstanding: float,
+    total_debt: float | None,
+    cash: float | None,
+    knobs: DcfKnobs = DEFAULT_DCF_KNOBS,
+) -> DcfResult | None:
+    """Single recompute path: derive WACC (with the knob bundle's
+    ``wacc_risk_premium``) and run the two-stage DCF under one ``knobs`` set.
+    Callers (the valuation job today, a thesis-revision step later) recompute
+    by passing a different ``knobs``.
+    """
+    wacc = compute_wacc(risk_free_rate, beta, risk_premium=knobs.wacc_risk_premium)
+    return two_stage_dcf(
+        base_fcf=base_fcf,
+        growth_rate=growth_rate,
+        wacc=wacc,
+        shares_outstanding=shares_outstanding,
+        total_debt=total_debt,
+        cash=cash,
+        knobs=knobs,
     )
