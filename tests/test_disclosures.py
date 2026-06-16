@@ -213,3 +213,20 @@ def test_ingest_disclosures_stores_filings_and_isolates_failures(tmp_path: Path)
     assert result.skipped == {"NVDA": "no filings returned"}
     assert result.failed == {"MSFT": "edgar unavailable"}
     assert stored == [("US_EQ_AAPL", "acc-AAPL-1", "8-K")]
+
+
+def test_disclosures_registered_in_sync_pipeline() -> None:
+    from croesus.jobs.local_sync import default_sync_jobs
+    from croesus.jobs.run_status import DOMAINS_BY_NAME
+
+    # Freshness domain exists and points at the disclosures job.
+    assert "disclosures" in DOMAINS_BY_NAME
+    assert DOMAINS_BY_NAME["disclosures"].job_name == "disclosures_run"
+
+    jobs = {job.name: job for job in default_sync_jobs()}
+    assert "disclosures_run" in jobs
+    disclosures_job = jobs["disclosures_run"]
+    assert disclosures_job.domains == ("disclosures",)
+    # Needs the universe but must not be blocked by a universe-refresh failure.
+    assert disclosures_job.soft_depends_on == ("universe_refresh",)
+    assert disclosures_job.depends_on == ()

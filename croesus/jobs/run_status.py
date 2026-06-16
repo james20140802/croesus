@@ -147,6 +147,14 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
             "WHERE job_name = 'universe_refresh' AND status = 'success'",
         ),
     ),
+    # SEC filings arrive irregularly (quarterly 10-K/10-Q plus event-driven
+    # 8-Ks). A ~daily refresh threshold keeps new 8-Ks flowing into the event
+    # funnel promptly; MAX(filed_date) lags over weekends/holidays, which simply
+    # marks the domain due and triggers a (cheap, mostly no-op) refresh.
+    DomainSpec(
+        "disclosures", "disclosures_run", 48.0,
+        lambda c: _scalar_date(c, "SELECT MAX(filed_date) FROM disclosures"),
+    ),
 )
 
 DOMAINS_BY_NAME: dict[str, DomainSpec] = {spec.domain: spec for spec in DOMAIN_REGISTRY}
