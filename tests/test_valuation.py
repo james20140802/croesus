@@ -88,7 +88,9 @@ def test_two_stage_dcf_knobs_change_value() -> None:
         shares_outstanding=10.0, total_debt=50.0, cash=20.0,
     )
     default = two_stage_dcf(**base_args)
-    # growth_rate > 0, so a longer CAP captures more high-growth FCF → higher value
+    # Here growth_rate (0.10) > wacc (0.09), so each extra explicit year adds
+    # positive discounted FCF → a longer CAP raises value. (Not universal: with
+    # wacc >> growth a longer CAP can instead lower it.)
     longer_cap = two_stage_dcf(**base_args, knobs=DcfKnobs(explicit_years=10))
     assert longer_cap.intrinsic_value_per_share > default.intrinsic_value_per_share
     # A higher terminal growth raises intrinsic value and is reflected on the result.
@@ -149,6 +151,9 @@ def test_value_with_knobs_wires_wacc_and_dcf() -> None:
     riskier = value_with_knobs(**args, knobs=DcfKnobs(wacc_risk_premium=0.02))
     assert riskier.intrinsic_value_per_share < got.intrinsic_value_per_share
     assert riskier.wacc == compute_wacc(0.045, 1.0, risk_premium=0.02)
+
+    # Invalid inputs propagate as None (guard not swallowed by the wrapper).
+    assert value_with_knobs(**{**args, "shares_outstanding": 0.0}) is None
 
 
 def test_two_stage_dcf_value_and_guards() -> None:
