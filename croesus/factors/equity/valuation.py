@@ -22,6 +22,23 @@ MIN_BETA_OBSERVATIONS = 30
 
 
 @dataclass(frozen=True)
+class DcfKnobs:
+    """Forward-looking DCF assumptions a thesis may later revise.
+
+    Phase A exposes them as a named, overridable bundle; Phase C drives them
+    from structural-thesis grades (moat → CAP, sector → terminal, disruption →
+    risk premium). The defaults reproduce the pre-Phase-A behavior exactly.
+    """
+
+    explicit_years: int = DCF_EXPLICIT_YEARS          # competitive-advantage period (CAP)
+    terminal_growth_rate: float = DEFAULT_TERMINAL_GROWTH
+    wacc_risk_premium: float = 0.0                    # added to the CAPM WACC
+
+
+DEFAULT_DCF_KNOBS = DcfKnobs()
+
+
+@dataclass(frozen=True)
 class ValuationMultiples:
     pe_ratio: float | None = None
     pb_ratio: float | None = None

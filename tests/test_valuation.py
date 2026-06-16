@@ -87,6 +87,19 @@ def test_compute_fcf_growth_clipping_and_negatives() -> None:
     assert compute_fcf_growth([50.0]) is None
 
 
+def test_dcf_knobs_defaults_reproduce_constants() -> None:
+    from croesus.factors.equity.valuation import (
+        DcfKnobs,
+        DEFAULT_DCF_KNOBS,
+        DCF_EXPLICIT_YEARS,
+        DEFAULT_TERMINAL_GROWTH,
+    )
+    assert DEFAULT_DCF_KNOBS == DcfKnobs()
+    assert DEFAULT_DCF_KNOBS.explicit_years == DCF_EXPLICIT_YEARS
+    assert DEFAULT_DCF_KNOBS.terminal_growth_rate == DEFAULT_TERMINAL_GROWTH
+    assert DEFAULT_DCF_KNOBS.wacc_risk_premium == 0.0
+
+
 def test_two_stage_dcf_value_and_guards() -> None:
     result = two_stage_dcf(
         base_fcf=100.0,
