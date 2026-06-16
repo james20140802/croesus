@@ -139,11 +139,19 @@ def compute_beta(
 
 
 def compute_wacc(
-    risk_free_rate: float, beta: float, *, equity_risk_premium: float = EQUITY_RISK_PREMIUM
+    risk_free_rate: float,
+    beta: float,
+    *,
+    equity_risk_premium: float = EQUITY_RISK_PREMIUM,
+    risk_premium: float = 0.0,
 ) -> float:
-    """All-equity CAPM cost of capital: ``Rf + β × ERP`` (debt-weighting is out
-    of scope this sprint)."""
-    return risk_free_rate + beta * equity_risk_premium
+    """All-equity CAPM cost of capital: ``Rf + β × ERP + risk_premium``.
+
+    ``risk_premium`` is a thesis-driven add-on (e.g. disruption risk); it
+    defaults to 0.0 so existing callers are unchanged. Debt-weighting remains
+    out of scope.
+    """
+    return risk_free_rate + beta * equity_risk_premium + risk_premium
 
 
 def compute_fcf_growth(annual_fcf: list[float]) -> float | None:

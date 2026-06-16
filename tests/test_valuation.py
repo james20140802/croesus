@@ -62,6 +62,13 @@ def test_compute_wacc() -> None:
     assert math.isclose(compute_wacc(0.04, 1.2), 0.04 + 1.2 * EQUITY_RISK_PREMIUM)
 
 
+def test_compute_wacc_risk_premium() -> None:
+    base = compute_wacc(0.045, 1.0)
+    assert compute_wacc(0.045, 1.0, risk_premium=0.02) == base + 0.02
+    # default is unchanged
+    assert compute_wacc(0.045, 1.0, risk_premium=0.0) == base
+
+
 def test_compute_beta_slope_and_insufficient_data() -> None:
     # market series; asset = 2x market exactly -> beta 2.0
     market = [((-1) ** i) * 0.01 * (1 + i % 3) for i in range(60)]
