@@ -23,6 +23,7 @@ from croesus.fundamentals.repository import (
     FundamentalMetric,
     FundamentalsRepository,
 )
+from croesus.factors.equity.valuation import DEFAULT_DCF_KNOBS
 from croesus.prices.repository import PriceRepository
 
 AS_OF = date(2026, 6, 1)
@@ -166,10 +167,9 @@ def test_snapshot_assumptions_include_dcf_knobs(tmp_path: Path) -> None:
     with get_connection(db_path) as conn:
         _seed(conn)
 
-        from croesus.factors.equity.valuation import DEFAULT_DCF_KNOBS
-
         result = compute_and_store_valuation_factors(conn, include_dcf=True, as_of=AS_OF)
-        asset_id = result.dcf_computed[0]
+        asset_id = "US_EQ_AAPL"
+        assert asset_id in result.dcf_computed
 
         snap = ValuationSnapshotRepository(conn).get(asset_id, AS_OF)
 
