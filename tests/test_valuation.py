@@ -80,6 +80,23 @@ def test_compute_beta_slope_and_insufficient_data() -> None:
     assert compute_beta([0.01] * 40, [0.0] * 40) is None  # zero market variance
 
 
+def test_two_stage_dcf_knobs_change_value() -> None:
+    from croesus.factors.equity.valuation import DcfKnobs
+
+    base_args = dict(
+        base_fcf=100.0, growth_rate=0.10, wacc=0.09,
+        shares_outstanding=10.0, total_debt=50.0, cash=20.0,
+    )
+    default = two_stage_dcf(**base_args)
+    # A longer competitive-advantage period raises intrinsic value.
+    longer_cap = two_stage_dcf(**base_args, knobs=DcfKnobs(explicit_years=10))
+    assert longer_cap.intrinsic_value_per_share > default.intrinsic_value_per_share
+    # A higher terminal growth raises intrinsic value and is reflected on the result.
+    higher_term = two_stage_dcf(**base_args, knobs=DcfKnobs(terminal_growth_rate=0.030))
+    assert higher_term.intrinsic_value_per_share > default.intrinsic_value_per_share
+    assert higher_term.terminal_growth_rate == 0.030
+
+
 def test_compute_fcf_growth_clipping_and_negatives() -> None:
     # 100 -> 150 over 4 years ~ 10.7% CAGR, within band
     g = compute_fcf_growth([100.0, 110.0, 130.0, 150.0])

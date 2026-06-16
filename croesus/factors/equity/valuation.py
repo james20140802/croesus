@@ -180,15 +180,17 @@ def two_stage_dcf(
     shares_outstanding: float,
     total_debt: float | None,
     cash: float | None,
-    terminal_growth_rate: float = DEFAULT_TERMINAL_GROWTH,
-    explicit_years: int = DCF_EXPLICIT_YEARS,
+    knobs: DcfKnobs = DEFAULT_DCF_KNOBS,
 ) -> DcfResult | None:
-    """5-year explicit FCF projection + Gordon-growth terminal value.
+    """Explicit FCF projection over the competitive-advantage period + Gordon
+    terminal value. The projection horizon and terminal growth come from
+    ``knobs`` (defaults reproduce the prior 5-year / 2.5% behavior).
 
     Returns ``None`` (DCF skipped) when inputs make the model invalid: a
-    non-positive FCF base, no shares, or ``WACC ≤ terminal growth`` (the terminal
-    value diverges).
+    non-positive FCF base, no shares, or ``WACC ≤ terminal growth``.
     """
+    terminal_growth_rate = knobs.terminal_growth_rate
+    explicit_years = knobs.explicit_years
     if base_fcf <= 0 or shares_outstanding <= 0:
         return None
     if wacc <= terminal_growth_rate:
