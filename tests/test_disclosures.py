@@ -130,3 +130,48 @@ def test_parse_recent_filings_empty_payload_returns_empty() -> None:
 
     assert parse_recent_filings({}, cik="0000320193") == []
     assert parse_recent_filings({"filings": {}}, cik="0000320193") == []
+
+
+def test_disclosure_repository_upserts_idempotently(tmp_path: Path) -> None:
+    from croesus.disclosures.models import Disclosure
+    from croesus.disclosures.repository import DisclosureRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    first = Disclosure(
+        asset_id="US_EQ_AAPL",
+        accession_number="0000320193-24-000123",
+        form_type="10-K",
+        filed_date=date(2024, 11, 1),
+        report_date=date(2024, 9, 28),
+        primary_doc_url="https://example.com/a.htm",
+        title="10-K",
+    )
+
+    with get_connection(db_path) as conn:
+        repo = DisclosureRepository(conn)
+        assert repo.upsert([first]) == 1
+        # Re-ingest the same accession with a corrected title -> still one row.
+        updated = Disclosure.from_raw(
+            "US_EQ_AAPL",
+            __import__("croesus.disclosures.models", fromlist=["RawFiling"]).RawFiling(
+                accession_number="0000320193-24-000123",
+                form_type="10-K",
+                filed_date=date(2024, 11, 1),
+                report_date=date(2024, 9, 28),
+                primary_doc_url="https://example.com/a.htm",
+                title="Annual Report",
+            ),
+        )
+        assert repo.upsert([updated]) == 1
+
+        rows = conn.execute(
+            "SELECT asset_id, accession_number, title FROM disclosures"
+        ).fetchall()
+        assert rows == [("US_EQ_AAPL", "0000320193-24-000123", "Annual Report")]
+
+        loaded = repo.load_for_asset("US_EQ_AAPL")
+        assert len(loaded) == 1
+        assert loaded[0].title == "Annual Report"
+        assert loaded[0].source == "sec_edgar"
