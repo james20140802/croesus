@@ -124,6 +124,33 @@ def test_dcf_knobs_defaults_reproduce_constants() -> None:
     assert DEFAULT_DCF_KNOBS.wacc_risk_premium == 0.0
 
 
+def test_value_with_knobs_wires_wacc_and_dcf() -> None:
+    from croesus.factors.equity.valuation import (
+        DcfKnobs,
+        compute_wacc,
+        two_stage_dcf,
+        value_with_knobs,
+    )
+
+    args = dict(
+        base_fcf=100.0, growth_rate=0.10, risk_free_rate=0.045, beta=1.0,
+        shares_outstanding=10.0, total_debt=50.0, cash=20.0,
+    )
+    # Default knobs == explicit compute_wacc + two_stage_dcf with default knobs.
+    expected_wacc = compute_wacc(0.045, 1.0)
+    expected = two_stage_dcf(
+        base_fcf=100.0, growth_rate=0.10, wacc=expected_wacc,
+        shares_outstanding=10.0, total_debt=50.0, cash=20.0,
+    )
+    got = value_with_knobs(**args)
+    assert got.intrinsic_value_per_share == expected.intrinsic_value_per_share
+
+    # The risk_premium knob raises WACC, lowering intrinsic value.
+    riskier = value_with_knobs(**args, knobs=DcfKnobs(wacc_risk_premium=0.02))
+    assert riskier.intrinsic_value_per_share < got.intrinsic_value_per_share
+    assert riskier.wacc == compute_wacc(0.045, 1.0, risk_premium=0.02)
+
+
 def test_two_stage_dcf_value_and_guards() -> None:
     result = two_stage_dcf(
         base_fcf=100.0,

@@ -219,3 +219,30 @@ def two_stage_dcf(
         equity_value=equity_value,
         base_fcf=base_fcf,
     )
+
+
+def value_with_knobs(
+    *,
+    base_fcf: float,
+    growth_rate: float,
+    risk_free_rate: float,
+    beta: float,
+    shares_outstanding: float,
+    total_debt: float | None,
+    cash: float | None,
+    knobs: DcfKnobs = DEFAULT_DCF_KNOBS,
+) -> DcfResult | None:
+    """Single recompute path: derive WACC (with the knob's risk premium) and run
+    the two-stage DCF under one ``knobs`` set. Callers (the valuation job today,
+    a thesis-revision step later) recompute by passing a different ``knobs``.
+    """
+    wacc = compute_wacc(risk_free_rate, beta, risk_premium=knobs.wacc_risk_premium)
+    return two_stage_dcf(
+        base_fcf=base_fcf,
+        growth_rate=growth_rate,
+        wacc=wacc,
+        shares_outstanding=shares_outstanding,
+        total_debt=total_debt,
+        cash=cash,
+        knobs=knobs,
+    )
