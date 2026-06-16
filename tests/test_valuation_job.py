@@ -160,6 +160,25 @@ def test_beta_regressed_against_seeded_spy(tmp_path: Path) -> None:
     assert spy_snap == 0
 
 
+def test_snapshot_assumptions_include_dcf_knobs(tmp_path: Path) -> None:
+    db_path = tmp_path / "v.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        _seed(conn)
+
+        from croesus.factors.equity.valuation import DEFAULT_DCF_KNOBS
+
+        result = compute_and_store_valuation_factors(conn, include_dcf=True, as_of=AS_OF)
+        asset_id = result.dcf_computed[0]
+
+        snap = ValuationSnapshotRepository(conn).get(asset_id, AS_OF)
+
+    assert snap is not None
+    assert snap.assumptions["explicit_years"] == DEFAULT_DCF_KNOBS.explicit_years
+    assert snap.assumptions["terminal_growth_rate"] == DEFAULT_DCF_KNOBS.terminal_growth_rate
+    assert snap.assumptions["wacc_risk_premium"] == DEFAULT_DCF_KNOBS.wacc_risk_premium
+
+
 def test_daily_run_multiples_without_dcf(tmp_path: Path) -> None:
     db_path = tmp_path / "v.duckdb"
     migrate(db_path)
