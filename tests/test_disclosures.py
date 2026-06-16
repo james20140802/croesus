@@ -175,3 +175,41 @@ def test_disclosure_repository_upserts_idempotently(tmp_path: Path) -> None:
         assert len(loaded) == 1
         assert loaded[0].title == "Annual Report"
         assert loaded[0].source == "sec_edgar"
+
+
+def test_ingest_disclosures_stores_filings_and_isolates_failures(tmp_path: Path) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.disclosures.ingest import ingest_disclosures
+    from croesus.disclosures.models import RawFiling
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    class FakeDisclosureSource:
+        def fetch_recent_filings(self, symbol: str) -> list[RawFiling]:
+            if symbol == "MSFT":
+                raise RuntimeError("edgar unavailable")
+            if symbol == "NVDA":
+                return []  # known ticker, no matching filings
+            return [
+                RawFiling(
+                    accession_number=f"acc-{symbol}-1",
+                    form_type="8-K",
+                    filed_date=date(2026, 6, 1),
+                    report_date=None,
+                    primary_doc_url=f"https://example.com/{symbol}.htm",
+                    title="8-K",
+                )
+            ]
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)  # seeds AAPL, MSFT, NVDA as US equities
+        result = ingest_disclosures(conn, FakeDisclosureSource())
+        stored = conn.execute(
+            "SELECT asset_id, accession_number, form_type FROM disclosures ORDER BY asset_id"
+        ).fetchall()
+
+    assert result.succeeded == ["AAPL"]
+    assert result.skipped == {"NVDA": "no filings returned"}
+    assert result.failed == {"MSFT": "edgar unavailable"}
+    assert stored == [("US_EQ_AAPL", "acc-AAPL-1", "8-K")]
