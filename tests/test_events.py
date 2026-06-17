@@ -129,3 +129,111 @@ def test_detect_abnormal_return_flags_direction() -> None:
     assert detect_abnormal_return(
         "US_EQ_AAPL", date(2026, 3, 1), _price_frame(calm, volumes)
     ) is None
+
+
+def test_detect_recent_disclosure_within_window() -> None:
+    from croesus.disclosures.models import Disclosure
+    from croesus.events.detectors import detect_recent_disclosure
+
+    def _d(form: str, filed: date) -> Disclosure:
+        return Disclosure(
+            asset_id="US_EQ_AAPL",
+            accession_number=f"{form}-{filed}",
+            form_type=form,
+            filed_date=filed,
+            report_date=None,
+            primary_doc_url=None,
+            title=None,
+        )
+
+    as_of = date(2026, 6, 10)
+    # An 8-K filed 3 days ago is within the 7-day window -> event.
+    recent = detect_recent_disclosure("US_EQ_AAPL", as_of, [_d("8-K", date(2026, 6, 7))])
+    assert recent is not None
+    assert recent.event_type == "recent_disclosure"
+    assert recent.direction == "neutral"
+    assert recent.magnitude == 3.0  # days ago
+    assert "8-K" in recent.detail
+    assert recent.source == "disclosures"
+
+    # A filing 30 days ago is outside the window -> None.
+    assert detect_recent_disclosure("US_EQ_AAPL", as_of, [_d("10-K", date(2026, 5, 1))]) is None
+
+    # Future-dated filing (> as_of) is ignored -> None.
+    assert detect_recent_disclosure("US_EQ_AAPL", as_of, [_d("8-K", date(2026, 6, 20))]) is None
+
+    # No filings -> None.
+    assert detect_recent_disclosure("US_EQ_AAPL", as_of, []) is None
+
+
+def test_detect_valuation_dislocation_direction_and_threshold() -> None:
+    from croesus.factors.equity.repository import ValuationSnapshot
+    from croesus.events.detectors import detect_valuation_dislocation
+
+    def _snap(upside: float | None) -> ValuationSnapshot:
+        return ValuationSnapshot(
+            asset_id="US_EQ_AAPL",
+            date=date(2026, 6, 1),
+            intrinsic_value_per_share=120.0,
+            current_price=100.0,
+            upside_pct=upside,
+            wacc=0.09,
+            fcf_growth_rate=0.1,
+            terminal_growth_rate=0.025,
+            assumptions={},
+        )
+
+    as_of = date(2026, 6, 1)
+    # +40% upside (price well below intrinsic) -> 'up' dislocation.
+    under = detect_valuation_dislocation("US_EQ_AAPL", as_of, _snap(0.40))
+    assert under is not None
+    assert under.direction == "up"
+    assert under.magnitude == 0.40
+    assert under.source == "valuation_snapshots"
+
+    # -40% (price above intrinsic) -> 'down'.
+    over = detect_valuation_dislocation("US_EQ_AAPL", as_of, _snap(-0.40))
+    assert over is not None and over.direction == "down"
+
+    # Within ±25% band -> None.
+    assert detect_valuation_dislocation("US_EQ_AAPL", as_of, _snap(0.10)) is None
+    # Missing snapshot or upside -> None.
+    assert detect_valuation_dislocation("US_EQ_AAPL", as_of, None) is None
+    assert detect_valuation_dislocation("US_EQ_AAPL", as_of, _snap(None)) is None
+
+
+def test_detect_events_aggregates_all_detectors() -> None:
+    from croesus.disclosures.models import Disclosure
+    from croesus.factors.equity.repository import ValuationSnapshot
+    from croesus.events.detectors import detect_events
+
+    # Mild ±0.1% wiggle (non-zero baseline std) then a +30% jump; varied volume
+    # then a spike — so both price detectors have a real baseline to fire against.
+    wiggle = [100.0 * (1.0 + 0.001 * ((-1) ** i)) for i in range(64)]
+    closes = wiggle + [wiggle[-1] * 1.30]                 # +30% jump
+    volumes = ([900.0, 1000.0, 1100.0] * 22)[:64] + [9000.0]   # 64 varied + spike
+    prices = _price_frame(closes, volumes)
+    snapshot = ValuationSnapshot(
+        asset_id="US_EQ_AAPL", date=date(2026, 3, 5), intrinsic_value_per_share=150.0,
+        current_price=100.0, upside_pct=0.50, wacc=0.09, fcf_growth_rate=0.1,
+        terminal_growth_rate=0.025, assumptions={},
+    )
+    disclosures = [
+        Disclosure(
+            asset_id="US_EQ_AAPL", accession_number="8-K-1", form_type="8-K",
+            filed_date=date(2026, 3, 4), report_date=None, primary_doc_url=None, title=None,
+        )
+    ]
+    as_of = date(2026, 3, 5)
+
+    events = detect_events("US_EQ_AAPL", as_of, prices, snapshot, disclosures)
+    types = {e.event_type for e in events}
+    assert types == {
+        "abnormal_volume",
+        "abnormal_return",
+        "recent_disclosure",
+        "valuation_dislocation",
+    }
+    # A calm asset with no snapshot and no disclosures yields nothing.
+    calm = _price_frame([100.0] * 65, [1000.0] * 65)
+    assert detect_events("US_EQ_AAPL", as_of, calm, None, []) == []
