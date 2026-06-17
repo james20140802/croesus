@@ -9,8 +9,9 @@ from croesus.disclosures.models import RawFiling
 from croesus.disclosures.parse import build_cik_map, parse_recent_filings
 
 # SEC requires a descriptive User-Agent with contact info; without one EDGAR
-# returns 403. Overridable via env for deployment.
-DEFAULT_USER_AGENT = "croesus research (drchasekim@gmail.com)"
+# returns 403. Set CROESUS_SEC_USER_AGENT to a real contact for deployment; the
+# default carries the project repo as the contact rather than a personal email.
+DEFAULT_USER_AGENT = "croesus-research/0.1 (+https://github.com/james20140802/croesus)"
 DEFAULT_FORMS = frozenset({"10-K", "10-Q", "8-K"})
 
 _TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"

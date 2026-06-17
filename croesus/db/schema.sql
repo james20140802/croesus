@@ -401,7 +401,7 @@ CREATE TABLE IF NOT EXISTS disclosures (
   filed_date        DATE NOT NULL,
   report_date       DATE,            -- period the filing reports on; may be absent
   primary_doc_url   TEXT,            -- URL to the primary document on sec.gov
-  title             TEXT,            -- primaryDocDescription, falls back to form_type
+  title             TEXT,            -- primaryDocDescription; NULL when EDGAR gives none
   source            TEXT NOT NULL,   -- 'sec_edgar'
   created_at        TIMESTAMP DEFAULT now(),
   PRIMARY KEY (asset_id, accession_number)

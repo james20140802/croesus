@@ -60,11 +60,31 @@ def test_build_cik_map_pads_to_10_digits_and_uppercases() -> None:
         "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corp"},
         "2": {"cik_str": None, "ticker": "BAD", "title": "no cik"},
         "3": {"cik_str": 111, "ticker": "", "title": "no ticker"},
+        "4": {"cik_str": 0, "ticker": "ZERO", "title": "zero cik is invalid"},
     }
     assert build_cik_map(payload) == {
         "AAPL": "0000320193",
         "MSFT": "0000789019",
     }
+
+
+def test_parse_recent_filings_drops_empty_form_when_unfiltered() -> None:
+    from croesus.disclosures.parse import parse_recent_filings
+
+    payload = {
+        "filings": {
+            "recent": {
+                "accessionNumber": ["acc-1", "acc-2"],
+                "filingDate": ["2026-06-01", "2026-06-02"],
+                "reportDate": ["", ""],
+                "form": ["", "8-K"],  # empty form must be dropped even with no filter
+                "primaryDocument": ["a.htm", "b.htm"],
+                "primaryDocDescription": ["", ""],
+            }
+        }
+    }
+    filings = parse_recent_filings(payload, cik="0000000001")
+    assert [f.form_type for f in filings] == ["8-K"]
 
 
 def _submissions_payload() -> dict:
@@ -109,9 +129,10 @@ def test_parse_recent_filings_filters_forms_and_builds_url() -> None:
     assert tenk.title == "10-K"
 
     eightk = filings[1]
-    # Empty reportDate -> None; empty primaryDocDescription -> falls back to form.
+    # Empty reportDate -> None; empty primaryDocDescription -> None (no synthesized
+    # fallback, so a consumer can tell a real EDGAR title from a missing one).
     assert eightk.report_date is None
-    assert eightk.title == "8-K"
+    assert eightk.title is None
 
 
 def test_parse_recent_filings_no_form_filter_keeps_all_and_respects_limit() -> None:

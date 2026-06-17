@@ -22,7 +22,9 @@ def build_cik_map(company_tickers_payload: dict) -> dict[str, str]:
     for entry in company_tickers_payload.values():
         ticker = (entry.get("ticker") or "").upper()
         cik = entry.get("cik_str")
-        if not ticker or cik is None:
+        # ``not cik`` also rejects a 0 cik_str, which would format to the
+        # permanently-invalid "0000000000" and 404 every submissions fetch.
+        if not ticker or not cik:
             continue
         try:
             cik_map[ticker] = f"{int(cik):010d}"
@@ -56,7 +58,9 @@ def parse_recent_filings(
     out: list[RawFiling] = []
     for i, accession in enumerate(accessions):
         form = form_list[i] if i < len(form_list) else None
-        if form is None:
+        # ``not form`` also drops an empty-string form, which a forms=None
+        # caller (e.g. a Phase B2 wide-net scrape) would otherwise ingest.
+        if not form:
             continue
         if forms is not None and form not in forms:
             continue
@@ -73,7 +77,9 @@ def parse_recent_filings(
                 filed_date=filed,
                 report_date=report,
                 primary_doc_url=_build_doc_url(cik, accession, document),
-                title=description or form,
+                # None (not the form) when EDGAR gives no description, so a
+                # consumer can tell a real title from a synthesized fallback.
+                title=description or None,
             )
         )
         if len(out) >= limit:
@@ -94,7 +100,12 @@ def _build_doc_url(cik: str, accession: str, document: str | None) -> str | None
     if not document:
         return None
     # The archive path uses the CIK with leading zeros stripped and the
-    # accession number with its dashes removed.
-    cik_int = int(cik)
+    # accession number with its dashes removed. ``cik`` is a numeric string in
+    # production (from build_cik_map); guard so a misuse yields no URL, not a
+    # crash that the ingest loop would mis-record as a per-asset failure.
+    try:
+        cik_int = int(cik)
+    except (ValueError, TypeError):
+        return None
     accession_nodashes = accession.replace("-", "")
     return f"{_ARCHIVE_BASE}/{cik_int}/{accession_nodashes}/{document}"
