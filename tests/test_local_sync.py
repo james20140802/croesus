@@ -178,6 +178,7 @@ def test_default_jobs_are_recommendation_only_no_trades() -> None:
         "weekly_macro_run",
         "monthly_macro_run",
         "universe_refresh",
+        "disclosures_run",
         "daily_run",
         "quarterly_run",
         "portfolio_snapshot",

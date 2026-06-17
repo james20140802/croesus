@@ -317,6 +317,17 @@ def _run_universe_refresh(db: Path) -> str:
     return f"universe {summarize(result)}"
 
 
+def _run_disclosures(db: Path) -> str:
+    from croesus.disclosures.ingest import ingest_disclosures
+
+    with get_connection(db) as conn:
+        result = ingest_disclosures(conn)
+    return (
+        f"disclosures ok={len(result.succeeded)} "
+        f"skip={len(result.skipped)} fail={len(result.failed)}"
+    )
+
+
 def _run_screening(db: Path) -> str:
     from croesus.jobs.screening_run import run_screening_job
     from croesus.screening.report import save_report
@@ -351,6 +362,10 @@ def default_sync_jobs() -> list[SyncJob]:
         # it is due), but ordered before daily_run so freshly registered index
         # constituents get their 1y price backfill in the same cycle.
         SyncJob("universe_refresh", ("asset_universe",), _run_universe_refresh),
+        SyncJob(
+            "disclosures_run", ("disclosures",), _run_disclosures,
+            soft_depends_on=("universe_refresh",),
+        ),
         # soft_depends_on: a successful universe refresh forces a price run in
         # the same cycle (new constituents must not wait out the 48h prices
         # threshold), while a refresh failure leaves daily ingestion untouched.

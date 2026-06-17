@@ -147,6 +147,19 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
             "WHERE job_name = 'universe_refresh' AND status = 'success'",
         ),
     ),
+    # SEC filings arrive irregularly (quarterly 10-K/10-Q plus event-driven
+    # 8-Ks), so MAX(filed_date) would read days-stale even right after a
+    # successful run, and would stay NULL forever on a universe that returns no
+    # filings — re-triggering every cycle. Like asset_universe, key freshness to
+    # the job's own last success instead of to ingested data content.
+    DomainSpec(
+        "disclosures", "disclosures_run", 48.0,
+        lambda c: _scalar_date(
+            c,
+            "SELECT MAX(finished_at) FROM job_runs "
+            "WHERE job_name = 'disclosures_run' AND status = 'success'",
+        ),
+    ),
 )
 
 DOMAINS_BY_NAME: dict[str, DomainSpec] = {spec.domain: spec for spec in DOMAIN_REGISTRY}

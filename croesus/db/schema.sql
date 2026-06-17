@@ -386,3 +386,23 @@ CREATE TABLE IF NOT EXISTS forward_test_cohorts (
   created_at    TIMESTAMP DEFAULT now(),
   PRIMARY KEY (cohort_scheme, as_of_date, asset_id)
 );
+
+-- Phase B1 (opportunity engine): SEC EDGAR filing metadata. One row per
+-- (asset, accession). Stores filing METADATA only — form type, filing/report
+-- dates, and the primary-document URL — never the document text or any LLM
+-- output. This is the raw feed the event-driven pre-filter (Phase B2) scans for
+-- "something forward just happened" triggers (e.g. a new 8-K). ``accession_number``
+-- is EDGAR's globally unique filing id, so (asset_id, accession_number) is a
+-- stable natural key for idempotent re-ingestion.
+CREATE TABLE IF NOT EXISTS disclosures (
+  asset_id          TEXT NOT NULL,
+  accession_number  TEXT NOT NULL,
+  form_type         TEXT NOT NULL,   -- '10-K' | '10-Q' | '8-K'
+  filed_date        DATE NOT NULL,
+  report_date       DATE,            -- period the filing reports on; may be absent
+  primary_doc_url   TEXT,            -- URL to the primary document on sec.gov
+  title             TEXT,            -- primaryDocDescription; NULL when EDGAR gives none
+  source            TEXT NOT NULL,   -- 'sec_edgar'
+  created_at        TIMESTAMP DEFAULT now(),
+  PRIMARY KEY (asset_id, accession_number)
+);
