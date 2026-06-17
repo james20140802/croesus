@@ -160,6 +160,17 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
             "WHERE job_name = 'disclosures_run' AND status = 'success'",
         ),
     ),
+    # The event scan writes nothing on a genuinely quiet day, so MAX(as_of_date)
+    # would read stale even after a clean run. Like asset_universe/disclosures,
+    # key freshness to the job's own last success.
+    DomainSpec(
+        "events", "event_scan", 48.0,
+        lambda c: _scalar_date(
+            c,
+            "SELECT MAX(finished_at) FROM job_runs "
+            "WHERE job_name = 'event_scan' AND status = 'success'",
+        ),
+    ),
 )
 
 DOMAINS_BY_NAME: dict[str, DomainSpec] = {spec.domain: spec for spec in DOMAIN_REGISTRY}

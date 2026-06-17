@@ -323,3 +323,19 @@ def test_run_event_scan_emits_and_persists_events(tmp_path: Path) -> None:
         ("US_EQ_AAPL", "abnormal_return"),
         ("US_EQ_AAPL", "abnormal_volume"),
     ]
+
+
+def test_event_scan_registered_in_sync_pipeline() -> None:
+    from croesus.jobs.local_sync import default_sync_jobs
+    from croesus.jobs.run_status import DOMAINS_BY_NAME
+
+    assert "events" in DOMAINS_BY_NAME
+    assert DOMAINS_BY_NAME["events"].job_name == "event_scan"
+
+    jobs = {job.name: job for job in default_sync_jobs()}
+    assert "event_scan" in jobs
+    scan_job = jobs["event_scan"]
+    assert scan_job.domains == ("events",)
+    # Needs fresh prices + valuation (daily_run); reacts to new disclosures softly.
+    assert scan_job.depends_on == ("daily_run",)
+    assert scan_job.soft_depends_on == ("disclosures_run",)
