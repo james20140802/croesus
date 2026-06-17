@@ -26,3 +26,29 @@ def test_migrate_creates_events_table(tmp_path: Path) -> None:
         "source",
         "created_at",
     }
+
+
+def test_event_model_and_constants() -> None:
+    from croesus.events.models import (
+        DIRECTION_UP,
+        EVENT_ABNORMAL_VOLUME,
+        Event,
+        EventScanResult,
+    )
+
+    event = Event(
+        asset_id="US_EQ_AAPL",
+        as_of_date=date(2026, 6, 1),
+        event_type=EVENT_ABNORMAL_VOLUME,
+        direction=DIRECTION_UP,
+        magnitude=3.2,
+        detail="volume 3.2σ above 21d mean",
+        source="prices_daily",
+    )
+    assert event.event_type == "abnormal_volume"
+    assert event.direction == "up"
+
+    result = EventScanResult()
+    assert result.scanned == []
+    assert result.events == []
+    assert result.failed == {}
