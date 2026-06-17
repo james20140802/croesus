@@ -269,3 +269,57 @@ def test_event_repository_upserts_idempotently(tmp_path: Path) -> None:
         assert len(loaded) == 1
         assert loaded[0].magnitude == 3.1
         assert loaded[0].source == "prices_daily"
+
+
+def test_run_event_scan_emits_and_persists_events(tmp_path: Path) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.events.scan import run_event_scan
+    from croesus.prices.repository import PriceRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    # AAPL gets a volume spike + return jump on the last day; MSFT/NVDA stay calm.
+    # Baselines wiggle (non-zero std) so the price detectors have something to
+    # fire against — a constant baseline yields std 0 and (correctly) no event.
+    n = 65
+    base_dates = [date(2026, 1, 1) + pd.Timedelta(days=i) for i in range(n)]
+    wiggle = [100.0 * (1.0 + 0.001 * ((-1) ** i)) for i in range(n - 1)]
+    spike_close = wiggle + [wiggle[-1] * 1.30]                 # +30% jump
+    varied_vol = ([900.0, 1000.0, 1100.0] * 22)[:n]           # 65 mildly-varied
+    spike_vol = varied_vol[: n - 1] + [9000.0]                # spike on last day
+    calm_close = [100.0 * (1.0 + 0.001 * ((-1) ** i)) for i in range(n)]
+    calm_vol = varied_vol
+
+    def _frame(closes, vols):
+        return pd.DataFrame(
+            {
+                "date": base_dates,
+                "open": closes,
+                "high": closes,
+                "low": closes,
+                "close": closes,
+                "adjusted_close": closes,
+                "volume": vols,
+            }
+        )
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)  # AAPL, MSFT, NVDA
+        prices = PriceRepository(conn)
+        prices.upsert_daily_prices("US_EQ_AAPL", _frame(spike_close, spike_vol), source="test")
+        prices.upsert_daily_prices("US_EQ_MSFT", _frame(calm_close, calm_vol), source="test")
+        prices.upsert_daily_prices("US_EQ_NVDA", _frame(calm_close, calm_vol), source="test")
+
+        result = run_event_scan(conn, as_of_date=date(2026, 3, 6))
+        stored = conn.execute(
+            "SELECT asset_id, event_type FROM events ORDER BY asset_id, event_type"
+        ).fetchall()
+
+    assert set(result.scanned) == {"AAPL", "MSFT", "NVDA"}
+    assert result.failed == {}
+    # Only AAPL fired (volume + return); calm names produced nothing.
+    assert stored == [
+        ("US_EQ_AAPL", "abnormal_return"),
+        ("US_EQ_AAPL", "abnormal_volume"),
+    ]
