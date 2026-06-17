@@ -237,3 +237,35 @@ def test_detect_events_aggregates_all_detectors() -> None:
     # A calm asset with no snapshot and no disclosures yields nothing.
     calm = _price_frame([100.0] * 65, [1000.0] * 65)
     assert detect_events("US_EQ_AAPL", as_of, calm, None, []) == []
+
+
+def test_event_repository_upserts_idempotently(tmp_path: Path) -> None:
+    from croesus.events.models import Event
+    from croesus.events.repository import EventRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    as_of = date(2026, 6, 1)
+    first = Event(
+        asset_id="US_EQ_AAPL", as_of_date=as_of, event_type="abnormal_volume",
+        direction="up", magnitude=2.5, detail="v2.5", source="prices_daily",
+    )
+    with get_connection(db_path) as conn:
+        repo = EventRepository(conn)
+        assert repo.upsert([first]) == 1
+        # Re-scan same (asset, date, type) with a refined magnitude -> still one row.
+        updated = Event(
+            asset_id="US_EQ_AAPL", as_of_date=as_of, event_type="abnormal_volume",
+            direction="up", magnitude=3.1, detail="v3.1", source="prices_daily",
+        )
+        assert repo.upsert([updated]) == 1
+        rows = conn.execute(
+            "SELECT asset_id, event_type, magnitude FROM events"
+        ).fetchall()
+        assert rows == [("US_EQ_AAPL", "abnormal_volume", 3.1)]
+
+        loaded = repo.load_for_date("US_EQ_AAPL", as_of)
+        assert len(loaded) == 1
+        assert loaded[0].magnitude == 3.1
+        assert loaded[0].source == "prices_daily"
