@@ -1,6 +1,8 @@
 from datetime import date
 from pathlib import Path
 
+import pandas as pd
+
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 
@@ -52,9 +54,6 @@ def test_event_model_and_constants() -> None:
     assert result.scanned == []
     assert result.events == []
     assert result.failed == {}
-
-
-import pandas as pd
 
 
 def _price_frame(closes: list[float], volumes: list[float]) -> pd.DataFrame:
@@ -130,6 +129,12 @@ def test_detect_abnormal_return_flags_direction() -> None:
         "US_EQ_AAPL", date(2026, 3, 1), _price_frame(calm, volumes)
     ) is None
 
+    # Perfectly flat price -> all returns 0 -> zero std -> None (no divide-by-zero).
+    flat = [100.0] * 65
+    assert detect_abnormal_return(
+        "US_EQ_AAPL", date(2026, 3, 1), _price_frame(flat, volumes)
+    ) is None
+
 
 def test_detect_recent_disclosure_within_window() -> None:
     from croesus.disclosures.models import Disclosure
@@ -155,6 +160,12 @@ def test_detect_recent_disclosure_within_window() -> None:
     assert recent.magnitude == 3.0  # days ago
     assert "8-K" in recent.detail
     assert recent.source == "disclosures"
+
+    # Boundary: filed exactly 7 days ago is inclusive (<= window) -> event.
+    edge = detect_recent_disclosure("US_EQ_AAPL", as_of, [_d("8-K", date(2026, 6, 3))])
+    assert edge is not None and edge.magnitude == 7.0
+    # One day past the window (8 days ago) -> None.
+    assert detect_recent_disclosure("US_EQ_AAPL", as_of, [_d("8-K", date(2026, 6, 2))]) is None
 
     # A filing 30 days ago is outside the window -> None.
     assert detect_recent_disclosure("US_EQ_AAPL", as_of, [_d("10-K", date(2026, 5, 1))]) is None
@@ -323,6 +334,53 @@ def test_run_event_scan_emits_and_persists_events(tmp_path: Path) -> None:
         ("US_EQ_AAPL", "abnormal_return"),
         ("US_EQ_AAPL", "abnormal_volume"),
     ]
+
+
+def test_run_event_scan_isolates_per_asset_failure(tmp_path: Path, monkeypatch) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.events import scan as scan_mod
+    from croesus.events.scan import run_event_scan
+    from croesus.prices.repository import PriceRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    real_detect = scan_mod.detect_events
+
+    def boom(asset_id, as_of_date, prices, snapshot, disclosures):
+        if asset_id == "US_EQ_MSFT":
+            raise RuntimeError("detector exploded")
+        return real_detect(asset_id, as_of_date, prices, snapshot, disclosures)
+
+    monkeypatch.setattr(scan_mod, "detect_events", boom)
+
+    n = 65
+    base_dates = [date(2026, 1, 1) + pd.Timedelta(days=i) for i in range(n)]
+
+    def _frame(close, vol):
+        return pd.DataFrame(
+            {
+                "date": base_dates,
+                "open": [close] * n,
+                "high": [close] * n,
+                "low": [close] * n,
+                "close": [close] * n,
+                "adjusted_close": [close] * n,
+                "volume": [vol] * n,
+            }
+        )
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)  # AAPL, MSFT, NVDA
+        prices = PriceRepository(conn)
+        for aid in ("US_EQ_AAPL", "US_EQ_MSFT", "US_EQ_NVDA"):
+            prices.upsert_daily_prices(aid, _frame(100.0, 1000), source="test")
+        result = run_event_scan(conn, as_of_date=date(2026, 3, 6))
+
+    # The failing asset is isolated; the others still scan.
+    assert result.failed == {"MSFT": "detector exploded"}
+    assert "AAPL" in result.scanned and "NVDA" in result.scanned
+    assert "MSFT" not in result.scanned
 
 
 def test_event_scan_registered_in_sync_pipeline() -> None:
