@@ -136,3 +136,117 @@ def test_disclosure_text_repository_upsert_and_lookup(tmp_path: Path) -> None:
             char_count=0, text="", status="empty",
         )])
         assert repo.accessions_with_text("US_EQ_AAPL") == {"acc-1"}
+
+
+def test_ingest_disclosure_texts_fetches_skips_and_isolates(tmp_path: Path) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.disclosures.models import Disclosure
+    from croesus.disclosures.repository import DisclosureRepository
+    from croesus.disclosures.text_ingest import ingest_disclosure_texts
+    from croesus.disclosures.text_models import DisclosureText
+    from croesus.disclosures.text_repository import DisclosureTextRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    def _disc(asset_id: str, acc: str, url: str | None) -> Disclosure:
+        return Disclosure(
+            asset_id=asset_id, accession_number=acc, form_type="8-K",
+            filed_date=date(2026, 6, 1), report_date=None,
+            primary_doc_url=url, title=None,
+        )
+
+    class FakeDocSource:
+        def fetch_document(self, url: str) -> str:
+            if "boom" in url:
+                raise RuntimeError("doc unavailable")
+            return f"<html><body><p>Body for {url}</p></body></html>"
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)  # AAPL, MSFT, NVDA
+        DisclosureRepository(conn).upsert([
+            _disc("US_EQ_AAPL", "aapl-1", "https://sec.gov/aapl1.htm"),  # already has text
+            _disc("US_EQ_AAPL", "aapl-new", "https://sec.gov/aapl2.htm"),  # to fetch
+            _disc("US_EQ_AAPL", "aapl-nourl", None),                       # no URL -> ignored
+            _disc("US_EQ_MSFT", "msft-boom", "https://sec.gov/boom.htm"),  # fetch raises
+        ])
+        # aapl-1 text already exists -> must be skipped (not refetched).
+        DisclosureTextRepository(conn).upsert([
+            DisclosureText(
+                asset_id="US_EQ_AAPL", accession_number="aapl-1",
+                source_url="https://sec.gov/aapl1.htm", char_count=3, text="old",
+                status="fetched",
+            )
+        ])
+
+        result = ingest_disclosure_texts(conn, FakeDocSource())
+        stored = conn.execute(
+            "SELECT asset_id, accession_number, status FROM disclosure_texts "
+            "ORDER BY asset_id, accession_number"
+        ).fetchall()
+
+    assert result.fetched == ["aapl-new"]                 # the one new URL'd filing
+    assert result.skipped == ["aapl-1"]                   # already had text
+    assert result.failed == {"msft-boom": "doc unavailable"}
+    # aapl-1 untouched; aapl-new fetched; msft failure recorded; no-URL filing absent.
+    assert ("US_EQ_AAPL", "aapl-1", "fetched") in stored
+    assert ("US_EQ_AAPL", "aapl-new", "fetched") in stored
+    assert ("US_EQ_MSFT", "msft-boom", "failed") in stored
+    assert all(acc != "aapl-nourl" for _, acc, _ in stored)
+
+
+def test_ingest_disclosure_texts_fetches_skips_and_isolates(tmp_path: Path) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.disclosures.models import Disclosure
+    from croesus.disclosures.repository import DisclosureRepository
+    from croesus.disclosures.text_ingest import ingest_disclosure_texts
+    from croesus.disclosures.text_models import DisclosureText
+    from croesus.disclosures.text_repository import DisclosureTextRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    def _disc(asset_id: str, acc: str, url: str | None) -> Disclosure:
+        return Disclosure(
+            asset_id=asset_id, accession_number=acc, form_type="8-K",
+            filed_date=date(2026, 6, 1), report_date=None,
+            primary_doc_url=url, title=None,
+        )
+
+    class FakeDocSource:
+        def fetch_document(self, url: str) -> str:
+            if "boom" in url:
+                raise RuntimeError("doc unavailable")
+            return f"<html><body><p>Body for {url}</p></body></html>"
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)  # AAPL, MSFT, NVDA
+        DisclosureRepository(conn).upsert([
+            _disc("US_EQ_AAPL", "aapl-1", "https://sec.gov/aapl1.htm"),  # already has text
+            _disc("US_EQ_AAPL", "aapl-new", "https://sec.gov/aapl2.htm"),  # to fetch
+            _disc("US_EQ_AAPL", "aapl-nourl", None),                       # no URL -> ignored
+            _disc("US_EQ_MSFT", "msft-boom", "https://sec.gov/boom.htm"),  # fetch raises
+        ])
+        # aapl-1 text already exists -> must be skipped (not refetched).
+        DisclosureTextRepository(conn).upsert([
+            DisclosureText(
+                asset_id="US_EQ_AAPL", accession_number="aapl-1",
+                source_url="https://sec.gov/aapl1.htm", char_count=3, text="old",
+                status="fetched",
+            )
+        ])
+
+        result = ingest_disclosure_texts(conn, FakeDocSource())
+        stored = conn.execute(
+            "SELECT asset_id, accession_number, status FROM disclosure_texts "
+            "ORDER BY asset_id, accession_number"
+        ).fetchall()
+
+    assert result.fetched == ["aapl-new"]                 # the one new URL'd filing
+    assert result.skipped == ["aapl-1"]                   # already had text
+    assert result.failed == {"msft-boom": "doc unavailable"}
+    # aapl-1 untouched; aapl-new fetched; msft failure recorded; no-URL filing absent.
+    assert ("US_EQ_AAPL", "aapl-1", "fetched") in stored
+    assert ("US_EQ_AAPL", "aapl-new", "fetched") in stored
+    assert ("US_EQ_MSFT", "msft-boom", "failed") in stored
+    assert all(acc != "aapl-nourl" for _, acc, _ in stored)
