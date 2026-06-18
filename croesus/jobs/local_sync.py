@@ -335,7 +335,8 @@ def _run_disclosure_texts(db: Path) -> str:
         result = ingest_disclosure_texts(conn)
     return (
         f"disclosure_texts fetched={len(result.fetched)} "
-        f"skip={len(result.skipped)} fail={len(result.failed)}"
+        f"skip={len(result.skipped)} defer={len(result.deferred)} "
+        f"fail={len(result.failed)}"
     )
 
 

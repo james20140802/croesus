@@ -35,9 +35,11 @@ def ingest_disclosure_texts(
 
     For each active equity (optionally restricted to ``asset_ids``), takes the
     most-recent ``limit_per_asset`` filings with a ``primary_doc_url`` and a
-    matching form that have no stored text yet, fetches the document, extracts
-    clean text, and upserts it. A failed fetch is recorded as a 'failed' row and
-    isolated so one bad document never stops the run.
+    matching form that are not yet terminally resolved (neither fetched nor
+    confirmed empty), fetches the document, extracts clean text, and upserts it.
+    A failed fetch is recorded as a 'failed' row (retried next run) and isolated
+    so one bad document never stops the run. Filings beyond ``limit_per_asset``
+    this run are reported in ``deferred`` (a later run picks them up).
     """
     source = source or EdgarDocumentSource()
     wanted = set(asset_ids) if asset_ids is not None else None
@@ -51,17 +53,20 @@ def ingest_disclosure_texts(
     result = DisclosureTextIngestionResult()
 
     for asset in assets:
-        already = texts.accessions_with_text(asset.asset_id)
+        already = texts.terminal_accessions(asset.asset_id)
         candidates = [
             d
             for d in disclosures.load_for_asset(asset.asset_id)
             if d.primary_doc_url and (forms is None or d.form_type in forms)
         ]
-        # Filings that already carry text are reported skipped (idempotent re-run).
+        # Terminally-resolved filings (fetched/empty) are reported skipped.
         result.skipped.extend(
             d.accession_number for d in candidates if d.accession_number in already
         )
-        todo = [d for d in candidates if d.accession_number not in already][:limit_per_asset]
+        pending = [d for d in candidates if d.accession_number not in already]
+        todo = pending[:limit_per_asset]
+        # Anything past this run's budget is deferred (a later run picks it up).
+        result.deferred.extend(d.accession_number for d in pending[limit_per_asset:])
 
         for disclosure in todo:
             try:

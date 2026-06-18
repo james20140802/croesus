@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import duckdb
 
-from croesus.disclosures.text_models import STATUS_FETCHED, DisclosureText
+from croesus.disclosures.text_models import (
+    STATUS_EMPTY,
+    STATUS_FETCHED,
+    DisclosureText,
+)
 
 
 class DisclosureTextRepository:
@@ -57,6 +61,21 @@ class DisclosureTextRepository:
             WHERE asset_id = ? AND status = ?
             """,
             [asset_id, STATUS_FETCHED],
+        ).fetchall()
+        return {row[0] for row in result}
+
+    def terminal_accessions(self, asset_id: str) -> set[str]:
+        """Accessions already resolved terminally — text fetched OR confirmed
+        empty (a valid document with no extractable text). The ingest job won't
+        refetch these. 'failed' rows (transient fetch errors) are excluded so a
+        later run can retry them.
+        """
+        result = self.conn.execute(
+            """
+            SELECT accession_number FROM disclosure_texts
+            WHERE asset_id = ? AND status IN (?, ?)
+            """,
+            [asset_id, STATUS_FETCHED, STATUS_EMPTY],
         ).fetchall()
         return {row[0] for row in result}
 

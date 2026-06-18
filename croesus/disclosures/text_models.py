@@ -25,6 +25,7 @@ class DisclosureText:
 
 @dataclass(frozen=True)
 class DisclosureTextIngestionResult:
-    fetched: list[str] = field(default_factory=list)      # accession numbers fetched
-    skipped: list[str] = field(default_factory=list)      # accession numbers already stored
+    fetched: list[str] = field(default_factory=list)      # accession numbers fetched this run
+    skipped: list[str] = field(default_factory=list)      # already terminally resolved (fetched/empty)
+    deferred: list[str] = field(default_factory=list)     # un-fetched, past this run's limit_per_asset
     failed: dict[str, str] = field(default_factory=dict)  # accession number -> error

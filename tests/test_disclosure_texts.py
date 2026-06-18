@@ -195,6 +195,80 @@ def test_ingest_disclosure_texts_fetches_skips_and_isolates(tmp_path: Path) -> N
     assert all(acc != "aapl-nourl" for _, acc, _ in stored)
 
 
+def test_ingest_empty_filing_is_terminal_not_refetched(tmp_path: Path) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.disclosures.models import Disclosure
+    from croesus.disclosures.repository import DisclosureRepository
+    from croesus.disclosures.text_ingest import ingest_disclosure_texts
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    class CountingEmptySource:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fetch_document(self, url: str) -> str:
+            self.calls += 1
+            return "<html><body></body></html>"  # valid HTML, no extractable text
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        DisclosureRepository(conn).upsert([
+            Disclosure(
+                asset_id="US_EQ_AAPL", accession_number="aapl-empty", form_type="8-K",
+                filed_date=date(2026, 6, 1), report_date=None,
+                primary_doc_url="https://sec.gov/empty.htm", title=None,
+            )
+        ])
+        source = CountingEmptySource()
+
+        first = ingest_disclosure_texts(conn, source)
+        # Fetched once, stored as 'empty' (not 'fetched'), so not in `fetched`.
+        assert first.fetched == [] and first.skipped == []
+        assert source.calls == 1
+
+        second = ingest_disclosure_texts(conn, source)
+        # 'empty' is terminal: the second run skips it and does NOT refetch.
+        assert second.skipped == ["aapl-empty"]
+        assert source.calls == 1
+
+
+def test_ingest_defers_filings_past_limit_per_asset(tmp_path: Path) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.disclosures.models import Disclosure
+    from croesus.disclosures.repository import DisclosureRepository
+    from croesus.disclosures.text_ingest import ingest_disclosure_texts
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    class FakeDocSource:
+        def fetch_document(self, url: str) -> str:
+            return f"<html><body><p>Body {url}</p></body></html>"
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        # Two URL'd filings, budget of 1 -> one fetched, one deferred.
+        DisclosureRepository(conn).upsert([
+            Disclosure(
+                asset_id="US_EQ_AAPL", accession_number="aapl-a", form_type="8-K",
+                filed_date=date(2026, 6, 2), report_date=None,
+                primary_doc_url="https://sec.gov/a.htm", title=None,
+            ),
+            Disclosure(
+                asset_id="US_EQ_AAPL", accession_number="aapl-b", form_type="8-K",
+                filed_date=date(2026, 6, 1), report_date=None,
+                primary_doc_url="https://sec.gov/b.htm", title=None,
+            ),
+        ])
+        result = ingest_disclosure_texts(conn, FakeDocSource(), limit_per_asset=1)
+
+    # load_for_asset orders newest filed_date first -> aapl-a fetched, aapl-b deferred.
+    assert result.fetched == ["aapl-a"]
+    assert result.deferred == ["aapl-b"]
+
+
 def test_disclosure_texts_registered_in_sync_pipeline() -> None:
     from croesus.jobs.local_sync import default_sync_jobs
     from croesus.jobs.run_status import DOMAINS_BY_NAME
