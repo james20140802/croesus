@@ -49,21 +49,6 @@ class DisclosureTextRepository:
         )
         return len(rows)
 
-    def accessions_with_text(self, asset_id: str) -> set[str]:
-        """Accession numbers that already have usable (non-empty) text stored.
-
-        Used by the ingest job to skip refetching. 'empty'/'failed' rows are
-        excluded so a previous miss can be retried.
-        """
-        result = self.conn.execute(
-            """
-            SELECT accession_number FROM disclosure_texts
-            WHERE asset_id = ? AND status = ?
-            """,
-            [asset_id, STATUS_FETCHED],
-        ).fetchall()
-        return {row[0] for row in result}
-
     def terminal_accessions(self, asset_id: str) -> set[str]:
         """Accessions already resolved terminally — text fetched OR confirmed
         empty (a valid document with no extractable text). The ingest job won't

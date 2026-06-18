@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-DEFAULT_SOURCE = "sec_edgar"
+from croesus.disclosures.models import DEFAULT_SOURCE  # "sec_edgar" (shared)
 
 # Filing-text status values.
 STATUS_FETCHED = "fetched"   # non-empty text extracted and stored

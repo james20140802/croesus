@@ -84,6 +84,16 @@ def test_extract_filing_text_caps_length() -> None:
     assert extract_filing_text(html, max_chars=10) == "x" * 10
 
 
+def test_extract_filing_text_unparseable_input_returns_empty() -> None:
+    from croesus.disclosures.text_extract import extract_filing_text
+
+    # A str carrying an XML encoding declaration makes lxml raise ValueError;
+    # a malformed/empty-doc case raises an LxmlError subclass. Both must yield
+    # "" (recorded 'empty'/terminal) rather than escaping the extractor.
+    assert extract_filing_text('<?xml version="1.0" encoding="UTF-8"?><x/>') == ""
+    assert extract_filing_text("<?xml version='1.0'?>") == ""
+
+
 def test_edgar_document_source_satisfies_protocol() -> None:
     from croesus.disclosures.text_source import (
         DisclosureTextSource,
@@ -116,7 +126,7 @@ def test_disclosure_text_repository_upsert_and_lookup(tmp_path: Path) -> None:
     with get_connection(db_path) as conn:
         repo = DisclosureTextRepository(conn)
         assert repo.upsert([first]) == 1
-        assert repo.accessions_with_text("US_EQ_AAPL") == {"acc-1"}
+        assert repo.terminal_accessions("US_EQ_AAPL") == {"acc-1"}
 
         # Re-ingest same accession with new text -> still one row, updated.
         updated = DisclosureText(
@@ -130,12 +140,16 @@ def test_disclosure_text_repository_upsert_and_lookup(tmp_path: Path) -> None:
         assert got.text == "beta"
         assert got.char_count == 4
 
-        # An 'empty'/'failed' row does NOT count as having usable text.
+        # 'empty' is terminal (don't refetch); 'failed' is NOT (retry next run).
         repo.upsert([DisclosureText(
             asset_id="US_EQ_AAPL", accession_number="acc-2", source_url=None,
             char_count=0, text="", status="empty",
         )])
-        assert repo.accessions_with_text("US_EQ_AAPL") == {"acc-1"}
+        repo.upsert([DisclosureText(
+            asset_id="US_EQ_AAPL", accession_number="acc-3", source_url=None,
+            char_count=0, text="", status="failed",
+        )])
+        assert repo.terminal_accessions("US_EQ_AAPL") == {"acc-1", "acc-2"}
 
 
 def test_ingest_disclosure_texts_fetches_skips_and_isolates(tmp_path: Path) -> None:
@@ -280,4 +294,7 @@ def test_disclosure_texts_registered_in_sync_pipeline() -> None:
     assert "disclosure_texts_run" in jobs
     job = jobs["disclosure_texts_run"]
     assert job.domains == ("disclosure_texts",)
-    assert job.depends_on == ("disclosures_run",)
+    # Soft, not hard: reacts to a disclosures refresh but isn't blocked by its
+    # failure (the text job reads the disclosures table, not the job's output).
+    assert job.depends_on == ()
+    assert job.soft_depends_on == ("disclosures_run",)

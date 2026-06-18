@@ -30,6 +30,11 @@ class EdgarDocumentSource:
     def fetch_document(self, url: str) -> str:
         resp = requests.get(url, headers=self._headers(), timeout=self._timeout)
         resp.raise_for_status()
+        # EDGAR often serves text/html with no charset, so requests would fall
+        # back to ISO-8859-1 and mangle UTF-8 filings. Detect the real encoding
+        # when the server didn't declare one.
+        if "charset" not in resp.headers.get("Content-Type", "").lower():
+            resp.encoding = resp.apparent_encoding or resp.encoding
         return resp.text
 
     def _headers(self) -> dict[str, str]:

@@ -20,6 +20,10 @@ from croesus.disclosures.text_source import DisclosureTextSource, EdgarDocumentS
 
 FILER_ASSET_TYPES = ("equity",)
 DEFAULT_LIMIT_PER_ASSET = 3
+# Text is only wanted for recent filings (theses read the latest 10-K/8-Ks), so
+# we intentionally consider the N most-recent disclosures per asset; older ones
+# are out of scope, not silently lost.
+RECENT_DISCLOSURES_LIMIT = 50
 
 
 def ingest_disclosure_texts(
@@ -56,7 +60,7 @@ def ingest_disclosure_texts(
         already = texts.terminal_accessions(asset.asset_id)
         candidates = [
             d
-            for d in disclosures.load_for_asset(asset.asset_id)
+            for d in disclosures.load_for_asset(asset.asset_id, limit=RECENT_DISCLOSURES_LIMIT)
             if d.primary_doc_url and (forms is None or d.form_type in forms)
         ]
         # Terminally-resolved filings (fetched/empty) are reported skipped.
@@ -88,16 +92,21 @@ def ingest_disclosure_texts(
                 log(f"{asset.symbol} {disclosure.accession_number}: {status} ({len(text)} chars)")
             except Exception as exc:  # noqa: BLE001 - per-filing failures must not stop the run.
                 result.failed[disclosure.accession_number] = str(exc)
-                texts.upsert([
-                    DisclosureText(
-                        asset_id=asset.asset_id,
-                        accession_number=disclosure.accession_number,
-                        source_url=disclosure.primary_doc_url,
-                        char_count=0,
-                        text="",
-                        status=STATUS_FAILED,
-                    )
-                ])
+                # Best-effort: recording the failure must not itself break the run
+                # (e.g. if the DB write was what failed for the same reason).
+                try:
+                    texts.upsert([
+                        DisclosureText(
+                            asset_id=asset.asset_id,
+                            accession_number=disclosure.accession_number,
+                            source_url=disclosure.primary_doc_url,
+                            char_count=0,
+                            text="",
+                            status=STATUS_FAILED,
+                        )
+                    ])
+                except Exception:  # noqa: BLE001
+                    pass
                 log(f"failed {asset.symbol} {disclosure.accession_number}: {exc}")
 
     return result

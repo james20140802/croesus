@@ -391,7 +391,10 @@ def default_sync_jobs() -> list[SyncJob]:
         ),
         SyncJob(
             "disclosure_texts_run", ("disclosure_texts",), _run_disclosure_texts,
-            depends_on=("disclosures_run",),
+            # Soft, not hard: the text job reads the disclosures TABLE, so it can
+            # fetch text for already-stored filings even if today's metadata fetch
+            # (disclosures_run) failed — a transient EDGAR error must not block it.
+            soft_depends_on=("disclosures_run",),
         ),
         # soft_depends_on: a successful universe refresh forces a price run in
         # the same cycle (new constituents must not wait out the 48h prices
