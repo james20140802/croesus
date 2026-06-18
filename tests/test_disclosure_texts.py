@@ -50,3 +50,35 @@ def test_disclosure_text_model_and_result() -> None:
     assert result.fetched == []
     assert result.skipped == []
     assert result.failed == {}
+
+
+def test_extract_filing_text_strips_tags_scripts_and_whitespace() -> None:
+    from croesus.disclosures.text_extract import extract_filing_text
+
+    html = (
+        "<html><head><style>p{color:red}</style></head>"
+        "<body><p>Item 1.  Business</p>"
+        "<script>trackUser()</script>"
+        "<p>We make\n\n  phones.</p></body></html>"
+    )
+    text = extract_filing_text(html)
+    # Tags gone; script/style content gone; whitespace collapsed to single spaces.
+    assert text == "Item 1. Business We make phones."
+    assert "trackUser" not in text
+    assert "color:red" not in text
+
+
+def test_extract_filing_text_empty_and_nonhtml_inputs() -> None:
+    from croesus.disclosures.text_extract import extract_filing_text
+
+    assert extract_filing_text("") == ""
+    assert extract_filing_text("   \n  ") == ""
+    # Plain text (no tags) is returned as-is (normalized).
+    assert extract_filing_text("Just plain words") == "Just plain words"
+
+
+def test_extract_filing_text_caps_length() -> None:
+    from croesus.disclosures.text_extract import extract_filing_text
+
+    html = "<p>" + ("x" * 100) + "</p>"
+    assert extract_filing_text(html, max_chars=10) == "x" * 10
