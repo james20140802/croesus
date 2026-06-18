@@ -190,3 +190,18 @@ def test_ingest_finnhub_news_stores_and_isolates(tmp_path: Path) -> None:
     assert result.failed == {"MSFT": "rate limited"}
     assert result.stored == 1                         # only AAPL produced an article
     assert items == [("AAPL-1",)]
+
+
+def test_news_finnhub_registered_in_sync_pipeline() -> None:
+    from croesus.jobs.local_sync import default_sync_jobs
+    from croesus.jobs.run_status import DOMAINS_BY_NAME
+
+    assert "news_finnhub" in DOMAINS_BY_NAME
+    assert DOMAINS_BY_NAME["news_finnhub"].job_name == "news_finnhub_run"
+
+    jobs = {job.name: job for job in default_sync_jobs()}
+    assert "news_finnhub_run" in jobs
+    job = jobs["news_finnhub_run"]
+    assert job.domains == ("news_finnhub",)
+    # Independent ingestion (needs the asset universe, softly).
+    assert job.soft_depends_on == ("universe_refresh",)

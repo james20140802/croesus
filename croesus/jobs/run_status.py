@@ -182,6 +182,16 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
             "WHERE job_name = 'disclosure_texts_run' AND status = 'success'",
         ),
     ),
+    # News arrives irregularly and a quiet cycle writes nothing; like the other
+    # ingestion domains, key freshness to the job's own last success.
+    DomainSpec(
+        "news_finnhub", "news_finnhub_run", 48.0,
+        lambda c: _scalar_date(
+            c,
+            "SELECT MAX(finished_at) FROM job_runs "
+            "WHERE job_name = 'news_finnhub_run' AND status = 'success'",
+        ),
+    ),
 )
 
 DOMAINS_BY_NAME: dict[str, DomainSpec] = {spec.domain: spec for spec in DOMAIN_REGISTRY}

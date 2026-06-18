@@ -180,6 +180,7 @@ def test_default_jobs_are_recommendation_only_no_trades() -> None:
         "universe_refresh",
         "disclosures_run",
         "disclosure_texts_run",
+        "news_finnhub_run",
         "daily_run",
         "event_scan",
         "quarterly_run",
