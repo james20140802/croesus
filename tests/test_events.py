@@ -135,6 +135,14 @@ def test_detect_abnormal_return_flags_direction() -> None:
         "US_EQ_AAPL", date(2026, 3, 1), _price_frame(flat, volumes)
     ) is None
 
+    # A 0.0 close yields an inf return (survives dropna) -> NaN std; the detector
+    # must reject it, never emit an Event with a NaN/inf magnitude.
+    poisoned = [100.0, 0.0] + [100.0] * 63
+    result = detect_abnormal_return(
+        "US_EQ_AAPL", date(2026, 3, 1), _price_frame(poisoned, [1000.0] * 65)
+    )
+    assert result is None
+
 
 def test_detect_recent_disclosure_within_window() -> None:
     from croesus.disclosures.models import Disclosure

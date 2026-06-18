@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import date
 
 import pandas as pd
@@ -50,10 +51,10 @@ def detect_abnormal_volume(
     baseline = volume.iloc[-(VOLUME_WINDOW + 1):-1]
     mean = float(baseline.mean())
     std = float(baseline.std())
-    if std == 0:
+    if std == 0 or not math.isfinite(std):
         return None
     z = (latest - mean) / std
-    if z < VOLUME_Z_THRESHOLD:
+    if not math.isfinite(z) or z < VOLUME_Z_THRESHOLD:
         return None
     return Event(
         asset_id=asset_id,
@@ -71,7 +72,11 @@ def detect_abnormal_return(
 ) -> Event | None:
     """Latest daily return ≥ RETURN_SIGMA_MULT × trailing return volatility."""
     data = _clean_prices(prices)
-    returns = data["close"].pct_change().dropna()
+    # A 0.0 close makes pct_change emit inf (which dropna does NOT remove); drop
+    # non-finite returns up front so a malformed bar can't poison std into NaN
+    # and write a NaN/inf magnitude to the DB.
+    returns = data["close"].pct_change()
+    returns = returns[returns.map(math.isfinite)]
     if len(returns) < RETURN_WINDOW + 1:
         return None
     latest = float(returns.iloc[-1])
@@ -110,7 +115,9 @@ def detect_recent_disclosure(
     ]
     if not in_window:
         return None
-    most_recent = max(in_window, key=lambda d: d.filed_date)
+    # Tie-break by accession_number so same-day filings pick deterministically
+    # (otherwise the stored detail flip-flops between idempotent re-scans).
+    most_recent = max(in_window, key=lambda d: (d.filed_date, d.accession_number))
     days_ago = (as_of_date - most_recent.filed_date).days
     return Event(
         asset_id=asset_id,
