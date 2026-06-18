@@ -77,6 +77,23 @@ def _latest_screening_date(conn: duckdb.DuckDBPyConnection) -> date | None:
     return None
 
 
+def _job_success_date_fn(
+    job_name: str,
+) -> Callable[[duckdb.DuckDBPyConnection], date | None]:
+    """Freshness keyed to a job's own last successful run.
+
+    For ingestion domains whose data arrives irregularly (filings, events, news),
+    MAX(data_date) reads stale on a quiet cycle and stays NULL when nothing is
+    written — so freshness tracks the job's success in ``job_runs`` instead.
+    ``job_name`` is a trusted internal constant (not user input).
+    """
+    return lambda c: _scalar_date(
+        c,
+        "SELECT MAX(finished_at) FROM job_runs "
+        f"WHERE job_name = '{job_name}' AND status = 'success'",
+    )
+
+
 @dataclass(frozen=True)
 class DomainSpec:
     """How to derive freshness for one data domain."""
@@ -141,11 +158,7 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
     # data date is the last successful refresh recorded in job_runs.
     DomainSpec(
         "asset_universe", "universe_refresh", 24.0 * 8,
-        lambda c: _scalar_date(
-            c,
-            "SELECT MAX(finished_at) FROM job_runs "
-            "WHERE job_name = 'universe_refresh' AND status = 'success'",
-        ),
+        _job_success_date_fn("universe_refresh"),
     ),
     # SEC filings arrive irregularly (quarterly 10-K/10-Q plus event-driven
     # 8-Ks), so MAX(filed_date) would read days-stale even right after a
@@ -154,33 +167,27 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
     # the job's own last success instead of to ingested data content.
     DomainSpec(
         "disclosures", "disclosures_run", 48.0,
-        lambda c: _scalar_date(
-            c,
-            "SELECT MAX(finished_at) FROM job_runs "
-            "WHERE job_name = 'disclosures_run' AND status = 'success'",
-        ),
+        _job_success_date_fn("disclosures_run"),
     ),
     # The event scan writes nothing on a genuinely quiet day, so MAX(as_of_date)
     # would read stale even after a clean run. Like asset_universe/disclosures,
     # key freshness to the job's own last success.
     DomainSpec(
         "events", "event_scan", 48.0,
-        lambda c: _scalar_date(
-            c,
-            "SELECT MAX(finished_at) FROM job_runs "
-            "WHERE job_name = 'event_scan' AND status = 'success'",
-        ),
+        _job_success_date_fn("event_scan"),
     ),
     # Filing-text fetches are sparse and a quiet cycle writes nothing new, so
     # MAX of any text date would read stale; like disclosures/events, key
     # freshness to the job's own last success.
     DomainSpec(
         "disclosure_texts", "disclosure_texts_run", 48.0,
-        lambda c: _scalar_date(
-            c,
-            "SELECT MAX(finished_at) FROM job_runs "
-            "WHERE job_name = 'disclosure_texts_run' AND status = 'success'",
-        ),
+        _job_success_date_fn("disclosure_texts_run"),
+    ),
+    # News arrives irregularly and a quiet cycle writes nothing; like the other
+    # ingestion domains, key freshness to the job's own last success.
+    DomainSpec(
+        "news_finnhub", "news_finnhub_run", 48.0,
+        _job_success_date_fn("news_finnhub_run"),
     ),
 )
 
