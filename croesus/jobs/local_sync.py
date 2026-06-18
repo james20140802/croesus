@@ -328,6 +328,17 @@ def _run_disclosures(db: Path) -> str:
     )
 
 
+def _run_event_scan(db: Path) -> str:
+    from croesus.events.scan import run_event_scan
+
+    with get_connection(db) as conn:
+        result = run_event_scan(conn)
+    return (
+        f"event_scan scanned={len(result.scanned)} "
+        f"events={len(result.events)} fail={len(result.failed)}"
+    )
+
+
 def _run_screening(db: Path) -> str:
     from croesus.jobs.screening_run import run_screening_job
     from croesus.screening.report import save_report
@@ -372,6 +383,11 @@ def default_sync_jobs() -> list[SyncJob]:
         SyncJob(
             "daily_run", ("prices", "fx"), _run_daily,
             soft_depends_on=("universe_refresh",),
+        ),
+        SyncJob(
+            "event_scan", ("events",), _run_event_scan,
+            depends_on=("daily_run",),
+            soft_depends_on=("disclosures_run",),
         ),
         # No depends_on: a dependency edge would re-run this every time
         # daily_run refreshes (i.e. daily). The quarterly freshness threshold

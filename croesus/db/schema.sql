@@ -406,3 +406,23 @@ CREATE TABLE IF NOT EXISTS disclosures (
   created_at        TIMESTAMP DEFAULT now(),
   PRIMARY KEY (asset_id, accession_number)
 );
+
+-- Phase B2 (opportunity engine): deterministic event-driven pre-filter output.
+-- One row per (asset, as_of_date, event_type): a cheap "something forward just
+-- happened" signal computed with NO LLM from prices, valuation, and disclosures.
+-- This is the candidate funnel methodologies A/B later apply an LLM thesis to;
+-- nothing here sizes or executes a trade. ``magnitude`` is detector-specific
+-- (z-score / signed sigma-multiple / days-ago / upside fraction); ``direction``
+-- is 'up' | 'down' | 'neutral'. New detectors add new ``event_type`` values
+-- without a schema change.
+CREATE TABLE IF NOT EXISTS events (
+  asset_id    TEXT NOT NULL,
+  as_of_date  DATE NOT NULL,
+  event_type  TEXT NOT NULL,   -- 'abnormal_volume'|'abnormal_return'|'recent_disclosure'|'valuation_dislocation'
+  direction   TEXT,            -- 'up' | 'down' | 'neutral'
+  magnitude   DOUBLE,          -- detector-specific strength
+  detail      TEXT,            -- human-readable one-liner
+  source      TEXT NOT NULL,   -- source table: 'prices_daily'|'valuation_snapshots'|'disclosures'
+  created_at  TIMESTAMP DEFAULT now(),
+  PRIMARY KEY (asset_id, as_of_date, event_type)
+);
