@@ -426,3 +426,21 @@ CREATE TABLE IF NOT EXISTS events (
   created_at  TIMESTAMP DEFAULT now(),
   PRIMARY KEY (asset_id, as_of_date, event_type)
 );
+
+-- Phase C1 (opportunity engine): SEC filing BODY TEXT. One row per
+-- (asset, accession), holding the cleaned plain text of the filing's primary
+-- document (fetched from disclosures.primary_doc_url). This is the textual
+-- evidence the structural-thesis grader (Phase C2) reads — it stores extracted
+-- text only, never an LLM judgement. ``status`` is 'fetched' | 'empty' | 'failed';
+-- ``char_count`` is the stored text length (text is capped to bound DB size).
+CREATE TABLE IF NOT EXISTS disclosure_texts (
+  asset_id          TEXT NOT NULL,
+  accession_number  TEXT NOT NULL,
+  source_url        TEXT,
+  char_count        INTEGER,
+  text              TEXT,
+  status            TEXT NOT NULL,   -- 'fetched' | 'empty' | 'failed'
+  source            TEXT NOT NULL,   -- 'sec_edgar'
+  created_at        TIMESTAMP DEFAULT now(),
+  PRIMARY KEY (asset_id, accession_number)
+);

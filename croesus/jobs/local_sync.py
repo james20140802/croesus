@@ -328,6 +328,18 @@ def _run_disclosures(db: Path) -> str:
     )
 
 
+def _run_disclosure_texts(db: Path) -> str:
+    from croesus.disclosures.text_ingest import ingest_disclosure_texts
+
+    with get_connection(db) as conn:
+        result = ingest_disclosure_texts(conn)
+    return (
+        f"disclosure_texts fetched={len(result.fetched)} "
+        f"skip={len(result.skipped)} defer={len(result.deferred)} "
+        f"fail={len(result.failed)}"
+    )
+
+
 def _run_event_scan(db: Path) -> str:
     from croesus.events.scan import run_event_scan
 
@@ -376,6 +388,13 @@ def default_sync_jobs() -> list[SyncJob]:
         SyncJob(
             "disclosures_run", ("disclosures",), _run_disclosures,
             soft_depends_on=("universe_refresh",),
+        ),
+        SyncJob(
+            "disclosure_texts_run", ("disclosure_texts",), _run_disclosure_texts,
+            # Soft, not hard: the text job reads the disclosures TABLE, so it can
+            # fetch text for already-stored filings even if today's metadata fetch
+            # (disclosures_run) failed — a transient EDGAR error must not block it.
+            soft_depends_on=("disclosures_run",),
         ),
         # soft_depends_on: a successful universe refresh forces a price run in
         # the same cycle (new constituents must not wait out the 48h prices
