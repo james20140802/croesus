@@ -178,6 +178,34 @@ def test_news_repository_upsert_items_and_links(tmp_path: Path) -> None:
         assert [a.external_id for a in ordered] == ["8888", "7777"]
 
 
+def test_upsert_articles_relation_promotes_never_downgrades(tmp_path: Path) -> None:
+    from croesus.news.models import RawNewsArticle
+    from croesus.news.repository import NewsRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    s2a = {"AAPL": "US_EQ_AAPL", "MSFT": "US_EQ_MSFT"}
+
+    def _art(tickers: tuple[str, ...]) -> RawNewsArticle:
+        return RawNewsArticle(
+            external_id="X", url="u", headline="h", summary="s", published_at=None,
+            source_name="r", category="c", tickers=tickers,
+        )
+
+    with get_connection(db_path) as conn:
+        repo = NewsRepository(conn)
+        # Same article seen first when querying AAPL (AAPL=queried, MSFT=related)...
+        repo.upsert_articles("finnhub", [_art(("AAPL", "MSFT"))], symbol_to_asset=s2a)
+        # ...then when querying MSFT (MSFT=queried, AAPL now in related position).
+        repo.upsert_articles("finnhub", [_art(("MSFT", "AAPL"))], symbol_to_asset=s2a)
+
+        rels = dict(conn.execute(
+            "SELECT asset_id, relation FROM news_item_assets"
+        ).fetchall())
+        # MSFT promoted related->queried; AAPL must NOT be downgraded queried->related.
+        assert rels == {"US_EQ_AAPL": "queried", "US_EQ_MSFT": "queried"}
+
+
 def test_ingest_finnhub_news_stores_and_isolates(tmp_path: Path) -> None:
     from croesus.assets.seed_us_equities import seed_us_equities
     from croesus.news.finnhub_ingest import ingest_finnhub_news

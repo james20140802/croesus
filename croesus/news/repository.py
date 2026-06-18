@@ -45,32 +45,46 @@ class NewsRepository:
                 relation = RELATION_QUERIED if position == 0 else RELATION_RELATED
                 link_rows.append((item_id, asset_id, relation))
 
-        self.conn.executemany(
-            """
-            INSERT INTO news_items (
-              item_id, source, external_id, url, headline, summary, body,
-              published_at, source_name, category
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (item_id) DO UPDATE SET
-              url = excluded.url,
-              headline = excluded.headline,
-              summary = excluded.summary,
-              published_at = excluded.published_at,
-              source_name = excluded.source_name,
-              category = excluded.category
-            """,
-            item_rows,
-        )
-        if link_rows:
+        # The article rows and their asset links must land together — wrap both
+        # writes in one transaction so a mid-write failure can't leave a
+        # news_items row orphaned (no link → invisible to load_for_asset's JOIN).
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
             self.conn.executemany(
                 """
-                INSERT INTO news_item_assets (item_id, asset_id, relation)
-                VALUES (?, ?, ?)
-                ON CONFLICT (item_id, asset_id) DO UPDATE SET relation = excluded.relation
+                INSERT INTO news_items (
+                  item_id, source, external_id, url, headline, summary, body,
+                  published_at, source_name, category
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (item_id) DO UPDATE SET
+                  url = excluded.url,
+                  headline = excluded.headline,
+                  summary = excluded.summary,
+                  body = COALESCE(excluded.body, news_items.body),
+                  published_at = excluded.published_at,
+                  source_name = excluded.source_name,
+                  category = excluded.category
                 """,
-                link_rows,
+                item_rows,
             )
+            if link_rows:
+                self.conn.executemany(
+                    """
+                    INSERT INTO news_item_assets (item_id, asset_id, relation)
+                    VALUES (?, ?, ?)
+                    -- Only ever promote (related -> queried), never downgrade: a
+                    -- direct ticker query is a stronger signal than a co-mention.
+                    ON CONFLICT (item_id, asset_id) DO UPDATE SET relation =
+                      CASE WHEN news_item_assets.relation = 'queried'
+                           THEN 'queried' ELSE excluded.relation END
+                    """,
+                    link_rows,
+                )
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
         return len(item_rows)
 
     def load_for_asset(self, asset_id: str, *, limit: int = 50) -> list[NewsItem]:

@@ -32,12 +32,17 @@ def ingest_finnhub_news(
     as_of = as_of or date.today()
     since = as_of - timedelta(days=lookback_days)
 
+    # Equity filers only. Finnhub's /company-news returns [] for tickers outside
+    # its covered (mostly US) exchanges, so non-US equities simply yield no news
+    # rather than erroring — consistent with the disclosures ingest filter.
     assets = [
         a
         for a in AssetRepository(conn).list_active()
         if a.asset_type in FILER_ASSET_TYPES
     ]
-    symbol_to_asset = {a.symbol: a.asset_id for a in assets}
+    # Key by UPPER symbol: parse_company_news upper-cases all tickers, so the
+    # link lookup must too (else a non-uppercase asset symbol would never match).
+    symbol_to_asset = {a.symbol.upper(): a.asset_id for a in assets}
     repo = NewsRepository(conn)
     result = NewsIngestionResult()
 
