@@ -54,3 +54,49 @@ def test_news_models_and_item_id() -> None:
 
     result = NewsIngestionResult()
     assert result.scanned == [] and result.stored == 0 and result.failed == {}
+
+
+def test_parse_company_news_maps_fields_and_tickers() -> None:
+    from croesus.news.parse import parse_company_news
+
+    payload = [
+        {
+            "id": 7777,
+            "headline": "Apple unveils X",
+            "summary": "Apple did a thing.",
+            "url": "https://r.com/apple-x",
+            "source": "Reuters",
+            "datetime": 1748779200,  # 2025-06-01 12:00:00 UTC
+            "related": "AAPL,MSFT",
+            "category": "company",
+        },
+        {  # missing id -> dropped (no stable external id)
+            "headline": "no id",
+            "url": "https://r.com/noid",
+            "datetime": 1748779200,
+        },
+    ]
+    articles = parse_company_news(payload, symbol="AAPL")
+    assert len(articles) == 1
+    a = articles[0]
+    assert a.external_id == "7777"
+    assert a.headline == "Apple unveils X"
+    assert a.source_name == "Reuters"
+    assert a.published_at.year == 2025 and a.published_at.month == 6
+    # Queried symbol is first; related tickers follow, de-duplicated, uppercased.
+    assert a.tickers[0] == "AAPL"
+    assert set(a.tickers) == {"AAPL", "MSFT"}
+
+
+def test_parse_company_news_empty_and_bad_rows() -> None:
+    from croesus.news.parse import parse_company_news
+
+    assert parse_company_news([], symbol="AAPL") == []
+    # A row with id 0 (falsy) is dropped; a row with no datetime keeps published_at None.
+    out = parse_company_news(
+        [{"id": 0, "headline": "x"}, {"id": 9, "headline": "y", "related": ""}],
+        symbol="NVDA",
+    )
+    assert [a.external_id for a in out] == ["9"]
+    assert out[0].tickers == ("NVDA",)  # empty related -> just the queried symbol
+    assert out[0].published_at is None
