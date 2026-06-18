@@ -100,3 +100,17 @@ def test_parse_company_news_empty_and_bad_rows() -> None:
     assert [a.external_id for a in out] == ["9"]
     assert out[0].tickers == ("NVDA",)  # empty related -> just the queried symbol
     assert out[0].published_at is None
+
+
+def test_finnhub_source_requires_key_and_satisfies_protocol(monkeypatch) -> None:
+    import pytest
+
+    from croesus.news.source import FinnhubNewsSource, NewsSource
+
+    monkeypatch.delenv("CROESUS_FINNHUB_API_KEY", raising=False)
+    with pytest.raises(ValueError):
+        FinnhubNewsSource()  # no key configured
+
+    source = FinnhubNewsSource(api_key="k")
+    assert isinstance(source, NewsSource)
+    assert source.name == "finnhub"
