@@ -12,11 +12,16 @@ def parse_company_news(payload: list[dict], *, symbol: str) -> list[RawNewsArtic
     field (comma-separated) adds the rest, de-duplicated and upper-cased. Rows
     without a usable article id are dropped.
     """
+    # Finnhub's free tier sometimes returns HTTP 200 with a dict error body
+    # (e.g. {"error": "API limit reached"}); fail with an actionable message
+    # instead of an opaque AttributeError when the loop hits a str key.
+    if not isinstance(payload, list):
+        raise ValueError(f"expected a list from Finnhub, got {type(payload).__name__}: {payload!r}")
     queried = symbol.upper()
     out: list[RawNewsArticle] = []
     for row in payload:
         article_id = row.get("id")
-        if not article_id:  # 0 / None / missing -> no stable external id
+        if not article_id:  # int 0 / None / missing -> no stable external id (str "0" kept)
             continue
         out.append(
             RawNewsArticle(

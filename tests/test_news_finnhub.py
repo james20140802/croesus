@@ -102,6 +102,17 @@ def test_parse_company_news_empty_and_bad_rows() -> None:
     assert out[0].published_at is None
 
 
+def test_parse_company_news_rejects_non_list_payload() -> None:
+    import pytest
+
+    from croesus.news.parse import parse_company_news
+
+    # Finnhub free tier can return HTTP 200 with a dict error body; the parser
+    # must raise a clear ValueError, not iterate dict keys into an AttributeError.
+    with pytest.raises(ValueError):
+        parse_company_news({"error": "API limit reached"}, symbol="AAPL")
+
+
 def test_finnhub_source_requires_key_and_satisfies_protocol(monkeypatch) -> None:
     import pytest
 
@@ -156,6 +167,16 @@ def test_news_repository_upsert_items_and_links(tmp_path: Path) -> None:
         loaded = repo.load_for_asset("US_EQ_AAPL")
         assert len(loaded) == 1 and loaded[0].external_id == "7777"
 
+        # A newer AAPL article must sort first (published_at DESC NULLS LAST).
+        newer = RawNewsArticle(
+            external_id="8888", url="https://r.com/b", headline="H2", summary="S2",
+            published_at=datetime(2026, 6, 5, 9, 0, 0), source_name="Reuters",
+            category="company", tickers=("AAPL",),
+        )
+        repo.upsert_articles("finnhub", [newer], symbol_to_asset={"AAPL": "US_EQ_AAPL"})
+        ordered = repo.load_for_asset("US_EQ_AAPL")
+        assert [a.external_id for a in ordered] == ["8888", "7777"]
+
 
 def test_ingest_finnhub_news_stores_and_isolates(tmp_path: Path) -> None:
     from croesus.assets.seed_us_equities import seed_us_equities
@@ -168,7 +189,7 @@ def test_ingest_finnhub_news_stores_and_isolates(tmp_path: Path) -> None:
     class FakeNewsSource:
         name = "finnhub"
 
-        def fetch_company_news(self, symbol, *, since):
+        def fetch_company_news(self, symbol, *, since, until):
             if symbol == "MSFT":
                 raise RuntimeError("rate limited")
             if symbol == "NVDA":

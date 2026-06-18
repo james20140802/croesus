@@ -43,7 +43,7 @@ def ingest_finnhub_news(
 
     for asset in assets:
         try:
-            articles = source.fetch_company_news(asset.symbol, since=since)
+            articles = source.fetch_company_news(asset.symbol, since=since, until=as_of)
             stored = repo.upsert_articles(
                 SOURCE_FINNHUB, articles, symbol_to_asset=symbol_to_asset
             )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, timedelta
+from datetime import date
 from typing import Protocol, runtime_checkable
 
 import requests
@@ -16,8 +16,10 @@ _COMPANY_NEWS_URL = "https://finnhub.io/api/v1/company-news"
 class NewsSource(Protocol):
     name: str
 
-    def fetch_company_news(self, symbol: str, *, since: date) -> list[RawNewsArticle]:
-        """Return articles mentioning ``symbol`` published on/after ``since``."""
+    def fetch_company_news(
+        self, symbol: str, *, since: date, until: date
+    ) -> list[RawNewsArticle]:
+        """Return articles mentioning ``symbol`` published in ``[since, until]``."""
 
 
 class FinnhubNewsSource:
@@ -35,13 +37,15 @@ class FinnhubNewsSource:
             )
         self._timeout = timeout
 
-    def fetch_company_news(self, symbol: str, *, since: date) -> list[RawNewsArticle]:
+    def fetch_company_news(
+        self, symbol: str, *, since: date, until: date
+    ) -> list[RawNewsArticle]:
         resp = requests.get(
             _COMPANY_NEWS_URL,
             params={
                 "symbol": symbol,
                 "from": since.isoformat(),
-                "to": (since + timedelta(days=366)).isoformat(),
+                "to": until.isoformat(),
                 "token": self._api_key,
             },
             timeout=self._timeout,
