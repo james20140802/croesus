@@ -444,3 +444,31 @@ CREATE TABLE IF NOT EXISTS disclosure_texts (
   created_at        TIMESTAMP DEFAULT now(),
   PRIMARY KEY (asset_id, accession_number)
 );
+
+-- News-1 (opportunity engine): news articles from external sources (Finnhub now;
+-- GDELT in News-2). One row per unique article. ``summary`` is a short snippet;
+-- ``body`` holds full text when a source provides it (GDELT/News-2; NULL for
+-- Finnhub). This is raw evidence the C2 thesis grader reads — no LLM output here.
+CREATE TABLE IF NOT EXISTS news_items (
+  item_id       TEXT PRIMARY KEY,    -- sha1(source + ':' + external_id)
+  source        TEXT NOT NULL,       -- 'finnhub' | 'gdelt'
+  external_id   TEXT NOT NULL,       -- finnhub article id / gdelt url
+  url           TEXT,
+  headline      TEXT,
+  summary       TEXT,
+  body          TEXT,                -- full article text (News-2); NULL for finnhub
+  published_at  TIMESTAMP,
+  source_name   TEXT,                -- publisher / outlet
+  category      TEXT,                -- finnhub category / gdelt theme
+  metadata      JSON,
+  created_at    TIMESTAMP DEFAULT now()
+);
+
+-- Article <-> asset M:N link. One article can mention several tickers (Finnhub
+-- ``related``; GDELT entities later). Only assets in our universe are linked.
+CREATE TABLE IF NOT EXISTS news_item_assets (
+  item_id    TEXT NOT NULL,
+  asset_id   TEXT NOT NULL,
+  relation   TEXT NOT NULL,   -- 'queried' | 'related' | 'entity'
+  PRIMARY KEY (item_id, asset_id)
+);
