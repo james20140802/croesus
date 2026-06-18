@@ -114,3 +114,44 @@ def test_finnhub_source_requires_key_and_satisfies_protocol(monkeypatch) -> None
     source = FinnhubNewsSource(api_key="k")
     assert isinstance(source, NewsSource)
     assert source.name == "finnhub"
+
+
+def test_news_repository_upsert_items_and_links(tmp_path: Path) -> None:
+    from croesus.news.models import RawNewsArticle
+    from croesus.news.repository import NewsRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    art = RawNewsArticle(
+        external_id="7777", url="https://r.com/a", headline="H", summary="S",
+        published_at=datetime(2026, 6, 1, 12, 0, 0), source_name="Reuters",
+        category="company", tickers=("AAPL", "MSFT", "ZZZZ"),
+    )
+    with get_connection(db_path) as conn:
+        repo = NewsRepository(conn)
+        # Only AAPL and MSFT are in our universe; ZZZZ is dropped.
+        n = repo.upsert_articles(
+            "finnhub", [art], symbol_to_asset={"AAPL": "US_EQ_AAPL", "MSFT": "US_EQ_MSFT"}
+        )
+        assert n == 1  # one article row
+
+        item_rows = conn.execute(
+            "SELECT source, external_id, headline FROM news_items"
+        ).fetchall()
+        assert item_rows == [("finnhub", "7777", "H")]
+
+        links = conn.execute(
+            "SELECT asset_id, relation FROM news_item_assets ORDER BY asset_id"
+        ).fetchall()
+        assert links == [("US_EQ_AAPL", "queried"), ("US_EQ_MSFT", "related")]
+
+        # Idempotent: re-upsert same article updates, no duplicate rows/links.
+        repo.upsert_articles(
+            "finnhub", [art], symbol_to_asset={"AAPL": "US_EQ_AAPL", "MSFT": "US_EQ_MSFT"}
+        )
+        assert conn.execute("SELECT count(*) FROM news_items").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM news_item_assets").fetchone()[0] == 2
+
+        loaded = repo.load_for_asset("US_EQ_AAPL")
+        assert len(loaded) == 1 and loaded[0].external_id == "7777"
