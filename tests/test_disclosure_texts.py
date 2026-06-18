@@ -82,3 +82,17 @@ def test_extract_filing_text_caps_length() -> None:
 
     html = "<p>" + ("x" * 100) + "</p>"
     assert extract_filing_text(html, max_chars=10) == "x" * 10
+
+
+def test_edgar_document_source_satisfies_protocol() -> None:
+    from croesus.disclosures.text_source import (
+        DisclosureTextSource,
+        EdgarDocumentSource,
+    )
+
+    source = EdgarDocumentSource(user_agent="test-agent (x@y.com)")
+    # Structural typing: the concrete source satisfies the Protocol.
+    assert isinstance(source, DisclosureTextSource)
+    # The header carries the configured UA (SEC requires a contact UA).
+    headers = source._headers()
+    assert headers["User-Agent"] == "test-agent (x@y.com)"
