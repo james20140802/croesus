@@ -96,3 +96,43 @@ def test_edgar_document_source_satisfies_protocol() -> None:
     # The header carries the configured UA (SEC requires a contact UA).
     headers = source._headers()
     assert headers["User-Agent"] == "test-agent (x@y.com)"
+
+
+def test_disclosure_text_repository_upsert_and_lookup(tmp_path: Path) -> None:
+    from croesus.disclosures.text_models import DisclosureText
+    from croesus.disclosures.text_repository import DisclosureTextRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    first = DisclosureText(
+        asset_id="US_EQ_AAPL",
+        accession_number="acc-1",
+        source_url="https://example.com/a.htm",
+        char_count=5,
+        text="alpha",
+        status="fetched",
+    )
+    with get_connection(db_path) as conn:
+        repo = DisclosureTextRepository(conn)
+        assert repo.upsert([first]) == 1
+        assert repo.accessions_with_text("US_EQ_AAPL") == {"acc-1"}
+
+        # Re-ingest same accession with new text -> still one row, updated.
+        updated = DisclosureText(
+            asset_id="US_EQ_AAPL", accession_number="acc-1",
+            source_url="https://example.com/a.htm", char_count=4, text="beta",
+            status="fetched",
+        )
+        assert repo.upsert([updated]) == 1
+        got = repo.get("US_EQ_AAPL", "acc-1")
+        assert got is not None
+        assert got.text == "beta"
+        assert got.char_count == 4
+
+        # An 'empty'/'failed' row does NOT count as having usable text.
+        repo.upsert([DisclosureText(
+            asset_id="US_EQ_AAPL", accession_number="acc-2", source_url=None,
+            char_count=0, text="", status="empty",
+        )])
+        assert repo.accessions_with_text("US_EQ_AAPL") == {"acc-1"}
