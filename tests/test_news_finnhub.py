@@ -155,3 +155,38 @@ def test_news_repository_upsert_items_and_links(tmp_path: Path) -> None:
 
         loaded = repo.load_for_asset("US_EQ_AAPL")
         assert len(loaded) == 1 and loaded[0].external_id == "7777"
+
+
+def test_ingest_finnhub_news_stores_and_isolates(tmp_path: Path) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.news.finnhub_ingest import ingest_finnhub_news
+    from croesus.news.models import RawNewsArticle
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    class FakeNewsSource:
+        name = "finnhub"
+
+        def fetch_company_news(self, symbol, *, since):
+            if symbol == "MSFT":
+                raise RuntimeError("rate limited")
+            if symbol == "NVDA":
+                return []
+            return [RawNewsArticle(
+                external_id=f"{symbol}-1", url=f"https://r.com/{symbol}",
+                headline=f"{symbol} news", summary="s", published_at=None,
+                source_name="Reuters", category="company", tickers=(symbol,),
+            )]
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)  # AAPL, MSFT, NVDA
+        result = ingest_finnhub_news(conn, FakeNewsSource())
+        items = conn.execute(
+            "SELECT external_id FROM news_items ORDER BY external_id"
+        ).fetchall()
+
+    assert set(result.scanned) == {"AAPL", "NVDA"}   # MSFT failed, not scanned
+    assert result.failed == {"MSFT": "rate limited"}
+    assert result.stored == 1                         # only AAPL produced an article
+    assert items == [("AAPL-1",)]
