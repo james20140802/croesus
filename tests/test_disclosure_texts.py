@@ -194,3 +194,16 @@ def test_ingest_disclosure_texts_fetches_skips_and_isolates(tmp_path: Path) -> N
     assert ("US_EQ_MSFT", "msft-boom", "failed") in stored
     assert all(acc != "aapl-nourl" for _, acc, _ in stored)
 
+
+def test_disclosure_texts_registered_in_sync_pipeline() -> None:
+    from croesus.jobs.local_sync import default_sync_jobs
+    from croesus.jobs.run_status import DOMAINS_BY_NAME
+
+    assert "disclosure_texts" in DOMAINS_BY_NAME
+    assert DOMAINS_BY_NAME["disclosure_texts"].job_name == "disclosure_texts_run"
+
+    jobs = {job.name: job for job in default_sync_jobs()}
+    assert "disclosure_texts_run" in jobs
+    job = jobs["disclosure_texts_run"]
+    assert job.domains == ("disclosure_texts",)
+    assert job.depends_on == ("disclosures_run",)
