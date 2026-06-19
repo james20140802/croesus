@@ -71,3 +71,20 @@ def test_parse_gdelt_doc_empty_and_missing_articles_key() -> None:
 
     assert parse_gdelt_doc({}) == []
     assert parse_gdelt_doc({"articles": []}) == []
+
+
+def test_gdelt_source_satisfies_protocol_and_builds_params() -> None:
+    from datetime import date
+
+    from croesus.news.gdelt_source import GdeltDocSource, GdeltNewsSource
+
+    source = GdeltDocSource()
+    assert isinstance(source, GdeltNewsSource)
+    assert source.name == "gdelt"
+    # Pure param builder — no network.
+    params = source.build_params('"Apple"', since=date(2026, 6, 1), until=date(2026, 6, 8))
+    assert params["query"] == '"Apple" sourcelang:english'
+    assert params["mode"] == "artlist"
+    assert params["format"] == "json"
+    assert params["startdatetime"] == "20260601000000"
+    assert params["enddatetime"] == "20260608000000"
