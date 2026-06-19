@@ -364,6 +364,13 @@ def _store_intrinsic_bands(
         )
         for scenario, band in bands.items():
             if band is None:
+                # e.g. a low-β/low-rate asset whose bull WACC <= terminal growth.
+                log(f"intrinsic band {scenario} skipped for {calc.asset.symbol}: invalid DCF")
+                continue
+            if band.intrinsic_value_per_share <= 0:
+                # Negative equity value (highly leveraged) — meaningless, mirroring
+                # the base DCF's price_to_intrinsic <= 0 guard. Don't persist it.
+                log(f"intrinsic band {scenario} skipped for {calc.asset.symbol}: intrinsic <= 0")
                 continue
             upside = (
                 band.intrinsic_value_per_share / calc.price - 1.0

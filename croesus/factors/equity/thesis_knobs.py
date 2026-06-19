@@ -19,7 +19,7 @@ _DEFAULT_SECTOR = "stable"
 _DEFAULT_DISRUPTION = "low"
 
 # Scenario step: bear pessimistic, bull optimistic (in moat/sector index terms).
-_STEP = {"bear": -1, "base": 0, "bull": +1}
+_SCENARIO_DELTA = {"bear": -1, "base": 0, "bull": +1}
 
 
 def _step(order: tuple[str, ...], level: str | None, delta: int, default: str) -> str:
@@ -39,7 +39,7 @@ def scenario_knobs(
     pessimism/optimism (disruption inverted: pessimism = more risk premium),
     clamped to the grade vocabulary.
     """
-    delta = _STEP[scenario]
+    delta = _SCENARIO_DELTA[scenario]
     moat_lvl = _step(_MOAT_ORDER, moat, delta, _DEFAULT_MOAT)
     sector_lvl = _step(_SECTOR_ORDER, sector, delta, _DEFAULT_SECTOR)
     # Optimism = LESS disruption risk, so step disruption opposite to delta.

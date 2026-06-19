@@ -121,6 +121,34 @@ def test_compute_intrinsic_bands_orders_bear_base_bull() -> None:
     assert bands["bear"].wacc_risk_premium == 0.02
 
 
+def test_compute_intrinsic_bands_bull_none_when_wacc_below_terminal() -> None:
+    # Low β + low rate: bull's WACC (rf + β*0.055 + 0) can fall <= bull terminal
+    # (0.030), so two_stage_dcf returns None for bull while base/bear stay valid.
+    from croesus.factors.equity.intrinsic_bands import compute_intrinsic_bands
+
+    bands = compute_intrinsic_bands(
+        base_fcf=1.0e9, growth=0.05, risk_free_rate=0.01, beta=0.2,
+        shares_outstanding=1.0e8, total_debt=0.0, cash=0.0,
+        moat="narrow", sector="stable", disruption="medium",
+    )
+    assert bands["bull"] is None        # WACC 0.021 <= bull terminal 0.030
+    assert bands["base"] is not None    # base WACC 0.031 > base terminal 0.025
+
+
+def test_compute_intrinsic_bands_negative_equity_for_leveraged_firm() -> None:
+    # Debt far exceeding enterprise value yields a negative per-share intrinsic;
+    # the persistence layer must drop these (mirrors the base DCF <= 0 guard).
+    from croesus.factors.equity.intrinsic_bands import compute_intrinsic_bands
+
+    bands = compute_intrinsic_bands(
+        base_fcf=1.0e8, growth=0.05, risk_free_rate=0.045, beta=1.0,
+        shares_outstanding=1.0e8, total_debt=1.0e12, cash=0.0,
+        moat="narrow", sector="stable", disruption="medium",
+    )
+    base = bands["base"]
+    assert base is not None and base.intrinsic_value_per_share <= 0
+
+
 # ---------------------------------------------------------------------------
 # Task 4: band repository
 # ---------------------------------------------------------------------------
