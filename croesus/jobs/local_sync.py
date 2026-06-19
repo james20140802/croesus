@@ -373,10 +373,10 @@ def _run_thesis_grader(db: Path) -> str:
         result = grade_theses(
             conn, run_id=uuid4().hex, as_of_date=date.today()
         )
-    skipped = f" skipped={result.skipped_reason}" if result.skipped_reason else ""
+    aborted = f" aborted={result.skipped_reason}" if result.skipped_reason else ""
     return (
         f"thesis_grader generated={result.generated} "
-        f"failed={result.failed}{skipped}"
+        f"failed={result.failed} skipped={result.skipped}{aborted}"
     )
 
 
@@ -444,13 +444,6 @@ def default_sync_jobs() -> list[SyncJob]:
             "news_gdelt_run", ("news_gdelt",), _run_news_gdelt,
             soft_depends_on=("universe_refresh",),
         ),
-        SyncJob(
-            "thesis_grader_run", ("thesis_grades",), _run_thesis_grader,
-            depends_on=("event_scan",),
-            soft_depends_on=(
-                "disclosure_texts_run", "news_finnhub_run", "news_gdelt_run",
-            ),
-        ),
         # soft_depends_on: a successful universe refresh forces a price run in
         # the same cycle (new constituents must not wait out the 48h prices
         # threshold), while a refresh failure leaves daily ingestion untouched.
@@ -462,6 +455,16 @@ def default_sync_jobs() -> list[SyncJob]:
             "event_scan", ("events",), _run_event_scan,
             depends_on=("daily_run",),
             soft_depends_on=("disclosures_run",),
+        ),
+        # Must follow event_scan: the grader funnels on the events table, so it
+        # has to see THIS cycle's events. depends_on hard-blocks it if the scan
+        # failed; soft_depends_on re-grades when fresh evidence lands.
+        SyncJob(
+            "thesis_grader_run", ("thesis_grades",), _run_thesis_grader,
+            depends_on=("event_scan",),
+            soft_depends_on=(
+                "disclosure_texts_run", "news_finnhub_run", "news_gdelt_run",
+            ),
         ),
         # No depends_on: a dependency edge would re-run this every time
         # daily_run refreshes (i.e. daily). The quarterly freshness threshold

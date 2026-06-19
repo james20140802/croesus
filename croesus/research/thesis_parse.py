@@ -35,15 +35,21 @@ def _require_str(data: dict, key: str) -> str:
 def parse_thesis_payload(raw: str) -> dict[str, str]:
     """Strip reasoning, extract the JSON object, and validate it.
 
-    Tolerates markdown fences and prose around the object (first ``{`` to last
-    ``}``). Raises ValueError on any missing field, empty evidence, or
-    out-of-vocabulary grade so the grader can record a ``failed`` grade.
+    Tolerates markdown fences and prose around the object (decodes the first
+    balanced object from the leading ``{``). Raises ValueError on any missing
+    field, empty evidence, or out-of-vocabulary grade so the grader can record
+    a ``failed`` grade.
     """
     text = _THINK_RE.sub("", raw)
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
+    start = text.find("{")
+    if start == -1:
         raise ValueError("no JSON object found in model response")
-    data = json.loads(text[start : end + 1])
+    try:
+        # raw_decode respects brace nesting and stops at the end of the first
+        # object — robust to trailing prose that a last-"}" scan would mis-grab.
+        data, _ = json.JSONDecoder().raw_decode(text, start)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid JSON in model response: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError("model response JSON is not an object")
 

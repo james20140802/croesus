@@ -57,7 +57,10 @@ def grade_theses(
     for asset_id in candidate_ids:
         asset = assets_by_id.get(asset_id)
         if asset is None:
-            continue  # candidate not in the active universe (e.g. delisted)
+            # Candidate has an event but isn't in the active universe (e.g.
+            # delisted). Count it so "grader produced nothing" is diagnosable.
+            result.skipped += 1
+            continue
         try:
             evidence = assemble_thesis_evidence(conn, asset, as_of_date)
             messages = build_thesis_messages(asset, evidence)
@@ -83,10 +86,21 @@ def grade_theses(
             log(f"thesis_grader: unparseable {asset.symbol}: {exc}")
             continue
 
-        grade = ThesisGrade(
-            asset_id=asset_id, as_of_date=as_of_date, run_id=run_id,
-            model=client.model, status=STATUS_GENERATED, **payload,
-        )
+        try:
+            grade = ThesisGrade(
+                asset_id=asset_id, as_of_date=as_of_date, run_id=run_id,
+                model=client.model, status=STATUS_GENERATED, **payload,
+            )
+        except TypeError as exc:
+            # A parser/model field that ThesisGrade doesn't accept must fail
+            # this one asset, never abort the whole run.
+            repo.upsert(_failed_grade(
+                asset_id, as_of_date, run_id, client.model,
+                f"grade construction failed: {exc}",
+            ))
+            result.failed += 1
+            log(f"thesis_grader: bad payload {asset.symbol}: {exc}")
+            continue
         repo.upsert(grade)
         result.grades.append(grade)
         result.generated += 1

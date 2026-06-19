@@ -75,7 +75,7 @@ def _load_latest_filing(
 ) -> tuple[str | None, date | None, str | None]:
     row = conn.execute(
         """
-        SELECT d.form_type, d.filed_date, t.text
+        SELECT d.form_type, d.filed_date, LEFT(t.text, ?)
         FROM disclosure_texts t
         JOIN disclosures d
           ON d.asset_id = t.asset_id AND d.accession_number = t.accession_number
@@ -83,10 +83,9 @@ def _load_latest_filing(
         ORDER BY d.filed_date DESC
         LIMIT 1
         """,
-        [asset_id],
+        [char_budget, asset_id],
     ).fetchone()
     if row is None:
         return None, None, None
-    form_type, filed_date, text = row
-    excerpt = text[:char_budget] if text else None
-    return form_type, filed_date, excerpt
+    form_type, filed_date, excerpt = row
+    return form_type, filed_date, excerpt or None

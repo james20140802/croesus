@@ -90,6 +90,16 @@ def test_parse_thesis_payload_rejects_no_json() -> None:
         parse_thesis_payload("<think>only reasoning, no object</think>")
 
 
+def test_parse_thesis_payload_ignores_trailing_prose_with_braces() -> None:
+    # raw_decode must stop at the end of the first object even when the model
+    # appends prose containing a stray "}" that a last-"}" scan would mis-grab.
+    from croesus.research.thesis_parse import parse_thesis_payload
+
+    raw = _VALID_PAYLOAD.rstrip() + "\n\nNote: see ref {500} for context."
+    data = parse_thesis_payload(raw)
+    assert data["moat_grade"] == "wide" and data["confidence"] == "high"
+
+
 from pathlib import Path
 
 from croesus.db.connection import get_connection
@@ -307,6 +317,34 @@ def test_grade_theses_aborts_when_llm_unavailable(tmp_path: Path) -> None:
 
     assert result.skipped_reason == "server down"
     assert result.generated == 0 and result.failed == 0 and n == 0
+
+
+def test_grade_theses_counts_candidates_missing_from_universe(tmp_path: Path) -> None:
+    # An event for an asset_id with no active asset row (e.g. delisted) must be
+    # counted as skipped, not silently vanish from telemetry.
+    from croesus.research.thesis_grader import grade_theses
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    asof = date(2026, 6, 19)
+
+    class UnusedClient:
+        base_url = "x"
+        model = "fake"
+
+        def chat(self, messages):
+            raise AssertionError("must not be called for a ghost candidate")
+
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "INSERT INTO events (asset_id, as_of_date, event_type, direction, "
+            "magnitude, detail, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ["US_EQ_GHOST", asof, "abnormal_volume", "up", 2.0, "x", "prices_daily"],
+        )
+        result = grade_theses(conn, run_id="r", as_of_date=asof, client=UnusedClient())
+
+    assert result.skipped == 1
+    assert result.generated == 0 and result.failed == 0
 
 
 def test_thesis_grader_registered_in_sync_pipeline() -> None:

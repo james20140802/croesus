@@ -56,4 +56,5 @@ class ThesisRunResult:
     grades: list[ThesisGrade] = field(default_factory=list)
     generated: int = 0
     failed: int = 0
+    skipped: int = 0            # event candidates not in the active universe
     skipped_reason: str | None = None
