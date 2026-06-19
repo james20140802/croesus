@@ -473,6 +473,33 @@ CREATE TABLE IF NOT EXISTS news_item_assets (
   PRIMARY KEY (item_id, asset_id)
 );
 
+-- Phase C3 (opportunity engine): moat-adjusted intrinsic-value band. Three rows
+-- per (asset_id, date) — bear/base/bull — driven by the asset's latest thesis
+-- grade via the fixed CAP/terminal/risk-premium tables. This is the opportunity
+-- engine's recommendation-only output; it does NOT feed price_to_intrinsic or
+-- the risk-management screener (those keep the mechanical DEFAULT_DCF_KNOBS).
+CREATE TABLE IF NOT EXISTS intrinsic_value_bands (
+  asset_id                  TEXT NOT NULL,
+  date                      DATE NOT NULL,
+  scenario                  TEXT NOT NULL,   -- 'bear' | 'base' | 'bull'
+  intrinsic_value_per_share DOUBLE,
+  current_price             DOUBLE,
+  upside_pct                DOUBLE,
+  wacc                      DOUBLE,
+  fcf_growth_rate           DOUBLE,
+  terminal_growth_rate      DOUBLE,
+  explicit_years            INTEGER,
+  wacc_risk_premium         DOUBLE,
+  moat_grade                TEXT,
+  sector_grade              TEXT,
+  disruption_grade          TEXT,
+  thesis_as_of_date         DATE,            -- which grade drove this band
+  thesis_run_id             TEXT,
+  created_at                TIMESTAMP DEFAULT now(),
+  updated_at                TIMESTAMP DEFAULT now(),
+  PRIMARY KEY (asset_id, date, scenario)
+);
+
 -- Phase C2 (opportunity engine): LLM structural-thesis grades. One CURRENT row
 -- per (asset_id, as_of_date) — re-grading overwrites. The grader reads
 -- disclosure_texts + news_items + valuation_snapshots and emits discrete grades
