@@ -122,10 +122,12 @@ def compute_and_store_valuation_factors(
     if include_dcf:
         _assign_betas(conn, calcs, prices, as_of)
         rf = _risk_free_rate(conn)
+        # Band collaborators are only used on the DCF path — don't build them on
+        # a daily multiples-only run (include_dcf=False).
+        band_repo = IntrinsicValueBandRepository(conn)
+        thesis_repo = ThesisGradeRepository(conn)
 
     snapshot_repo = ValuationSnapshotRepository(conn)
-    band_repo = IntrinsicValueBandRepository(conn)
-    thesis_repo = ThesisGradeRepository(conn)
     for calc in calcs:
         asset_id = calc.asset.asset_id
         factors: list[FactorValue] = _multiple_factors(calc, as_of)
@@ -319,12 +321,14 @@ def _compute_dcf(
         )
     )
     result.dcf_computed.append(asset_id)
+    if dcf.intrinsic_value_per_share <= 0:
+        return None  # negative intrinsic value -> price_to_intrinsic is meaningless
+    # Band a viable base only — don't manufacture upside (a bull scenario could
+    # overcome the same debt) for an asset whose base equity value is non-positive.
     _store_intrinsic_bands(
         calc, as_of, rf=rf, beta=beta, growth=growth,
         thesis_repo=thesis_repo, band_repo=band_repo, log=log,
     )
-    if dcf.intrinsic_value_per_share <= 0:
-        return None  # negative intrinsic value -> price_to_intrinsic is meaningless
     return calc.price / dcf.intrinsic_value_per_share
 
 

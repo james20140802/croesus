@@ -268,3 +268,46 @@ def test_compute_valuation_writes_band_only_for_graded_assets(tmp_path: Path) ->
     assert ungraded_bands == []          # grade-only: no thesis -> no band
     # Base snapshot uses DEFAULT knobs (explicit_years 5), NOT the wide-moat 10.
     assert snap is not None and snap.assumptions["explicit_years"] == 5
+
+
+def test_no_band_when_base_intrinsic_is_non_positive(tmp_path: Path) -> None:
+    # A graded but over-leveraged asset whose BASE DCF intrinsic is <= 0 must get
+    # no band — a bull scenario must not manufacture upside from a broken base.
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.factors.equity.band_repository import IntrinsicValueBandRepository
+    from croesus.factors.equity.compute_valuation import (
+        compute_and_store_valuation_factors,
+    )
+    from croesus.fundamentals.repository import (
+        METRIC_TOTAL_DEBT,
+        PERIOD_ANNUAL,
+        FundamentalMetric,
+        FundamentalsRepository,
+    )
+    from croesus.prices.repository import PriceRepository
+    from croesus.research.thesis_models import STATUS_GENERATED, ThesisGrade
+    from croesus.research.thesis_repository import ThesisGradeRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        PriceRepository(conn).upsert_daily_prices(
+            "US_EQ_NVDA", _price_frame(50.0), source="test"
+        )
+        funds = FundamentalsRepository(conn)
+        funds.upsert_metrics(_fcf_fundamentals("US_EQ_NVDA", [30.0, 40.0, 50.0]))
+        # Debt far exceeds enterprise value -> base equity (and intrinsic) <= 0.
+        funds.upsert_metrics([FundamentalMetric(
+            "US_EQ_NVDA", date(2024, 12, 31), PERIOD_ANNUAL, METRIC_TOTAL_DEBT, 1.0e15, "t"
+        )])
+        ThesisGradeRepository(conn).upsert(ThesisGrade(
+            asset_id="US_EQ_NVDA", as_of_date=_AS_OF_C3, run_id="r", model="m",
+            status=STATUS_GENERATED, moat_grade="wide", sector_grade="secular_growth",
+            disruption_grade="low",
+        ))
+
+        compute_and_store_valuation_factors(conn, include_dcf=True, as_of=_AS_OF_C3)
+        bands = IntrinsicValueBandRepository(conn).load_for_asset("US_EQ_NVDA", _AS_OF_C3)
+
+    assert bands == []  # non-positive base -> no band at all

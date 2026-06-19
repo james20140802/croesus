@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from croesus.factors.equity.valuation import DcfKnobs
+from croesus.research.thesis_models import (
+    DISRUPTION_GRADES,
+    MOAT_GRADES,
+    SECTOR_GRADES,
+)
 
 # Spec §방법론 A mapping tables (keys are the C2 grade vocabularies).
 CAP_YEARS = {"wide": 10, "narrow": 7, "none": 5}
@@ -12,6 +17,15 @@ _MOAT_ORDER = ("none", "narrow", "wide")
 _SECTOR_ORDER = ("declining", "stable", "secular_growth")
 # Ordered low->high RISK for disruption (more risk = higher premium = worse).
 _DISRUPTION_ORDER = ("low", "medium", "high")
+
+# These orderings only re-rank the canonical C2 vocabularies; fail loudly if a
+# grade is ever added there without being placed here (else it silently defaults).
+assert set(_MOAT_ORDER) == set(MOAT_GRADES)
+assert set(_SECTOR_ORDER) == set(SECTOR_GRADES)
+assert set(_DISRUPTION_ORDER) == set(DISRUPTION_GRADES)
+assert set(CAP_YEARS) == set(MOAT_GRADES)
+assert set(TERMINAL_GROWTH) == set(SECTOR_GRADES)
+assert set(RISK_PREMIUM) == set(DISRUPTION_GRADES)
 
 # Default level per dimension when no grade is present — reproduces DEFAULT_DCF_KNOBS.
 _DEFAULT_MOAT = "none"
