@@ -88,3 +88,10 @@ def test_gdelt_source_satisfies_protocol_and_builds_params() -> None:
     assert params["format"] == "json"
     assert params["startdatetime"] == "20260601000000"
     assert params["enddatetime"] == "20260608000000"
+
+
+def test_article_body_fetcher_protocol() -> None:
+    from croesus.news.body_fetch import ArticleBodyFetcher, TrafilaturaBodyFetcher
+
+    fetcher = TrafilaturaBodyFetcher()
+    assert isinstance(fetcher, ArticleBodyFetcher)
