@@ -189,6 +189,12 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
         "news_finnhub", "news_finnhub_run", 48.0,
         _job_success_date_fn("news_finnhub_run"),
     ),
+    # GDELT broad news; like the other ingestion domains, key freshness to the
+    # job's own last success (a quiet cycle writes nothing).
+    DomainSpec(
+        "news_gdelt", "news_gdelt_run", 48.0,
+        _job_success_date_fn("news_gdelt_run"),
+    ),
 )
 
 DOMAINS_BY_NAME: dict[str, DomainSpec] = {spec.domain: spec for spec in DOMAIN_REGISTRY}

@@ -351,6 +351,17 @@ def _run_news_finnhub(db: Path) -> str:
     )
 
 
+def _run_news_gdelt(db: Path) -> str:
+    from croesus.news.gdelt_ingest import ingest_gdelt_news
+
+    with get_connection(db) as conn:
+        result = ingest_gdelt_news(conn)
+    return (
+        f"news_gdelt scanned={len(result.scanned)} "
+        f"stored={result.stored} fail={len(result.failed)}"
+    )
+
+
 def _run_event_scan(db: Path) -> str:
     from croesus.events.scan import run_event_scan
 
@@ -409,6 +420,10 @@ def default_sync_jobs() -> list[SyncJob]:
         ),
         SyncJob(
             "news_finnhub_run", ("news_finnhub",), _run_news_finnhub,
+            soft_depends_on=("universe_refresh",),
+        ),
+        SyncJob(
+            "news_gdelt_run", ("news_gdelt",), _run_news_gdelt,
             soft_depends_on=("universe_refresh",),
         ),
         # soft_depends_on: a successful universe refresh forces a price run in

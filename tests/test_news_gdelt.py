@@ -142,3 +142,17 @@ def test_ingest_gdelt_news_links_bodies_and_isolates(tmp_path: Path) -> None:
     assert body.startswith("body for ")
     assert asset_id == "US_EQ_AAPL"
     assert relation == "queried"
+
+
+def test_news_gdelt_registered_in_sync_pipeline() -> None:
+    from croesus.jobs.local_sync import default_sync_jobs
+    from croesus.jobs.run_status import DOMAINS_BY_NAME
+
+    assert "news_gdelt" in DOMAINS_BY_NAME
+    assert DOMAINS_BY_NAME["news_gdelt"].job_name == "news_gdelt_run"
+
+    jobs = {job.name: job for job in default_sync_jobs()}
+    assert "news_gdelt_run" in jobs
+    job = jobs["news_gdelt_run"]
+    assert job.domains == ("news_gdelt",)
+    assert job.soft_depends_on == ("universe_refresh",)
