@@ -95,3 +95,50 @@ def test_article_body_fetcher_protocol() -> None:
 
     fetcher = TrafilaturaBodyFetcher()
     assert isinstance(fetcher, ArticleBodyFetcher)
+
+
+def test_ingest_gdelt_news_links_bodies_and_isolates(tmp_path: Path) -> None:
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.news.gdelt_ingest import ingest_gdelt_news
+    from croesus.news.models import RawNewsArticle
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    class FakeGdeltSource:
+        name = "gdelt"
+
+        def fetch_articles(self, query_term, *, since, until):
+            if "MSFT" in query_term or "Microsoft" in query_term:
+                raise RuntimeError("gdelt unavailable")
+            if "NVIDIA" in query_term or "NVDA" in query_term:
+                return []
+            return [RawNewsArticle(
+                external_id=f"https://x.com/{query_term}", url=f"https://x.com/{query_term}",
+                headline="h", summary=None, published_at=None,
+                source_name="x.com", category=None, tickers=(),
+            )]
+
+    class FakeBodyFetcher:
+        def fetch_body(self, url):
+            return f"body for {url}"
+
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)  # AAPL (Apple Inc.), MSFT (Microsoft...), NVDA (NVIDIA...)
+        result = ingest_gdelt_news(conn, FakeGdeltSource(), FakeBodyFetcher())
+        rows = conn.execute(
+            "SELECT i.source, i.body, l.asset_id, l.relation "
+            "FROM news_items i JOIN news_item_assets l ON l.item_id = i.item_id "
+            "ORDER BY l.asset_id"
+        ).fetchall()
+
+    # Apple succeeded (article + body + link); Microsoft failed; NVIDIA empty.
+    assert "AAPL" in result.scanned and "NVDA" in result.scanned
+    assert "MSFT" in result.failed
+    assert result.stored == 1
+    assert len(rows) == 1
+    source, body, asset_id, relation = rows[0]
+    assert source == "gdelt"
+    assert body.startswith("body for ")
+    assert asset_id == "US_EQ_AAPL"
+    assert relation == "queried"
