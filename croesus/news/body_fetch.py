@@ -21,10 +21,18 @@ class TrafilaturaBodyFetcher:
         self._timeout = timeout
 
     def fetch_body(self, url: str) -> str | None:
-        import trafilatura
+        try:
+            import trafilatura
+            from trafilatura.settings import use_config
 
-        downloaded = trafilatura.fetch_url(url)
-        if not downloaded:
+            # Forward the caller's timeout to trafilatura's downloader, which
+            # otherwise applies its own 30s default and ignores ours.
+            config = use_config()
+            config.set("DEFAULT", "DOWNLOAD_TIMEOUT", str(int(self._timeout)))
+            downloaded = trafilatura.fetch_url(url, config=config)
+            if not downloaded:
+                return None
+            text = trafilatura.extract(downloaded, config=config)
+            return text or None
+        except Exception:  # noqa: BLE001 - a missing body must never stop a news ingest run.
             return None
-        text = trafilatura.extract(downloaded)
-        return text or None

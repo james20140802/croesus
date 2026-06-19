@@ -41,7 +41,9 @@ class GdeltDocSource:
             "maxrecords": self._max_records,
             "sort": "DateDesc",
             "startdatetime": since.strftime("%Y%m%d000000"),
-            "enddatetime": until.strftime("%Y%m%d000000"),
+            # End-of-day, else GDELT excludes the whole `until` day (its news arrives
+            # after 00:00:00); with lookback_days=0 the window would collapse to nothing.
+            "enddatetime": until.strftime("%Y%m%d235959"),
         }
 
     def fetch_articles(

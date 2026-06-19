@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 SOURCE_FINNHUB = "finnhub"
+SOURCE_GDELT = "gdelt"
 
 # Article <-> asset relation kinds.
 RELATION_QUERIED = "queried"   # article returned by querying this ticker

@@ -10,10 +10,9 @@ from croesus.assets.repository import AssetRepository
 from croesus.news.body_fetch import ArticleBodyFetcher, TrafilaturaBodyFetcher
 from croesus.news.gdelt_parse import company_query_term
 from croesus.news.gdelt_source import GdeltDocSource, GdeltNewsSource
-from croesus.news.models import NewsIngestionResult
+from croesus.news.models import SOURCE_GDELT, NewsIngestionResult
 from croesus.news.repository import NewsRepository
 
-SOURCE_GDELT = "gdelt"
 FILER_ASSET_TYPES = ("equity",)
 DEFAULT_LOOKBACK_DAYS = 7
 DEFAULT_LIMIT_PER_ASSET = 5

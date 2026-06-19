@@ -87,7 +87,7 @@ def test_gdelt_source_satisfies_protocol_and_builds_params() -> None:
     assert params["mode"] == "artlist"
     assert params["format"] == "json"
     assert params["startdatetime"] == "20260601000000"
-    assert params["enddatetime"] == "20260608000000"
+    assert params["enddatetime"] == "20260608235959"  # end-of-day, not midnight
 
 
 def test_article_body_fetcher_protocol() -> None:
@@ -95,6 +95,34 @@ def test_article_body_fetcher_protocol() -> None:
 
     fetcher = TrafilaturaBodyFetcher()
     assert isinstance(fetcher, ArticleBodyFetcher)
+
+
+def test_trafilatura_body_fetcher_swallows_errors(monkeypatch) -> None:
+    # A download/extract failure must yield None, never propagate — else one bad
+    # URL aborts every article for that asset in the ingest loop.
+    import sys
+    import types
+
+    from croesus.news.body_fetch import TrafilaturaBodyFetcher
+
+    fake = types.ModuleType("trafilatura")
+
+    def _boom(url, config=None):
+        raise RuntimeError("network down")
+
+    fake.fetch_url = _boom
+    fake.extract = lambda *a, **k: None
+    fake_settings = types.ModuleType("trafilatura.settings")
+
+    class _Cfg:
+        def set(self, *a) -> None:
+            pass
+
+    fake_settings.use_config = lambda: _Cfg()
+    monkeypatch.setitem(sys.modules, "trafilatura", fake)
+    monkeypatch.setitem(sys.modules, "trafilatura.settings", fake_settings)
+
+    assert TrafilaturaBodyFetcher().fetch_body("https://x.com/a") is None
 
 
 def test_ingest_gdelt_news_links_bodies_and_isolates(tmp_path: Path) -> None:
