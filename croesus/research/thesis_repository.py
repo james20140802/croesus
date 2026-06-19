@@ -73,3 +73,20 @@ class ThesisGradeRepository:
             metadata=json.loads(meta) if isinstance(meta, str) else (meta or {}),
             **data,
         )
+
+    def load_latest_for_asset(self, asset_id: str, as_of: date) -> ThesisGrade | None:
+        """Most recent ``generated`` grade on or before ``as_of`` (point-in-time)."""
+        row = self.conn.execute(
+            f"SELECT {', '.join(_COLUMNS)} FROM thesis_grades "
+            "WHERE asset_id = ? AND as_of_date <= ? AND status = 'generated' "
+            "ORDER BY as_of_date DESC LIMIT 1",
+            [asset_id, as_of],
+        ).fetchone()
+        if row is None:
+            return None
+        data = dict(zip(_COLUMNS, row))
+        meta = data.pop("metadata")
+        return ThesisGrade(
+            metadata=json.loads(meta) if isinstance(meta, str) else (meta or {}),
+            **data,
+        )
