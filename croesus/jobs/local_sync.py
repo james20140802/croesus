@@ -358,7 +358,8 @@ def _run_news_gdelt(db: Path) -> str:
         result = ingest_gdelt_news(conn)
     return (
         f"news_gdelt scanned={len(result.scanned)} "
-        f"stored={result.stored} fail={len(result.failed)}"
+        f"stored={result.stored} fail={len(result.failed)} "
+        f"skipped={len(result.skipped)}"
     )
 
 

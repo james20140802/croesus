@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 
 from croesus.news.models import RawNewsArticle
 
@@ -32,7 +32,11 @@ def company_query_term(name: str | None) -> str:
         if stripped == cleaned or not stripped:
             break
         cleaned = stripped
-    return f'"{cleaned}"' if cleaned else ""
+    # If only a generic suffix word survives ("Holdings Group Ltd" -> "Holdings"),
+    # it's a noise query (matches any article using that word) — skip the asset.
+    if not cleaned or cleaned.lower() in _SUFFIXES:
+        return ""
+    return f'"{cleaned}"'
 
 
 def parse_gdelt_doc(payload: dict) -> list[RawNewsArticle]:
@@ -68,6 +72,8 @@ def _parse_seendate(value: object) -> datetime | None:
     if not value or not isinstance(value, str):
         return None
     try:
-        return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).replace(tzinfo=None)
+        # GDELT seendate is UTC; the trailing "Z" is literal, so strptime already
+        # yields the correct naive-UTC datetime we store (matching parse.py).
+        return datetime.strptime(value, "%Y%m%dT%H%M%SZ")
     except ValueError:
         return None

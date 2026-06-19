@@ -26,6 +26,33 @@ def test_repository_persists_article_body(tmp_path: Path) -> None:
     assert body == "Full article body text."
 
 
+def test_reupsert_preserves_timestamp_when_later_parse_is_null(tmp_path: Path) -> None:
+    # A re-ingest with a malformed seendate (published_at=None) must NOT erase a
+    # previously stored timestamp — else the row sorts NULLS LAST and vanishes.
+    from croesus.news.models import RawNewsArticle
+    from croesus.news.repository import NewsRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    dated = RawNewsArticle(
+        external_id="https://x.com/a", url="https://x.com/a", headline="H",
+        summary=None, published_at=datetime(2026, 6, 1, 12, 0, 0),
+        source_name="reuters.com", category=None, tickers=("AAPL",), body=None,
+    )
+    undated = RawNewsArticle(
+        external_id="https://x.com/a", url="https://x.com/a", headline="H",
+        summary=None, published_at=None, source_name="reuters.com",
+        category=None, tickers=("AAPL",), body=None,
+    )
+    with get_connection(db_path) as conn:
+        repo = NewsRepository(conn)
+        s2a = {"AAPL": "US_EQ_AAPL"}
+        repo.upsert_articles("gdelt", [dated], symbol_to_asset=s2a)
+        repo.upsert_articles("gdelt", [undated], symbol_to_asset=s2a)  # null timestamp
+        ts = conn.execute("SELECT published_at FROM news_items").fetchone()[0]
+    assert ts == datetime(2026, 6, 1, 12, 0, 0)  # original preserved, not nulled
+
+
 def test_company_query_term_strips_suffixes_and_quotes() -> None:
     from croesus.news.gdelt_parse import company_query_term
 
@@ -36,6 +63,9 @@ def test_company_query_term_strips_suffixes_and_quotes() -> None:
     # No usable name -> empty string (caller skips).
     assert company_query_term("") == ""
     assert company_query_term(None) == ""
+    # A name that strips down to only a generic suffix word is a noise query -> skip.
+    assert company_query_term("Holdings Group Ltd") == ""
+    assert company_query_term("Group Inc") == ""
 
 
 def test_parse_gdelt_doc_maps_articles() -> None:
@@ -163,6 +193,7 @@ def test_ingest_gdelt_news_links_bodies_and_isolates(tmp_path: Path) -> None:
     # Apple succeeded (article + body + link); Microsoft failed; NVIDIA empty.
     assert "AAPL" in result.scanned and "NVDA" in result.scanned
     assert "MSFT" in result.failed
+    assert result.skipped == []   # all seeded names are queryable
     assert result.stored == 1
     assert len(rows) == 1
     source, body, asset_id, relation = rows[0]

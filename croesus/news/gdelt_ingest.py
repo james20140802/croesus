@@ -49,13 +49,17 @@ def ingest_gdelt_news(
     for asset in assets:
         query_term = company_query_term(asset.name)
         if not query_term:
-            continue  # no usable company name to query GDELT with
+            # No usable company name to query GDELT with — record it so a universe
+            # full of empty names can't masquerade as a healthy scanned=0 run.
+            result.skipped.append(asset.symbol)
+            continue
+        symbol = asset.symbol.upper()
         try:
             articles = source.fetch_articles(query_term, since=since, until=as_of)
             enriched = [
                 replace(
                     art,
-                    tickers=(asset.symbol,),
+                    tickers=(symbol,),
                     body=(body_fetcher.fetch_body(art.url) if art.url else None),
                 )
                 for art in articles[:limit_per_asset]
@@ -63,7 +67,7 @@ def ingest_gdelt_news(
             stored = repo.upsert_articles(
                 SOURCE_GDELT,
                 enriched,
-                symbol_to_asset={asset.symbol.upper(): asset.asset_id},
+                symbol_to_asset={symbol: asset.asset_id},
             )
             result.scanned.append(asset.symbol)
             result.stored += stored

@@ -57,3 +57,4 @@ class NewsIngestionResult:
     scanned: list[str] = field(default_factory=list)      # symbols queried
     stored: int = 0                                        # article rows written
     failed: dict[str, str] = field(default_factory=dict)  # symbol -> error
+    skipped: list[str] = field(default_factory=list)      # no usable query (e.g. empty name)
