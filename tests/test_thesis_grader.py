@@ -215,3 +215,95 @@ def test_thesis_repository_upserts_idempotently(tmp_path: Path) -> None:
         assert loaded.moat_grade == "wide" and loaded.run_id == "r2"
         assert loaded.disruption_grade == "medium"
         assert repo.load_for_asset("US_EQ_AAPL", date(2026, 1, 1)) is None
+
+
+_GRADER_RESPONSE = (
+    '{"moat_grade": "wide", "moat_evidence": "e1", '
+    '"tech_grade": "leading", "tech_evidence": "e2", '
+    '"sector_grade": "secular_growth", "sector_evidence": "e3", '
+    '"disruption_grade": "low", "disruption_evidence": "e4", '
+    '"bear_case": "platform shift", "confidence": "high", '
+    '"evidence_source": "filing"}'
+)
+
+
+def _seed_candidate(conn, asset_id: str, symbol: str, asof: date) -> None:
+    from croesus.assets.models import Asset
+    from croesus.assets.repository import AssetRepository
+
+    AssetRepository(conn).upsert_many([Asset(
+        asset_id=asset_id, symbol=symbol, name=f"{symbol} Inc.", asset_type="equity",
+    )])
+    conn.execute(
+        "INSERT INTO events (asset_id, as_of_date, event_type, direction, "
+        "magnitude, detail, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [asset_id, asof, "abnormal_volume", "up", 2.5, "spike", "prices_daily"],
+    )
+
+
+def test_grade_theses_grades_candidates_and_isolates(tmp_path: Path) -> None:
+    from croesus.research.thesis_grader import grade_theses
+    from croesus.research.thesis_models import STATUS_FAILED, STATUS_GENERATED
+    from croesus.research.thesis_repository import ThesisGradeRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    asof = date(2026, 6, 19)
+
+    class FakeChatClient:
+        base_url = "x"
+        model = "fake"
+
+        def chat(self, messages):
+            # AAA candidate succeeds; BBB candidate triggers a per-request failure.
+            if "BBB" in messages[1]["content"]:
+                from croesus.research.llm_client import LlmError
+                raise LlmError("boom")
+            return _GRADER_RESPONSE
+
+    with get_connection(db_path) as conn:
+        _seed_candidate(conn, "US_EQ_AAA", "AAA", asof)
+        _seed_candidate(conn, "US_EQ_BBB", "BBB", asof)
+        # An asset with NO event must not be graded.
+        from croesus.assets.models import Asset
+        from croesus.assets.repository import AssetRepository
+        AssetRepository(conn).upsert_many([Asset(
+            asset_id="US_EQ_CCC", symbol="CCC", name="CCC Inc.", asset_type="equity",
+        )])
+
+        result = grade_theses(
+            conn, run_id="run-1", as_of_date=asof, client=FakeChatClient()
+        )
+        repo = ThesisGradeRepository(conn)
+        aaa = repo.load_for_asset("US_EQ_AAA", asof)
+        bbb = repo.load_for_asset("US_EQ_BBB", asof)
+        assert repo.load_for_asset("US_EQ_CCC", asof) is None  # no event → not graded
+
+    assert result.generated == 1 and result.failed == 1
+    assert result.skipped_reason is None
+    assert aaa.status == STATUS_GENERATED and aaa.moat_grade == "wide"
+    assert bbb.status == STATUS_FAILED and bbb.error and bbb.moat_grade is None
+
+
+def test_grade_theses_aborts_when_llm_unavailable(tmp_path: Path) -> None:
+    from croesus.research.llm_client import LlmUnavailable
+    from croesus.research.thesis_grader import grade_theses
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    asof = date(2026, 6, 19)
+
+    class DeadClient:
+        base_url = "x"
+        model = "fake"
+
+        def chat(self, messages):
+            raise LlmUnavailable("server down")
+
+    with get_connection(db_path) as conn:
+        _seed_candidate(conn, "US_EQ_AAA", "AAA", asof)
+        result = grade_theses(conn, run_id="r", as_of_date=asof, client=DeadClient())
+        n = conn.execute("SELECT count(*) FROM thesis_grades").fetchone()[0]
+
+    assert result.skipped_reason == "server down"
+    assert result.generated == 0 and result.failed == 0 and n == 0
