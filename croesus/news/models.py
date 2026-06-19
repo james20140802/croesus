@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 SOURCE_FINNHUB = "finnhub"
+SOURCE_GDELT = "gdelt"
 
 # Article <-> asset relation kinds.
 RELATION_QUERIED = "queried"   # article returned by querying this ticker
@@ -29,6 +30,7 @@ class RawNewsArticle:
     source_name: str | None
     category: str | None
     tickers: tuple[str, ...]   # symbols the source associates (1st = queried)
+    body: str | None = None    # full article text (GDELT); None for headline-only sources
 
 
 @dataclass(frozen=True)
@@ -55,3 +57,4 @@ class NewsIngestionResult:
     scanned: list[str] = field(default_factory=list)      # symbols queried
     stored: int = 0                                        # article rows written
     failed: dict[str, str] = field(default_factory=dict)  # symbol -> error
+    skipped: list[str] = field(default_factory=list)      # no usable query (e.g. empty name)

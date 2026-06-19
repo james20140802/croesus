@@ -17,6 +17,7 @@ dependencies = [
   # macro data sources
   "fredapi>=0.5",
   "lxml>=4.9",
+  "trafilatura>=1.6",
   "xlrd>=2.0",
 ]
 

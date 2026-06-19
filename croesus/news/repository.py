@@ -35,7 +35,7 @@ class NewsRepository:
             item_rows.append(
                 (
                     item_id, source, art.external_id, art.url, art.headline,
-                    art.summary, None, art.published_at, art.source_name, art.category,
+                    art.summary, art.body, art.published_at, art.source_name, art.category,
                 )
             )
             for position, symbol in enumerate(art.tickers):
@@ -62,7 +62,10 @@ class NewsRepository:
                   headline = excluded.headline,
                   summary = excluded.summary,
                   body = COALESCE(excluded.body, news_items.body),
-                  published_at = excluded.published_at,
+                  -- Keep a previously-parsed timestamp if a later re-ingest hits a
+                  -- malformed seendate (None) — else the row sorts NULLS LAST and
+                  -- vanishes from time-windowed queries (e.g. the C2 grader).
+                  published_at = COALESCE(excluded.published_at, news_items.published_at),
                   source_name = excluded.source_name,
                   category = excluded.category
                 """,
