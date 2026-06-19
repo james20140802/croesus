@@ -187,3 +187,31 @@ def test_build_thesis_messages_includes_rubric_and_evidence() -> None:
     assert "Apple Inc." in user
     assert "10-K" in user and "We face intense competition." in user
     assert "Apple launches X" in user
+
+
+def test_thesis_repository_upserts_idempotently(tmp_path: Path) -> None:
+    from croesus.research.thesis_models import STATUS_GENERATED, ThesisGrade
+    from croesus.research.thesis_repository import ThesisGradeRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    asof = date(2026, 6, 19)
+    base = dict(
+        asset_id="US_EQ_AAPL", as_of_date=asof, run_id="r1", model="qwen3:32b",
+        status=STATUS_GENERATED, moat_grade="narrow", moat_evidence="e",
+        tech_grade="parity", tech_evidence="e", sector_grade="stable",
+        sector_evidence="e", disruption_grade="medium", disruption_evidence="e",
+        bear_case="b", confidence="medium", evidence_source="filing",
+    )
+    with get_connection(db_path) as conn:
+        repo = ThesisGradeRepository(conn)
+        repo.upsert(ThesisGrade(**base))
+        # Re-grade same (asset, date): promote moat to wide, run r2.
+        repo.upsert(ThesisGrade(**{**base, "moat_grade": "wide", "run_id": "r2"}))
+
+        assert conn.execute("SELECT count(*) FROM thesis_grades").fetchone()[0] == 1
+        loaded = repo.load_for_asset("US_EQ_AAPL", asof)
+        assert loaded is not None
+        assert loaded.moat_grade == "wide" and loaded.run_id == "r2"
+        assert loaded.disruption_grade == "medium"
+        assert repo.load_for_asset("US_EQ_AAPL", date(2026, 1, 1)) is None

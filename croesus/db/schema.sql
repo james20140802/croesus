@@ -472,3 +472,31 @@ CREATE TABLE IF NOT EXISTS news_item_assets (
   relation   TEXT NOT NULL,   -- 'queried' | 'related' | 'entity'
   PRIMARY KEY (item_id, asset_id)
 );
+
+-- Phase C2 (opportunity engine): LLM structural-thesis grades. One CURRENT row
+-- per (asset_id, as_of_date) — re-grading overwrites. The grader reads
+-- disclosure_texts + news_items + valuation_snapshots and emits discrete grades
+-- with evidence; grade → DcfKnobs mapping is deterministic Phase-C3 code, never
+-- LLM output. A 'failed' row carries `error` with the grade fields NULL.
+CREATE TABLE IF NOT EXISTS thesis_grades (
+  asset_id            TEXT NOT NULL,
+  as_of_date          DATE NOT NULL,
+  run_id              TEXT NOT NULL,
+  model               TEXT NOT NULL,
+  status              TEXT NOT NULL,   -- 'generated' | 'failed'
+  moat_grade          TEXT,            -- 'wide' | 'narrow' | 'none'
+  moat_evidence       TEXT,
+  tech_grade          TEXT,            -- 'leading' | 'parity' | 'lagging'
+  tech_evidence       TEXT,
+  sector_grade        TEXT,            -- 'secular_growth' | 'stable' | 'declining'
+  sector_evidence     TEXT,
+  disruption_grade    TEXT,            -- 'low' | 'medium' | 'high'
+  disruption_evidence TEXT,
+  bear_case           TEXT,
+  confidence          TEXT,            -- 'high' | 'medium' | 'low'
+  evidence_source     TEXT,            -- 'filing' | 'general_knowledge'
+  error               TEXT,
+  metadata            JSON,
+  created_at          TIMESTAMP DEFAULT now(),
+  PRIMARY KEY (asset_id, as_of_date)
+);
