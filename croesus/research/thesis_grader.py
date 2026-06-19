@@ -23,13 +23,16 @@ def grade_theses(
     conn: duckdb.DuckDBPyConnection,
     *,
     run_id: str,
-    as_of_date: date,
+    as_of_date: date | None = None,
     client: ChatClient | None = None,
     log: Callable[[str], None] = print,
 ) -> ThesisRunResult:
     """Grade the structural thesis of every event-prefiltered candidate.
 
     Funnel = assets with an event on ``as_of_date`` (LLM only on the shortlist).
+    ``as_of_date`` defaults to the latest event cohort (``MAX(events.as_of_date)``),
+    so a weekend/holiday run grades the last trading day's events that event_scan
+    actually stored — not today's empty date.
     Failure contract: ``LlmUnavailable`` stops the whole run (server down);
     ``LlmError`` / unparseable response persists a ``failed`` grade and continues.
     """
@@ -40,6 +43,13 @@ def grade_theses(
 
     result = ThesisRunResult(run_id=run_id)
     repo = ThesisGradeRepository(conn)
+
+    if as_of_date is None:
+        row = conn.execute("SELECT MAX(as_of_date) FROM events").fetchone()
+        as_of_date = row[0] if row else None
+        if as_of_date is None:
+            log("thesis_grader: no events to grade")
+            return result
 
     candidate_ids = [
         r[0]

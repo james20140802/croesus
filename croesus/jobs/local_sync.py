@@ -364,19 +364,21 @@ def _run_news_gdelt(db: Path) -> str:
 
 
 def _run_thesis_grader(db: Path) -> str:
-    from datetime import date
     from uuid import uuid4
 
     from croesus.research.thesis_grader import grade_theses
 
     with get_connection(db) as conn:
-        result = grade_theses(
-            conn, run_id=uuid4().hex, as_of_date=date.today()
-        )
-    aborted = f" aborted={result.skipped_reason}" if result.skipped_reason else ""
+        # as_of_date defaults to the latest event cohort inside grade_theses, so
+        # weekend/holiday runs grade the last trading day's events.
+        result = grade_theses(conn, run_id=uuid4().hex)
+    if result.skipped_reason:
+        # The LLM was unreachable — skip (not success), so freshness is NOT
+        # advanced and the next cycle retries once the server is back.
+        raise SyncSkip(f"LLM unavailable: {result.skipped_reason}")
     return (
         f"thesis_grader generated={result.generated} "
-        f"failed={result.failed} skipped={result.skipped}{aborted}"
+        f"failed={result.failed} skipped={result.skipped}"
     )
 
 

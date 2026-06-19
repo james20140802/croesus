@@ -100,6 +100,15 @@ def test_parse_thesis_payload_ignores_trailing_prose_with_braces() -> None:
     assert data["moat_grade"] == "wide" and data["confidence"] == "high"
 
 
+def test_parse_thesis_payload_ignores_leading_prose_with_braces() -> None:
+    # A stray "{" in prose BEFORE the real object must not derail extraction.
+    from croesus.research.thesis_parse import parse_thesis_payload
+
+    raw = "For {AAPL}: my assessment is " + _VALID_PAYLOAD
+    data = parse_thesis_payload(raw)
+    assert data["moat_grade"] == "wide" and data["sector_grade"] == "secular_growth"
+
+
 from pathlib import Path
 
 from croesus.db.connection import get_connection
@@ -345,6 +354,29 @@ def test_grade_theses_counts_candidates_missing_from_universe(tmp_path: Path) ->
 
     assert result.skipped == 1
     assert result.generated == 0 and result.failed == 0
+
+
+def test_grade_theses_defaults_to_latest_event_cohort(tmp_path: Path) -> None:
+    # With no explicit as_of_date the grader must grade MAX(events.as_of_date),
+    # so a weekend run grades the last trading day's events, not today's empty date.
+    from croesus.research.thesis_grader import grade_theses
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    friday = date(2026, 6, 19)
+
+    class OkClient:
+        base_url = "x"
+        model = "fake"
+
+        def chat(self, messages):
+            return _GRADER_RESPONSE
+
+    with get_connection(db_path) as conn:
+        _seed_candidate(conn, "US_EQ_AAA", "AAA", friday)
+        result = grade_theses(conn, run_id="r1", client=OkClient())  # no as_of_date
+
+    assert result.generated == 1
 
 
 def test_thesis_grader_registered_in_sync_pipeline() -> None:

@@ -46,7 +46,8 @@ class ThesisGradeRepository:
               confidence = excluded.confidence,
               evidence_source = excluded.evidence_source,
               error = excluded.error,
-              metadata = excluded.metadata
+              metadata = excluded.metadata,
+              updated_at = now()
             """,
             [
                 grade.asset_id, grade.as_of_date, grade.run_id, grade.model,

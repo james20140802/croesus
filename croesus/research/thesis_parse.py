@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-import re
-
+from croesus.research.json_extract import extract_json_object
 from croesus.research.thesis_models import (
     CONFIDENCE_LEVELS,
     DISRUPTION_GRADES,
@@ -11,10 +9,6 @@ from croesus.research.thesis_models import (
     SECTOR_GRADES,
     TECH_GRADES,
 )
-
-# qwen3-style reasoning traces wrap deliberation in <think> tags; the grades are
-# whatever JSON follows.
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 # (grade key, evidence key, allowed values).
 _DIMENSIONS = (
@@ -35,23 +29,11 @@ def _require_str(data: dict, key: str) -> str:
 def parse_thesis_payload(raw: str) -> dict[str, str]:
     """Strip reasoning, extract the JSON object, and validate it.
 
-    Tolerates markdown fences and prose around the object (decodes the first
-    balanced object from the leading ``{``). Raises ValueError on any missing
-    field, empty evidence, or out-of-vocabulary grade so the grader can record
-    a ``failed`` grade.
+    Tolerates ``<think>`` traces and prose (with stray braces) around the
+    object. Raises ValueError on any missing field, empty evidence, or
+    out-of-vocabulary grade so the grader can record a ``failed`` grade.
     """
-    text = _THINK_RE.sub("", raw)
-    start = text.find("{")
-    if start == -1:
-        raise ValueError("no JSON object found in model response")
-    try:
-        # raw_decode respects brace nesting and stops at the end of the first
-        # object — robust to trailing prose that a last-"}" scan would mis-grab.
-        data, _ = json.JSONDecoder().raw_decode(text, start)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in model response: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError("model response JSON is not an object")
+    data = extract_json_object(raw)
 
     payload: dict[str, str] = {}
     for grade_key, evidence_key, allowed in _DIMENSIONS:

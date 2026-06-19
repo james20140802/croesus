@@ -498,5 +498,6 @@ CREATE TABLE IF NOT EXISTS thesis_grades (
   error               TEXT,
   metadata            JSON,
   created_at          TIMESTAMP DEFAULT now(),
+  updated_at          TIMESTAMP DEFAULT now(),   -- bumped on every re-grade
   PRIMARY KEY (asset_id, as_of_date)
 );
