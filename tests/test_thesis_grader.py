@@ -153,3 +153,37 @@ def test_assemble_thesis_evidence_tolerates_missing_sources(tmp_path: Path) -> N
 
     assert ev.filing_excerpt is None and ev.filing_form is None
     assert ev.news == [] and ev.valuation is None
+
+
+def test_build_thesis_messages_includes_rubric_and_evidence() -> None:
+    from croesus.assets.models import Asset
+    from croesus.news.models import NewsItem
+    from croesus.research.thesis_evidence import ThesisEvidence
+    from croesus.research.thesis_prompt import build_thesis_messages
+
+    asset = Asset(
+        asset_id="US_EQ_AAPL", symbol="AAPL", name="Apple Inc.",
+        asset_type="equity", sector="Tech", industry="Hardware",
+    )
+    ev = ThesisEvidence(
+        filing_excerpt="We face intense competition.", filing_form="10-K",
+        filing_date=date(2026, 5, 1),
+        news=[NewsItem(
+            item_id="i1", source="gdelt", external_id="u1", url="u1",
+            headline="Apple launches X", summary="A summary.", body=None,
+            published_at=None, source_name="reuters.com", category=None,
+        )],
+        valuation=None, fundamentals={"revenue": 1.0e11, "free_cash_flow": None},
+    )
+    messages = build_thesis_messages(asset, ev)
+
+    assert messages[0]["role"] == "system" and messages[1]["role"] == "user"
+    system = messages[0]["content"]
+    # Rubric must name every allowed value so the model stays in-vocabulary.
+    for token in ("wide", "narrow", "secular_growth", "disruption", "bear_case",
+                  "general_knowledge", "JSON"):
+        assert token in system
+    user = messages[1]["content"]
+    assert "Apple Inc." in user
+    assert "10-K" in user and "We face intense competition." in user
+    assert "Apple launches X" in user
