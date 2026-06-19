@@ -363,6 +363,23 @@ def _run_news_gdelt(db: Path) -> str:
     )
 
 
+def _run_thesis_grader(db: Path) -> str:
+    from datetime import date
+    from uuid import uuid4
+
+    from croesus.research.thesis_grader import grade_theses
+
+    with get_connection(db) as conn:
+        result = grade_theses(
+            conn, run_id=uuid4().hex, as_of_date=date.today()
+        )
+    skipped = f" skipped={result.skipped_reason}" if result.skipped_reason else ""
+    return (
+        f"thesis_grader generated={result.generated} "
+        f"failed={result.failed}{skipped}"
+    )
+
+
 def _run_event_scan(db: Path) -> str:
     from croesus.events.scan import run_event_scan
 
@@ -426,6 +443,13 @@ def default_sync_jobs() -> list[SyncJob]:
         SyncJob(
             "news_gdelt_run", ("news_gdelt",), _run_news_gdelt,
             soft_depends_on=("universe_refresh",),
+        ),
+        SyncJob(
+            "thesis_grader_run", ("thesis_grades",), _run_thesis_grader,
+            depends_on=("event_scan",),
+            soft_depends_on=(
+                "disclosure_texts_run", "news_finnhub_run", "news_gdelt_run",
+            ),
         ),
         # soft_depends_on: a successful universe refresh forces a price run in
         # the same cycle (new constituents must not wait out the 48h prices

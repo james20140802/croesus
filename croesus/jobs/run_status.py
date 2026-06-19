@@ -195,6 +195,10 @@ DOMAIN_REGISTRY: tuple[DomainSpec, ...] = (
         "news_gdelt", "news_gdelt_run", 48.0,
         _job_success_date_fn("news_gdelt_run"),
     ),
+    DomainSpec(
+        "thesis_grades", "thesis_grader_run", 48.0,
+        _job_success_date_fn("thesis_grader_run"),
+    ),
 )
 
 DOMAINS_BY_NAME: dict[str, DomainSpec] = {spec.domain: spec for spec in DOMAIN_REGISTRY}

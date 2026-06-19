@@ -307,3 +307,20 @@ def test_grade_theses_aborts_when_llm_unavailable(tmp_path: Path) -> None:
 
     assert result.skipped_reason == "server down"
     assert result.generated == 0 and result.failed == 0 and n == 0
+
+
+def test_thesis_grader_registered_in_sync_pipeline() -> None:
+    from croesus.jobs.local_sync import default_sync_jobs
+    from croesus.jobs.run_status import DOMAINS_BY_NAME
+
+    assert "thesis_grades" in DOMAINS_BY_NAME
+    assert DOMAINS_BY_NAME["thesis_grades"].job_name == "thesis_grader_run"
+
+    jobs = {job.name: job for job in default_sync_jobs()}
+    assert "thesis_grader_run" in jobs
+    job = jobs["thesis_grader_run"]
+    assert job.domains == ("thesis_grades",)
+    assert job.depends_on == ("event_scan",)
+    assert job.soft_depends_on == (
+        "disclosure_texts_run", "news_finnhub_run", "news_gdelt_run",
+    )

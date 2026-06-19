@@ -182,6 +182,7 @@ def test_default_jobs_are_recommendation_only_no_trades() -> None:
         "disclosure_texts_run",
         "news_finnhub_run",
         "news_gdelt_run",
+        "thesis_grader_run",
         "daily_run",
         "event_scan",
         "quarterly_run",
