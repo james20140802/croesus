@@ -161,10 +161,10 @@ def compute_fcf_growth(annual_fcf: list[float]) -> float | None:
     are fewer than two points or either endpoint is non-positive (a CAGR across a
     sign change is undefined).
     """
-    # NOTE: this look-back window is pinned to the module constant, not
-    # knobs.explicit_years. Identical today (DEFAULT_DCF_KNOBS.explicit_years ==
-    # DCF_EXPLICIT_YEARS). Phase C, which lets a thesis stretch the CAP, must
-    # decide whether the CAGR window should track that or stay a fixed history.
+    # Phase C decision: the CAGR look-back stays a FIXED observed-history window
+    # (DCF_EXPLICIT_YEARS). The moat-stretched CAP (knobs.explicit_years) controls
+    # only how long that observed growth is PROJECTED, not how far back it is
+    # measured — historical growth is an observed fact, not a thesis lever.
     recent = annual_fcf[-DCF_EXPLICIT_YEARS:]
     if len(recent) < 2:
         return None

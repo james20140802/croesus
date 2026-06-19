@@ -50,7 +50,13 @@ from croesus.fundamentals.repository import (
     METRIC_TOTAL_DEBT,
     FundamentalsRepository,
 )
+from croesus.factors.equity.band_repository import (
+    BandRow,
+    IntrinsicValueBandRepository,
+)
+from croesus.factors.equity.intrinsic_bands import compute_intrinsic_bands
 from croesus.prices.repository import PriceRepository
+from croesus.research.thesis_repository import ThesisGradeRepository
 
 BENCHMARK_SYMBOL = "SPY"
 _BETA_LOOKBACK_DAYS = 730  # ~2 years of daily returns
@@ -118,6 +124,8 @@ def compute_and_store_valuation_factors(
         rf = _risk_free_rate(conn)
 
     snapshot_repo = ValuationSnapshotRepository(conn)
+    band_repo = IntrinsicValueBandRepository(conn)
+    thesis_repo = ThesisGradeRepository(conn)
     for calc in calcs:
         asset_id = calc.asset.asset_id
         factors: list[FactorValue] = _multiple_factors(calc, as_of)
@@ -126,7 +134,9 @@ def compute_and_store_valuation_factors(
         if include_dcf:
             try:
                 price_to_intrinsic = _compute_dcf(
-                    calc, as_of, rf=rf, snapshot_repo=snapshot_repo, result=result, log=log
+                    calc, as_of, rf=rf, snapshot_repo=snapshot_repo,
+                    band_repo=band_repo, thesis_repo=thesis_repo,
+                    result=result, log=log,
                 )
                 if price_to_intrinsic is not None:
                     factors.append(
@@ -246,6 +256,8 @@ def _compute_dcf(
     *,
     rf: float,
     snapshot_repo: ValuationSnapshotRepository,
+    band_repo: IntrinsicValueBandRepository,
+    thesis_repo: ThesisGradeRepository,
     result: ValuationComputationResult,
     log: Callable[[str], None],
 ) -> float | None:
@@ -307,9 +319,71 @@ def _compute_dcf(
         )
     )
     result.dcf_computed.append(asset_id)
+    _store_intrinsic_bands(
+        calc, as_of, rf=rf, beta=beta, growth=growth,
+        thesis_repo=thesis_repo, band_repo=band_repo, log=log,
+    )
     if dcf.intrinsic_value_per_share <= 0:
         return None  # negative intrinsic value -> price_to_intrinsic is meaningless
     return calc.price / dcf.intrinsic_value_per_share
+
+
+def _store_intrinsic_bands(
+    calc: _AssetCalc,
+    as_of: date,
+    *,
+    rf: float,
+    beta: float,
+    growth: float,
+    thesis_repo: ThesisGradeRepository,
+    band_repo: IntrinsicValueBandRepository,
+    log: Callable[[str], None],
+) -> None:
+    """Best-effort moat-adjusted band for an asset WITH a thesis grade.
+
+    Grade-only: ungraded assets get no band. Reuses the same DCF inputs as the
+    base snapshot but with grade-derived scenario knobs. Its failure must never
+    disturb the base DCF / price_to_intrinsic, so all of it is caught here.
+    """
+    asset_id = calc.asset.asset_id
+    try:
+        grade = thesis_repo.load_latest_for_asset(asset_id, as_of)
+        if grade is None:
+            return  # no thesis -> no band (recommendation-only, shortlist-only)
+        bands = compute_intrinsic_bands(
+            base_fcf=calc.annual_fcf[-1],
+            growth=growth,
+            risk_free_rate=rf,
+            beta=beta,
+            shares_outstanding=calc.shares or 0.0,
+            total_debt=calc.fundamentals["total_debt"],
+            cash=calc.fundamentals["cash_and_equivalents"],
+            moat=grade.moat_grade,
+            sector=grade.sector_grade,
+            disruption=grade.disruption_grade,
+        )
+        for scenario, band in bands.items():
+            if band is None:
+                continue
+            upside = (
+                band.intrinsic_value_per_share / calc.price - 1.0
+                if calc.price
+                else None
+            )
+            band_repo.upsert_band(BandRow(
+                asset_id=asset_id, date=as_of, scenario=scenario,
+                intrinsic_value_per_share=band.intrinsic_value_per_share,
+                current_price=calc.price, upside_pct=upside, wacc=band.wacc,
+                fcf_growth_rate=band.fcf_growth_rate,
+                terminal_growth_rate=band.terminal_growth_rate,
+                explicit_years=band.explicit_years,
+                wacc_risk_premium=band.wacc_risk_premium,
+                moat_grade=grade.moat_grade, sector_grade=grade.sector_grade,
+                disruption_grade=grade.disruption_grade,
+                thesis_as_of_date=grade.as_of_date, thesis_run_id=grade.run_id,
+            ))
+    except Exception as exc:  # noqa: BLE001 - band is best-effort; base DCF stands.
+        log(f"intrinsic band failed for {calc.asset.symbol}: {exc}")
 
 
 def _assign_betas(
