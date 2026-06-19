@@ -363,6 +363,25 @@ def _run_news_gdelt(db: Path) -> str:
     )
 
 
+def _run_thesis_grader(db: Path) -> str:
+    from uuid import uuid4
+
+    from croesus.research.thesis_grader import grade_theses
+
+    with get_connection(db) as conn:
+        # as_of_date defaults to the latest event cohort inside grade_theses, so
+        # weekend/holiday runs grade the last trading day's events.
+        result = grade_theses(conn, run_id=uuid4().hex)
+    if result.skipped_reason:
+        # The LLM was unreachable — skip (not success), so freshness is NOT
+        # advanced and the next cycle retries once the server is back.
+        raise SyncSkip(f"LLM unavailable: {result.skipped_reason}")
+    return (
+        f"thesis_grader generated={result.generated} "
+        f"failed={result.failed} skipped={result.skipped}"
+    )
+
+
 def _run_event_scan(db: Path) -> str:
     from croesus.events.scan import run_event_scan
 
@@ -438,6 +457,16 @@ def default_sync_jobs() -> list[SyncJob]:
             "event_scan", ("events",), _run_event_scan,
             depends_on=("daily_run",),
             soft_depends_on=("disclosures_run",),
+        ),
+        # Must follow event_scan: the grader funnels on the events table, so it
+        # has to see THIS cycle's events. depends_on hard-blocks it if the scan
+        # failed; soft_depends_on re-grades when fresh evidence lands.
+        SyncJob(
+            "thesis_grader_run", ("thesis_grades",), _run_thesis_grader,
+            depends_on=("event_scan",),
+            soft_depends_on=(
+                "disclosure_texts_run", "news_finnhub_run", "news_gdelt_run",
+            ),
         ),
         # No depends_on: a dependency edge would re-run this every time
         # daily_run refreshes (i.e. daily). The quarterly freshness threshold

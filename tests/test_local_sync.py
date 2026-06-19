@@ -184,6 +184,7 @@ def test_default_jobs_are_recommendation_only_no_trades() -> None:
         "news_gdelt_run",
         "daily_run",
         "event_scan",
+        "thesis_grader_run",
         "quarterly_run",
         "portfolio_snapshot",
         "screening_run",

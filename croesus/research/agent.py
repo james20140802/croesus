@@ -18,8 +18,6 @@ trade.
 """
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Callable
@@ -28,6 +26,7 @@ from uuid import uuid4
 import duckdb
 
 from croesus.factors.equity.repository import ValuationSnapshotRepository
+from croesus.research.json_extract import extract_json_object
 from croesus.research.llm_client import (
     ChatClient,
     ChatCompletionsClient,
@@ -41,10 +40,6 @@ from croesus.research.models import (
 )
 from croesus.research.prompt_builder import build_research_messages
 from croesus.research.repository import ResearchNoteRepository
-
-# qwen3-style reasoning traces wrap deliberation in <think> tags; the note is
-# whatever follows.
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 _NOTE_KEYS = ("business_summary", "catalysts", "risk_factors")
 
@@ -169,16 +164,7 @@ def parse_note_payload(raw: str) -> dict[str, str]:
     and prose around the object. Raises ``ValueError`` when no valid note
     object can be recovered.
     """
-    text = _THINK_RE.sub("", raw)
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        raise ValueError("no JSON object found in model response")
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in model response: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError("model response JSON is not an object")
+    data = extract_json_object(raw)
 
     payload: dict[str, str] = {}
     for key in _NOTE_KEYS:
