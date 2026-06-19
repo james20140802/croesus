@@ -29,6 +29,7 @@ class RawNewsArticle:
     source_name: str | None
     category: str | None
     tickers: tuple[str, ...]   # symbols the source associates (1st = queried)
+    body: str | None = None    # full article text (GDELT); None for headline-only sources
 
 
 @dataclass(frozen=True)

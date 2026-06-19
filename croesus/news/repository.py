@@ -35,7 +35,7 @@ class NewsRepository:
             item_rows.append(
                 (
                     item_id, source, art.external_id, art.url, art.headline,
-                    art.summary, None, art.published_at, art.source_name, art.category,
+                    art.summary, art.body, art.published_at, art.source_name, art.category,
                 )
             )
             for position, symbol in enumerate(art.tickers):
