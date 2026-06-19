@@ -88,3 +88,68 @@ def test_parse_thesis_payload_rejects_no_json() -> None:
 
     with pytest.raises(ValueError):
         parse_thesis_payload("<think>only reasoning, no object</think>")
+
+
+from pathlib import Path
+
+from croesus.db.connection import get_connection
+from croesus.db.migrate import migrate
+
+
+def test_assemble_thesis_evidence_reads_filing_news_numbers(tmp_path: Path) -> None:
+    from croesus.assets.models import Asset
+    from croesus.assets.repository import AssetRepository
+    from croesus.news.models import RawNewsArticle
+    from croesus.news.repository import NewsRepository
+    from croesus.research.thesis_evidence import assemble_thesis_evidence
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    asof = date(2026, 6, 19)
+    with get_connection(db_path) as conn:
+        AssetRepository(conn).upsert_many([Asset(
+            asset_id="US_EQ_AAPL", symbol="AAPL", name="Apple Inc.",
+            asset_type="equity", sector="Tech", industry="Hardware",
+        )])
+        # A fetched filing + its text.
+        conn.execute(
+            "INSERT INTO disclosures (asset_id, accession_number, form_type, "
+            "filed_date, source) VALUES (?, ?, ?, ?, ?)",
+            ["US_EQ_AAPL", "acc-1", "10-K", date(2026, 5, 1), "sec_edgar"],
+        )
+        conn.execute(
+            "INSERT INTO disclosure_texts (asset_id, accession_number, char_count, "
+            "text, status, source) VALUES (?, ?, ?, ?, ?, ?)",
+            ["US_EQ_AAPL", "acc-1", 5, "RISK FACTORS body" * 5000, "fetched", "sec_edgar"],
+        )
+        NewsRepository(conn).upsert_articles("gdelt", [RawNewsArticle(
+            external_id="u1", url="u1", headline="Apple launches X", summary=None,
+            published_at=None, source_name="reuters.com", category=None,
+            tickers=("AAPL",), body="full body",
+        )], symbol_to_asset={"AAPL": "US_EQ_AAPL"})
+
+        asset = AssetRepository(conn).list_active()[0]
+        ev = assemble_thesis_evidence(conn, asset, asof, filing_char_budget=100)
+
+    assert ev.filing_form == "10-K"
+    assert ev.filing_excerpt is not None and len(ev.filing_excerpt) <= 100
+    assert any(n.headline == "Apple launches X" for n in ev.news)
+    assert "revenue" in ev.fundamentals  # key present even if value is None
+
+
+def test_assemble_thesis_evidence_tolerates_missing_sources(tmp_path: Path) -> None:
+    from croesus.assets.models import Asset
+    from croesus.assets.repository import AssetRepository
+    from croesus.research.thesis_evidence import assemble_thesis_evidence
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        AssetRepository(conn).upsert_many([Asset(
+            asset_id="US_EQ_ZZZ", symbol="ZZZ", name="Zed Co.", asset_type="equity",
+        )])
+        asset = AssetRepository(conn).list_active()[0]
+        ev = assemble_thesis_evidence(conn, asset, date(2026, 6, 19))
+
+    assert ev.filing_excerpt is None and ev.filing_form is None
+    assert ev.news == [] and ev.valuation is None
