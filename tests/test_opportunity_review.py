@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +39,17 @@ class ScriptedOpportunityPrompter:
         return self.answer
 
 
-def _band(asset_id: str, scenario: str, intrinsic: float, current: float) -> BandRow:
+def _band(
+    asset_id: str,
+    scenario: str,
+    intrinsic: float,
+    current: float,
+    *,
+    band_date: date = AS_OF,
+) -> BandRow:
     return BandRow(
         asset_id=asset_id,
-        date=AS_OF,
+        date=band_date,
         scenario=scenario,
         intrinsic_value_per_share=intrinsic,
         current_price=current,
@@ -125,7 +132,11 @@ def test_select_methodology_uses_prompt_and_blocks_unavailable_choice() -> None:
 
     assert selected.key == "moat_adjusted_intrinsic_value"
     assert prompter.seen[0]["key"] == "methodology"
-    assert "event_driven_thesis" not in prompter.seen[0]["choices"]
+    assert prompter.seen[0]["choices"] == [
+        "moat_adjusted_intrinsic_value",
+        "event_driven_thesis",
+    ]
+    assert prompter.seen[0]["default"] == "moat_adjusted_intrinsic_value"
 
     try:
         select_methodology("event_driven_thesis")
@@ -133,6 +144,10 @@ def test_select_methodology_uses_prompt_and_blocks_unavailable_choice() -> None:
         assert "not implemented" in str(exc)
     else:  # pragma: no cover - failure path
         raise AssertionError("deferred methodology should be blocked")
+
+    blocked_prompter = ScriptedOpportunityPrompter("event_driven_thesis")
+    with pytest.raises(MethodologyUnavailable):
+        select_methodology(prompter=blocked_prompter)
 
 
 def test_run_opportunity_review_returns_methodology_a_cards(tmp_path: Path) -> None:
@@ -164,6 +179,65 @@ def test_run_opportunity_review_returns_methodology_a_cards(tmp_path: Path) -> N
     assert card.base_upside_pct == pytest.approx(0.40)
     assert card.thesis_confidence == "medium"
     assert card.bear_case == "margin pressure invalidates the thesis"
+
+
+def test_opportunity_review_uses_latest_complete_band_set(tmp_path: Path) -> None:
+    from croesus.opportunities.review import run_opportunity_review
+
+    db_path = tmp_path / "croesus.duckdb"
+    prior = AS_OF - timedelta(days=1)
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        repo = IntrinsicValueBandRepository(conn)
+        for scenario, intrinsic in (
+            ("bear", 80.0),
+            ("base", 130.0),
+            ("bull", 170.0),
+        ):
+            repo.upsert_band(
+                _band("US_EQ_AAPL", scenario, intrinsic, 100.0, band_date=prior)
+            )
+        repo.upsert_band(_band("US_EQ_AAPL", "base", 150.0, 100.0))
+
+        result = run_opportunity_review(
+            conn,
+            methodology_key="moat_adjusted_intrinsic_value",
+            as_of_date=AS_OF,
+        )
+
+    card = result.cards[0]
+    assert card.as_of_date == prior
+    assert card.band_intrinsic_by_scenario == {
+        "bear": 80.0,
+        "base": 130.0,
+        "bull": 170.0,
+    }
+
+
+def test_opportunity_review_sorts_equal_upside_by_symbol(tmp_path: Path) -> None:
+    from croesus.opportunities.review import run_opportunity_review
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        repo = IntrinsicValueBandRepository(conn)
+        for asset_id, current in (("US_EQ_AAPL", 100.0), ("US_EQ_MSFT", 200.0)):
+            for scenario, intrinsic in (
+                ("bear", current * 0.9),
+                ("base", current * 1.4),
+                ("bull", current * 1.8),
+            ):
+                repo.upsert_band(_band(asset_id, scenario, intrinsic, current))
+
+        result = run_opportunity_review(
+            conn,
+            methodology_key="moat_adjusted_intrinsic_value",
+            as_of_date=AS_OF,
+        )
+
+    assert [card.symbol for card in result.cards] == ["AAPL", "MSFT"]
 
 
 def test_opportunity_review_cli_prints_selected_methodology(

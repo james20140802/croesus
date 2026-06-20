@@ -65,20 +65,35 @@ def _asset_labels(conn: duckdb.DuckDBPyConnection, asset_ids: list[str]) -> dict
 def _latest_band_rows(conn: duckdb.DuckDBPyConnection, as_of: date) -> dict[str, dict[str, tuple]]:
     rows = conn.execute(
         """
-        WITH ranked AS (
-            SELECT
-                asset_id, date, scenario, intrinsic_value_per_share, current_price,
-                upside_pct,
-                ROW_NUMBER() OVER (
-                    PARTITION BY asset_id, scenario
-                    ORDER BY date DESC
-                ) AS rn
+        WITH complete_dates AS (
+            SELECT asset_id, date
             FROM intrinsic_value_bands
             WHERE date <= ?
+              AND scenario IN ('bear', 'base', 'bull')
+            GROUP BY asset_id, date
+            HAVING COUNT(DISTINCT scenario) = 3
+        ),
+        latest_complete AS (
+            SELECT
+                asset_id,
+                date,
+                ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY date DESC) AS rn
+            FROM complete_dates
         )
-        SELECT asset_id, date, scenario, intrinsic_value_per_share, current_price, upside_pct
-        FROM ranked
-        WHERE rn = 1
+        SELECT
+            bands.asset_id,
+            bands.date,
+            bands.scenario,
+            bands.intrinsic_value_per_share,
+            bands.current_price,
+            bands.upside_pct
+        FROM intrinsic_value_bands AS bands
+        JOIN latest_complete AS latest
+          ON bands.asset_id = latest.asset_id
+         AND bands.date = latest.date
+        WHERE latest.rn = 1
+          AND bands.scenario IN ('bear', 'base', 'bull')
+        ORDER BY bands.asset_id, bands.scenario
         """,
         [as_of],
     ).fetchall()
@@ -86,6 +101,12 @@ def _latest_band_rows(conn: duckdb.DuckDBPyConnection, as_of: date) -> dict[str,
     for row in rows:
         grouped.setdefault(row[0], {})[row[2]] = row
     return grouped
+
+
+def _opportunity_card_sort_key(card: OpportunityCard) -> tuple[int, float, str]:
+    if card.base_upside_pct is None:
+        return (1, 0.0, card.symbol)
+    return (0, -card.base_upside_pct, card.symbol)
 
 
 def _review_methodology_a(
@@ -154,14 +175,7 @@ def _review_methodology_a(
             )
         )
 
-    cards.sort(
-        key=lambda card: (
-            card.base_upside_pct is not None,
-            card.base_upside_pct if card.base_upside_pct is not None else float("-inf"),
-            card.symbol,
-        ),
-        reverse=True,
-    )
+    cards.sort(key=_opportunity_card_sort_key)
     return cards[:limit]
 
 

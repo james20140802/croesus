@@ -35,7 +35,14 @@ class QuestionaryOpportunityPrompter:
 
     def select(self, key, message, description, choices, default) -> Any:
         q_choices = [
-            self._q.Choice(title=OPPORTUNITY_METHODOLOGIES[c].label, value=c)
+            self._q.Choice(
+                title=(
+                    OPPORTUNITY_METHODOLOGIES[c].label
+                    if OPPORTUNITY_METHODOLOGIES[c].available
+                    else f"{OPPORTUNITY_METHODOLOGIES[c].label} (deferred)"
+                ),
+                value=c,
+            )
             for c in choices
         ]
         answer = self._q.select(
@@ -72,21 +79,26 @@ def available_methodology_keys() -> list[str]:
     return [key for key, method in OPPORTUNITY_METHODOLOGIES.items() if method.available]
 
 
+def methodology_menu_keys() -> list[str]:
+    return list(OPPORTUNITY_METHODOLOGIES)
+
+
 def select_methodology(
     methodology_key: str | None = None,
     *,
     prompter: OpportunityPrompter | None = None,
 ) -> OpportunityMethodology:
     if methodology_key is None:
-        choices = available_methodology_keys()
-        if not choices:
+        choices = methodology_menu_keys()
+        available = available_methodology_keys()
+        if not available:
             raise MethodologyUnavailable("no opportunity methodologies are implemented")
         selected = (prompter or QuestionaryOpportunityPrompter()).select(
             "methodology",
             "Opportunity methodology",
             "Select the opportunity engine methodology to run.",
             choices,
-            choices[0],
+            available[0],
         )
         methodology_key = str(selected)
 
