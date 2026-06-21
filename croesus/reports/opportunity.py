@@ -25,6 +25,15 @@ def _grade_line(card: OpportunityCard) -> str:
     )
 
 
+def _evidence_line(card: OpportunityCard) -> str:
+    return (
+        f"moat: {card.moat_evidence or 'n/a'}; "
+        f"tech: {card.tech_evidence or 'n/a'}; "
+        f"sector: {card.sector_evidence or 'n/a'}; "
+        f"disruption: {card.disruption_evidence or 'n/a'}"
+    )
+
+
 def render_opportunity_review(result: OpportunityReviewResult) -> str:
     lines = [
         f"# Opportunity Review - {result.as_of_date:%Y-%m-%d}",
@@ -53,6 +62,7 @@ def render_opportunity_review(result: OpportunityReviewResult) -> str:
                 f"{_money(bands.get('bull'))}",
                 f"- Base band upside: {_pct(card.base_upside_pct)}",
                 f"- Thesis grades: {_grade_line(card)}",
+                f"- Thesis evidence: {_evidence_line(card)}",
                 f"- Confidence: {card.thesis_confidence or 'n/a'}; "
                 f"evidence_source={card.evidence_source or 'n/a'}",
                 f"- Bear case: {card.bear_case or 'n/a'}",

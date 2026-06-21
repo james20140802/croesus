@@ -116,8 +116,10 @@ def _review_methodology_a(
     as_of: date,
     limit: int,
 ) -> list[OpportunityCard]:
+    # _latest_band_rows only returns assets whose latest complete date carries
+    # all three scenarios, so every grouped entry has bear/base/bull present.
     band_rows = _latest_band_rows(conn, as_of)
-    asset_ids = [asset_id for asset_id, scenarios in band_rows.items() if "base" in scenarios]
+    asset_ids = list(band_rows)
     labels = _asset_labels(conn, asset_ids)
     valuation_repo = ValuationSnapshotRepository(conn)
     thesis_repo = ThesisGradeRepository(conn)
@@ -126,24 +128,13 @@ def _review_methodology_a(
     for asset_id in asset_ids:
         scenarios = band_rows[asset_id]
         base = scenarios["base"]
-        band_intrinsic = {
-            scenario: (
-                scenarios[scenario][3]
-                if scenario in scenarios
-                else None
-            )
-            for scenario in SCENARIOS
-        }
-        band_upside = {
-            scenario: (
-                scenarios[scenario][5]
-                if scenario in scenarios
-                else None
-            )
-            for scenario in SCENARIOS
-        }
-        valuation = valuation_repo.get(asset_id, as_of)
-        thesis = thesis_repo.load_latest_for_asset(asset_id, as_of)
+        band_date = base[1]
+        band_intrinsic = {scenario: scenarios[scenario][3] for scenario in SCENARIOS}
+        band_upside = {scenario: scenarios[scenario][5] for scenario in SCENARIOS}
+        # Load valuation/thesis as of the band's own date (not the review
+        # date) so the rendered grades match the thesis the band was built from.
+        valuation = valuation_repo.get(asset_id, band_date)
+        thesis = thesis_repo.load_latest_for_asset(asset_id, band_date)
         symbol, name = labels.get(asset_id, (asset_id, None))
         cards.append(
             OpportunityCard(
@@ -183,10 +174,14 @@ def run_opportunity_review(
     conn: duckdb.DuckDBPyConnection,
     *,
     methodology_key: str | None = None,
+    methodology: OpportunityMethodology | None = None,
     as_of_date: date | None = None,
     limit: int = 20,
 ) -> OpportunityReviewResult:
-    methodology = select_methodology(methodology_key)
+    # Callers that already resolved the methodology (e.g. the CLI menu) pass it
+    # in directly to avoid re-running selection; otherwise resolve from the key.
+    if methodology is None:
+        methodology = select_methodology(methodology_key)
     as_of = as_of_date or date.today()
     if methodology.key == "moat_adjusted_intrinsic_value":
         cards = _review_methodology_a(

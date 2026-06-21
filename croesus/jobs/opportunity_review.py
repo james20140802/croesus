@@ -64,7 +64,7 @@ def main(
     with get_connection(args.db_path) as conn:
         result = run_opportunity_review(
             conn,
-            methodology_key=methodology.key,
+            methodology=methodology,
             as_of_date=as_of,
             limit=args.limit,
         )

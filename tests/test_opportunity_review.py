@@ -215,6 +215,64 @@ def test_opportunity_review_uses_latest_complete_band_set(tmp_path: Path) -> Non
     }
 
 
+def _thesis(asset_id: str, as_of: date, *, run_id: str, confidence: str) -> ThesisGrade:
+    return ThesisGrade(
+        asset_id=asset_id,
+        as_of_date=as_of,
+        run_id=run_id,
+        model="qwen3:32b",
+        status=STATUS_GENERATED,
+        moat_grade="narrow",
+        moat_evidence="switching costs",
+        tech_grade="leading",
+        tech_evidence="roadmap",
+        sector_grade="stable",
+        sector_evidence="demand",
+        disruption_grade="medium",
+        disruption_evidence="threat",
+        bear_case="thesis breaks",
+        confidence=confidence,
+        evidence_source="filing",
+    )
+
+
+def test_opportunity_review_loads_thesis_at_band_date_not_review_date(
+    tmp_path: Path,
+) -> None:
+    """The card's thesis must match the date the band was built from, not the
+    later review date — otherwise a newer thesis would be shown against an
+    older band."""
+    from croesus.opportunities.review import run_opportunity_review
+
+    db_path = tmp_path / "croesus.duckdb"
+    prior = AS_OF - timedelta(days=1)
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        repo = IntrinsicValueBandRepository(conn)
+        for scenario, intrinsic in (("bear", 80.0), ("base", 130.0), ("bull", 170.0)):
+            repo.upsert_band(
+                _band("US_EQ_AAPL", scenario, intrinsic, 100.0, band_date=prior)
+            )
+        thesis_repo = ThesisGradeRepository(conn)
+        thesis_repo.upsert(
+            _thesis("US_EQ_AAPL", prior, run_id="run-prior", confidence="low")
+        )
+        thesis_repo.upsert(
+            _thesis("US_EQ_AAPL", AS_OF, run_id="run-new", confidence="high")
+        )
+
+        result = run_opportunity_review(
+            conn,
+            methodology_key="moat_adjusted_intrinsic_value",
+            as_of_date=AS_OF,
+        )
+
+    card = result.cards[0]
+    assert card.thesis_as_of_date == prior
+    assert card.thesis_confidence == "low"
+
+
 def test_opportunity_review_sorts_equal_upside_by_symbol(tmp_path: Path) -> None:
     from croesus.opportunities.review import run_opportunity_review
 
@@ -264,6 +322,8 @@ def test_opportunity_review_cli_prints_selected_methodology(
     assert "recommendation-only; no trades" in out
     assert "AAPL" in out
     assert "bear/base/bull: $90.00 / $140.00 / $180.00" in out
+    assert "Thesis evidence:" in out
+    assert "switching costs in filing" in out
 
 
 def test_opportunity_review_cli_uses_prompt_when_methodology_omitted(
