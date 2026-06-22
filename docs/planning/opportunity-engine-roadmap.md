@@ -53,9 +53,11 @@ TDD implementation → two-stage review (spec-compliance, then code-quality) →
 | **News-2** | GDELT DOC 2.0 broad news + `trafilatura` body fetch (catalyst discovery). | `croesus/news/{gdelt_parse,gdelt_source,body_fetch,gdelt_ingest}`; `body` col; `news_gdelt_run` | #44 |
 | **C2** | LLM structural-thesis grader: reads filing text + news + numbers for event candidates, emits discrete evidence-backed grades. | `croesus/research/thesis_*` + `json_extract`; `thesis_grades` table; `thesis_grader_run` | #45 |
 | **C3** | thesis grade → `DcfKnobs` → **bear/base/bull intrinsic-value band**. | `factors/equity/{thesis_knobs,intrinsic_bands,band_repository}`; `intrinsic_value_bands` table | #46 |
+| **D** | User-selectable opportunity methodology review surface. Methodology A is executable; methodology B is visible as designed/deferred and blocked until implemented. | `croesus/opportunities/{selection,review}.py`; `croesus/jobs/opportunity_review.py`; `croesus/reports/opportunity.py` | local |
 
-The A→E methodology-A pipeline is **functionally complete through C3** (event
-sourcing → evidence → grading → value band). D and E are design-only.
+The A→E methodology-A pipeline is **functionally complete through D** (event
+sourcing → evidence → grading → value band → user-selected review surface). E is
+design-only.
 
 ### C2 grade taxonomy → C3 knob mapping
 
@@ -105,18 +107,17 @@ general_knowledge} distinguishes filing-defensible from general knowledge; a
 - **Methodology B** — event-driven opportunity thesis (structural-winner vs
   catalyst-repricing; direction + horizon + evidence + bear) over the same
   `events` feed. Design-only.
-- **D — user selection menu** — let the user pick which methodology to run, like
-  the forward-test weight-scheme menu. Design-only.
 - **E — risk gate integration** — how (if ever) an opportunity recommendation
   interacts with the portfolio layer. Currently recommendation-only; **automatic
   selection influence is deferred on purpose**.
 - **Multiple-scoring sector-relative fix** — design-only.
 
 ### Capability gaps left for follow-ups
-- **Human-facing surface** — there is no report / CLI view of
-  `intrinsic_value_bands` or `thesis_grades` yet. The data is persisted; nothing
-  renders the "현재가 | 현재가치 DCF | 해자반영 DCF (bear/base/bull) + thesis 카드"
-  output the spec describes. **This is the most useful next step.**
+- **Human-facing surface breadth** — Phase D now provides a CLI/report view for
+  methodology A: `python -m croesus.jobs.opportunity_review --methodology
+  moat_adjusted_intrinsic_value --report`. This is still review-only and does
+  not feed the portfolio layer. Methodology B still needs its own normalized
+  event-driven thesis implementation before it can be selected.
 - **News-2 deferreds** — (a) theme-based broad discovery + NER / GKG entity →
   ticker mapping (GDELT currently maps by company-name query only — name
   ambiguity is a known limitation, resolved downstream by the C2 LLM); (b) GDELT
@@ -159,6 +160,12 @@ general_knowledge} distinguishes filing-defensible from general knowledge; a
 `disclosures_run` → `disclosure_texts_run` → `news_finnhub_run` →
 `news_gdelt_run` → `event_scan` → `thesis_grader_run`; the C3 band rides the
 existing `quarterly_run` DCF pass (no separate job).
+
+**Human-run review CLI:** `python -m croesus.jobs.opportunity_review`
+opens a methodology menu when `--methodology` is omitted. Methodology A renders
+current price, mechanical DCF, moat-adjusted bear/base/bull DCF, thesis grades,
+confidence/evidence source, and bear case from persisted rows. It is
+recommendation-only; no trade proposals or approvals are created.
 
 **Plans** (`docs/superpowers/plans/`): one per phase —
 `2026-06-15-dcf-knobs`, `2026-06-16-edgar-disclosure-ingestion`,
