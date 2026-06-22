@@ -47,7 +47,7 @@ block reason fires, else `warn` if any warn reason fires, else `pass`.
 | `SECTOR_OVER_MAX` / `INDUSTRY_OVER_MAX` / `COUNTRY_OVER_MAX` / `CURRENCY_OVER_MAX` | candidate's bucket has `is_violation=True` in current exposures → no room for a new buy in that bucket | **block** | `compute_exposures` (fresh) |
 | `POSITION_OVER_MAX` | candidate is **already held** and its position exposure is `is_violation` | **block** | `compute_exposures` |
 | `DISALLOWED_ASSET_TYPE` | candidate `asset_type` ∈ `profile.disallowed_asset_types`, or ∉ `profile.allowed_asset_types` when that list is non-empty | **block** | `InvestorProfile` |
-| `LIQUIDITY_BELOW_MINIMUM` | `liquidity_1m < min_liquidity_usd` | **warn** | `factor_values` + macro screening params |
+| `LIQUIDITY_BELOW_MINIMUM` | `liquidity_1m < min_liquidity_usd` | **warn** | `factor_values` + Phase E liquidity floor |
 | `ALREADY_HELD` | candidate `asset_id` ∈ current holdings | note only (no status change) | holdings |
 
 **Why liquidity is WARN, not BLOCK (user-confirmed):** the screening engine hard-skips
@@ -55,9 +55,17 @@ illiquid names, but Phase E is recommendation-only and `min_liquidity_usd` is a
 macro-tunable threshold, not a profile hard rule. Blocking on it could hide pearls;
 flagging lets the human judge. Reason code is reused verbatim from screening.
 
-**`min_liquidity_usd` source:** same path the screener uses — latest `MacroState`
-→ `macro.screening_adapter.get_screening_params(macro_state)["filters"]["min_liquidity_usd"]`.
-If no macro state is available, fall back to the screening adapter's module default.
+**`min_liquidity_usd` source — Phase E owns its own floor.** The screening engine
+*reads* `screening_params["filters"]["min_liquidity_usd"]` (`run_screening.py:158`)
+but the macro adapter only emits a `min_liquidity_multiplier` (config `1.5`) — it
+never populates an absolute `min_liquidity_usd`, so that key is currently always
+`None` and the screener's liquidity gate is **dormant**. There is therefore no
+live system-wide threshold to reuse. Phase E supplies its own floor:
+`DEFAULT_MIN_LIQUIDITY_USD = 1_000_000` (21-day mean dollar volume), overridable
+via the CLI `--min-liquidity-usd`. The default is deliberately low so the gate
+flags only genuinely illiquid names and does not hide small-cap "pearls"; it WARNs
+(never blocks) so the human still judges. When `--min-liquidity-usd 0` is passed
+the liquidity check is disabled.
 
 **Empty portfolio / no snapshot:** no holdings → no exposures → all capacity checks
 pass; only eligibility (asset_type) and liquidity apply. Degrade gracefully, never
@@ -95,6 +103,7 @@ def evaluate_candidates(
     portfolio_id: str,
     profile_id: str,
     as_of_date: date,
+    min_liquidity_usd: float | None = DEFAULT_MIN_LIQUIDITY_USD,
 ) -> dict[str, RiskGateVerdict]: ...
 ```
 
@@ -105,7 +114,7 @@ def evaluate_candidates(
    determine the held set and `total_market_value` (snapshot may be absent → 0).
 3. Load `AssetAttrs` for held assets **and** candidate assets (shared helper, below).
 4. Build `ExposureLimits` from the profile; call `compute_exposures(...)` fresh.
-5. Resolve `min_liquidity_usd` from latest macro state (fallback to default).
+5. Accept `min_liquidity_usd` as a parameter (default `DEFAULT_MIN_LIQUIDITY_USD`).
 6. Load `liquidity_1m` per candidate from `factor_values` (latest ≤ as_of).
 7. Call `evaluate_risk_gate(...)` per candidate; return the dict.
 
@@ -154,9 +163,9 @@ run_opportunity_review(conn, methodology, as_of, portfolio_id, profile_id)
          ├─ ProfileRepository.get_profile(profile_id)         # profile + targets
          ├─ PortfolioRepository.get_holdings(portfolio_id, as_of)
          ├─ load_asset_attrs(conn, held ∪ candidate ids)      # shared helper
-         ├─ compute_exposures(holdings, attrs, ExposureLimits.from(profile))
-         ├─ min_liquidity_usd ← get_screening_params(latest macro_state)
-         └─ liquidity_1m per candidate ← factor_values
+         ├─ compute_exposures(holdings, attrs, ExposureLimits from profile)
+         ├─ min_liquidity_usd ← caller arg (default DEFAULT_MIN_LIQUIDITY_USD)
+         └─ liquidity_1m per candidate ← factor_values (latest ≤ as_of)
        cards = [c.with_gate(verdicts.get(c.asset_id)) for c in cards]
   → OpportunityReviewResult(cards, gate_summary, recommendation_only=True)
 ```
@@ -202,7 +211,6 @@ No new tables. No persistence beyond the existing `reports` registration.
 - `croesus/profiles/models.py` — `InvestorProfile`, `validate_profile`.
 - `croesus/profiles/repository.py` — `ProfileRepository.get_profile`.
 - `croesus/portfolio/repository.py` — `PortfolioRepository.get_holdings`.
-- `croesus/macro/screening_adapter.py` — `get_screening_params`.
-- `factor_values` table — `liquidity_1m`.
+- `factor_values` table — `liquidity_1m` (21-day mean dollar volume).
 - `croesus/reports/opportunity.py`, `croesus/jobs/opportunity_review.py` — house
   style for render/CLI.
