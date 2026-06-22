@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -14,7 +13,7 @@ from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.macro._loader import load_latest_macro_state
 from croesus.portfolio.actions import ProposedAction, RebalanceRunResult
-from croesus.portfolio.models import AssetAttrs
+from croesus.portfolio.asset_attrs import load_asset_attrs
 from croesus.portfolio.rebalancing import generate_proposed_actions
 from croesus.portfolio.repository import PortfolioRepository
 from croesus.profiles.repository import ProfileRepository
@@ -65,7 +64,7 @@ def run_rebalance_check(
         else []
     )
     asset_ids = [h.asset_id for h in holdings] + [c.asset_id for c in screening_candidates]
-    assets_by_id = _load_asset_attrs(conn, asset_ids)
+    assets_by_id = load_asset_attrs(conn, asset_ids)
 
     run_id = f"rebalance-{as_of:%Y%m%d}-{uuid4().hex[:8]}"
     actions = generate_proposed_actions(
@@ -175,37 +174,6 @@ def _latest_screening_run_id(conn: duckdb.DuckDBPyConnection) -> str | None:
         """
     ).fetchone()
     return row[0] if row else None
-
-
-def _load_asset_attrs(
-    conn: duckdb.DuckDBPyConnection, asset_ids: list[str]
-) -> dict[str, AssetAttrs]:
-    lookup = [asset_id for asset_id in sorted(set(asset_ids)) if not asset_id.startswith("CASH_")]
-    if not lookup:
-        return {}
-    placeholders = ", ".join("?" for _ in lookup)
-    rows = conn.execute(
-        f"""
-        SELECT asset_id, asset_type, sector, industry, country, currency, name, metadata
-        FROM assets
-        WHERE asset_id IN ({placeholders})
-        """,
-        lookup,
-    ).fetchall()
-    attrs: dict[str, AssetAttrs] = {}
-    for asset_id, asset_type, sector, industry, country, currency, name, metadata in rows:
-        if isinstance(metadata, str):
-            metadata = json.loads(metadata)
-        attrs[asset_id] = AssetAttrs(
-            asset_type=asset_type,
-            sector=sector,
-            industry=industry,
-            country=country,
-            currency=currency,
-            theme_tags=list((metadata or {}).get("theme_tags") or []),
-            name=name,
-        )
-    return attrs
 
 
 def _decision(actions: list[ProposedAction]) -> str:
