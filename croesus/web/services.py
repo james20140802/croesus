@@ -173,3 +173,29 @@ def build_opportunity_detail(conn, asset_id: str):
         if row.asset_id == asset_id:
             return row
     return None
+
+
+from croesus.web.viewmodels import HomeView, Badge
+
+
+def build_home_view(conn) -> HomeView:
+    macro = build_macro_view(conn)
+    portfolio = build_portfolio_view(conn)
+    opps = build_opportunity_view(conn)
+    screening = build_screening_view(conn)
+    macro_badge = (Badge("레짐", f"{macro.regime} · {macro.positioning}", "ok")
+                   if macro else None)
+    drift_alerts = [f"{d['sleeve_name']} 밴드 이탈" for d in portfolio.drifts
+                    if d.get("is_outside_band")]
+    drift_alerts += [f"{e['exposure_name']} 한도 초과" for e in portfolio.exposures
+                     if e.get("is_violation")]
+    freshness = []
+    if macro and macro.date:
+        freshness.append(Badge("매크로", str(macro.date), "ok"))
+    if portfolio.as_of_date:
+        freshness.append(Badge("포트폴리오", str(portfolio.as_of_date), "ok"))
+    if screening.as_of_date:
+        freshness.append(Badge("스크리닝", str(screening.as_of_date), "ok"))
+    return HomeView(macro=macro_badge, actions=portfolio.actions[:3],
+        action_count=len(portfolio.actions), opportunity_count=len(opps.rows),
+        drift_alerts=drift_alerts, screening_count=len(screening.rows), freshness=freshness)

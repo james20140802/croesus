@@ -113,3 +113,18 @@ def test_opportunities_page_renders_with_gate(monkeypatch):
     assert "MSFT" in resp.text and "TSLA" in resp.text
     assert "SECTOR_OVER_MAX" in resp.text      # 게이트 reason code 표시
     assert "block" in resp.text                # 게이트 상태 배지
+
+
+def test_home_aggregates(monkeypatch):
+    from croesus.web.viewmodels import HomeView, Badge
+    hv = HomeView(macro=Badge("레짐","Goldilocks","ok"),
+        actions=[{"action_type":"trim","human_readable_reason":"섹터 과다"}],
+        action_count=1, opportunity_count=3, drift_alerts=["core_us_equity 밴드 이탈"],
+        screening_count=12, freshness=[Badge("매크로","2026-06-22","ok")])
+    monkeypatch.setattr("croesus.web.routes.home.build_home_view", lambda conn: hv)
+    monkeypatch.setattr("croesus.web.routes.home.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "섹터 과다" in resp.text and "Goldilocks" in resp.text
