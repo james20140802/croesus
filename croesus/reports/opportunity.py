@@ -34,14 +34,29 @@ def _evidence_line(card: OpportunityCard) -> str:
     )
 
 
+def _gate_lines(card: OpportunityCard) -> list[str]:
+    gate = card.risk_gate
+    if gate is None:
+        return ["- Risk gate: —"]
+    codes = f" [{', '.join(gate.reason_codes)}]" if gate.reason_codes else ""
+    lines = [f"- Risk gate: {gate.status.upper()}{codes}"]
+    lines.extend(f"  - {note}" for note in gate.notes)
+    return lines
+
+
 def render_opportunity_review(result: OpportunityReviewResult) -> str:
     lines = [
         f"# Opportunity Review - {result.as_of_date:%Y-%m-%d}",
         "",
         f"Methodology: {result.methodology.label}",
         "Boundary: recommendation-only; no trades.",
-        "",
     ]
+    if result.gate_summary is not None:
+        s = result.gate_summary
+        lines.append(
+            f"Risk gate: {s['pass']} pass / {s['warn']} warn / {s['block']} block"
+        )
+    lines.append("")
     if not result.cards:
         lines.append("No opportunity cards found for this methodology/date.")
         lines.append("")
@@ -66,6 +81,7 @@ def render_opportunity_review(result: OpportunityReviewResult) -> str:
                 f"- Confidence: {card.thesis_confidence or 'n/a'}; "
                 f"evidence_source={card.evidence_source or 'n/a'}",
                 f"- Bear case: {card.bear_case or 'n/a'}",
+                *_gate_lines(card),
                 "",
             ]
         )

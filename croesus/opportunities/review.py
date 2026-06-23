@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 import duckdb
 
 from croesus.factors.equity.repository import ValuationSnapshotRepository
+from croesus.opportunities.risk_gate import (
+    DEFAULT_MIN_LIQUIDITY_USD,
+    RiskGateVerdict,
+    evaluate_candidates,
+)
 from croesus.opportunities.selection import (
     OpportunityMethodology,
     select_methodology,
@@ -41,6 +46,7 @@ class OpportunityCard:
     sector_evidence: str | None
     disruption_evidence: str | None
     bear_case: str | None
+    risk_gate: RiskGateVerdict | None = None
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,7 @@ class OpportunityReviewResult:
     as_of_date: date
     cards: list[OpportunityCard]
     recommendation_only: bool = True
+    gate_summary: dict[str, int] | None = None
 
 
 def _asset_labels(conn: duckdb.DuckDBPyConnection, asset_ids: list[str]) -> dict[str, tuple[str, str | None]]:
@@ -177,6 +184,10 @@ def run_opportunity_review(
     methodology: OpportunityMethodology | None = None,
     as_of_date: date | None = None,
     limit: int = 20,
+    portfolio_id: str = "default",
+    profile_id: str = "default",
+    apply_risk_gate: bool = True,
+    min_liquidity_usd: float | None = DEFAULT_MIN_LIQUIDITY_USD,
 ) -> OpportunityReviewResult:
     # Callers that already resolved the methodology (e.g. the CLI menu) pass it
     # in directly to avoid re-running selection; otherwise resolve from the key.
@@ -189,8 +200,32 @@ def run_opportunity_review(
         )
     else:  # pragma: no cover - guarded by select_methodology
         cards = []
+
+    # Phase E: attach a recommendation-only risk-gate verdict per candidate.
+    # An unloadable profile yields an empty dict -> cards stay ungated.
+    gate_summary: dict[str, int] | None = None
+    if apply_risk_gate and cards:
+        verdicts = evaluate_candidates(
+            conn,
+            [card.asset_id for card in cards],
+            portfolio_id=portfolio_id,
+            profile_id=profile_id,
+            as_of_date=as_of,
+            min_liquidity_usd=min_liquidity_usd,
+        )
+        if verdicts:
+            cards = [
+                replace(card, risk_gate=verdicts.get(card.asset_id))
+                for card in cards
+            ]
+            gate_summary = {"pass": 0, "warn": 0, "block": 0}
+            for card in cards:
+                if card.risk_gate is not None:
+                    gate_summary[card.risk_gate.status] += 1
+
     return OpportunityReviewResult(
         methodology=methodology,
         as_of_date=as_of,
         cards=cards,
+        gate_summary=gate_summary,
     )

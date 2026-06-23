@@ -27,7 +27,7 @@ whole universe
   → [C1] SEC filing body text  +  [News-1/2] Finnhub + GDELT news   (evidence)
   → [C2] LLM structural-thesis grader          (moat/tech/sector/disruption + evidence + bear)
   → [C3] grade → DcfKnobs → bear/base/bull intrinsic-value band     (recommendation-only)
-  → [D]  user picks a methodology      → [E] risk gate integration   (NOT BUILT)
+  → [D]  user picks a methodology      → [E] risk gate integration   (recommendation-only)
 ```
 
 The event pre-filter (B2) **is** the opportunity engine's "quantitative screening
@@ -54,10 +54,11 @@ TDD implementation → two-stage review (spec-compliance, then code-quality) →
 | **C2** | LLM structural-thesis grader: reads filing text + news + numbers for event candidates, emits discrete evidence-backed grades. | `croesus/research/thesis_*` + `json_extract`; `thesis_grades` table; `thesis_grader_run` | #45 |
 | **C3** | thesis grade → `DcfKnobs` → **bear/base/bull intrinsic-value band**. | `factors/equity/{thesis_knobs,intrinsic_bands,band_repository}`; `intrinsic_value_bands` table | #46 |
 | **D** | User-selectable opportunity methodology review surface. Methodology A is executable; methodology B is visible as designed/deferred and blocked until implemented. | `croesus/opportunities/{selection,review}.py`; `croesus/jobs/opportunity_review.py`; `croesus/reports/opportunity.py` | local |
+| **E** | Recommendation-only risk-gate over user-selected candidates: bucket capacity (`block_new_buy`), asset-type eligibility, liquidity floor (warn). Verdict attached per card in the review report. No re-rank, no trades, no new table. | `croesus/opportunities/risk_gate.py`; `croesus/portfolio/asset_attrs.py` (shared); `review.py`/`reports/opportunity.py`/`jobs/opportunity_review.py` extensions | local |
 
-The A→E methodology-A pipeline is **functionally complete through D** (event
-sourcing → evidence → grading → value band → user-selected review surface). E is
-design-only.
+The A→E methodology-A pipeline is **functionally complete** (event sourcing →
+evidence → grading → value band → user-selected review surface → recommendation-only
+risk gate). Only **automatic selection influence** (구제/강등) remains deferred.
 
 ### C2 grade taxonomy → C3 knob mapping
 
@@ -107,9 +108,11 @@ general_knowledge} distinguishes filing-defensible from general knowledge; a
 - **Methodology B** — event-driven opportunity thesis (structural-winner vs
   catalyst-repricing; direction + horizon + evidence + bear) over the same
   `events` feed. Design-only.
-- **E — risk gate integration** — how (if ever) an opportunity recommendation
-  interacts with the portfolio layer. Currently recommendation-only; **automatic
-  selection influence is deferred on purpose**.
+- **E — automatic selection influence (구제/강등)** — the recommendation-only risk
+  gate is now built (PR for Phase E); what remains deferred is an opportunity
+  recommendation changing screen rank or portfolio selection *without* a human.
+  **Automatic selection influence is deferred on purpose** until forward-test
+  validation accumulates.
 - **Multiple-scoring sector-relative fix** — design-only.
 
 ### Capability gaps left for follow-ups

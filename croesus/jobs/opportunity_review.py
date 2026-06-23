@@ -14,6 +14,7 @@ from typing import Sequence
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
 from croesus.opportunities.review import run_opportunity_review
+from croesus.opportunities.risk_gate import DEFAULT_MIN_LIQUIDITY_USD
 from croesus.opportunities.selection import (
     MethodologyUnavailable,
     OPPORTUNITY_METHODOLOGIES,
@@ -43,6 +44,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=20, help="maximum cards to render")
     parser.add_argument("--db-path", default=None, help="DuckDB path")
     parser.add_argument("--report", action="store_true", help="write reports/opportunity/")
+    parser.add_argument(
+        "--portfolio-id", default="default", help="portfolio for the risk gate"
+    )
+    parser.add_argument(
+        "--profile-id", default="default", help="profile for the risk gate"
+    )
+    parser.add_argument(
+        "--no-risk-gate", dest="apply_risk_gate", action="store_false",
+        help="skip the portfolio risk-gate check",
+    )
+    parser.add_argument(
+        "--min-liquidity-usd", type=float, default=DEFAULT_MIN_LIQUIDITY_USD,
+        help="liquidity floor (21d mean $ volume); 0 disables the liquidity warn",
+    )
     return parser
 
 
@@ -67,6 +82,10 @@ def main(
             methodology=methodology,
             as_of_date=as_of,
             limit=args.limit,
+            portfolio_id=args.portfolio_id,
+            profile_id=args.profile_id,
+            apply_risk_gate=args.apply_risk_gate,
+            min_liquidity_usd=args.min_liquidity_usd,
         )
         print(render_opportunity_review(result))
         if args.report:
