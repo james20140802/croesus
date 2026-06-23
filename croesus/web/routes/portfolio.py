@@ -7,8 +7,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from croesus.web.deps import templates, get_db_path
 from croesus.web.db import get_read_connection, get_write_connection
-from croesus.web.forms import holdings_form_to_csv
+from croesus.web.forms import holdings_form_to_csv, parse_transaction_form
 from croesus.web.services import build_portfolio_view, resolve_portfolio_id, opportunity_cache
+from croesus.portfolio.transaction_repository import TransactionRepository
 from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
 
 router = APIRouter()
@@ -53,3 +54,32 @@ async def save_holdings(request: Request, db_path=Depends(get_db_path)):
 @router.get("/portfolio/edit/row", response_class=HTMLResponse)
 def add_holding_row(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "partials/holdings_rows.html", {"h": {}})
+
+
+@router.get("/portfolio/transactions", response_class=HTMLResponse)
+def transactions(request: Request, db_path=Depends(get_db_path)) -> HTMLResponse:
+    with get_read_connection(db_path) as conn:
+        pid = resolve_portfolio_id(conn)
+        rows = conn.execute(
+            "SELECT transaction_date, transaction_type, asset_id, quantity, price, currency "
+            "FROM portfolio_transactions WHERE portfolio_id = ? ORDER BY transaction_date DESC LIMIT 100",
+            [pid]).fetchall()
+    ledger = [{"date": str(r[0]), "type": r[1], "asset_id": r[2], "quantity": r[3],
+               "price": r[4], "currency": r[5]} for r in rows]
+    return templates.TemplateResponse(request, "transactions.html",
+        {"title": "거래 원장", "ledger": ledger, "errors": []})
+
+
+@router.post("/portfolio/transactions", response_class=HTMLResponse)
+async def add_transaction(request: Request, db_path=Depends(get_db_path)):
+    form = await request.form()
+    data = {k: form.get(k) for k in form.keys()}
+    with get_read_connection(db_path) as conn:
+        pid = resolve_portfolio_id(conn)
+    txn, errors = parse_transaction_form(data, pid)
+    if errors:
+        return templates.TemplateResponse(request, "transactions.html",
+            {"title": "거래 원장", "ledger": [], "errors": errors}, status_code=400)
+    with get_write_connection(db_path) as conn:
+        TransactionRepository(conn).record_transaction(txn)
+    return RedirectResponse("/portfolio/transactions", status_code=303)

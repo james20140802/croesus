@@ -1,10 +1,13 @@
 from __future__ import annotations
 import csv
 import io
+import uuid
 from dataclasses import replace
+from datetime import date as _date
 
 from croesus.profiles.models import InvestorProfile, PolicyTarget, Currency, TradeMode
 from croesus.profiles.validation import validate_profile, validate_policy_targets
+from croesus.portfolio.transactions import PortfolioTransaction, validate_transaction
 
 _FLOAT_FIELDS = [
     "expected_annual_return", "max_tolerable_drawdown", "monthly_contribution",
@@ -83,3 +86,36 @@ def holdings_form_to_csv(form: dict) -> str:
         row["symbol"] = sym.strip()
         writer.writerow(row)
     return out.getvalue()
+
+
+def parse_transaction_form(form: dict, portfolio_id: str):
+    errors: list[str] = []
+
+    def num(key, default=0.0):
+        raw = form.get(key)
+        if raw in (None, ""):
+            return default
+        try:
+            return float(raw)
+        except ValueError:
+            errors.append(f"{key}: 숫자를 입력하세요")
+            return default
+
+    try:
+        txn_date = _date.fromisoformat(form.get("transaction_date", ""))
+    except ValueError:
+        errors.append("transaction_date: YYYY-MM-DD 형식")
+        txn_date = None
+    if errors:
+        return None, errors
+    txn = PortfolioTransaction(
+        transaction_id=str(uuid.uuid4()), portfolio_id=portfolio_id,
+        transaction_date=txn_date, transaction_type=form.get("transaction_type", ""),
+        asset_id=form.get("asset_id") or None, quantity=num("quantity"),
+        price=num("price"), gross_amount=num("gross_amount"),
+        currency=form.get("currency") or "USD", fees=num("fees"),
+        source="web", linked_action_id=None, metadata={})
+    errors += list(validate_transaction(txn))
+    if errors:
+        return None, errors
+    return txn, errors

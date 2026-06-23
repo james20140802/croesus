@@ -78,3 +78,22 @@ def test_holdings_post_recomputes(monkeypatch):
         "currency": ["USD"], "market_value": [""]}, follow_redirects=False)
     assert resp.status_code == 303
     assert calls["pid"] == "default" and calls["path"].endswith(".csv")
+
+
+def test_transaction_post_records(monkeypatch):
+    recorded = {}
+    class _Repo:
+        def __init__(self, conn): pass
+        def record_transaction(self, txn): recorded["txn"] = txn
+    monkeypatch.setattr("croesus.web.routes.portfolio.TransactionRepository", _Repo)
+    monkeypatch.setattr("croesus.web.routes.portfolio.resolve_portfolio_id", lambda c: "default")
+    monkeypatch.setattr("croesus.web.routes.portfolio.get_read_connection",
+                        contextmanager(lambda p: iter([None])))
+    monkeypatch.setattr("croesus.web.routes.portfolio.get_write_connection",
+                        contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("x.duckdb"), raise_server_exceptions=False)
+    resp = client.post("/portfolio/transactions", data={
+        "transaction_type":"buy","asset_id":"a1","quantity":"5","price":"100",
+        "gross_amount":"","currency":"USD","fees":"1","transaction_date":"2026-06-20"},
+        follow_redirects=False)
+    assert resp.status_code == 303 and recorded["txn"].asset_id == "a1"

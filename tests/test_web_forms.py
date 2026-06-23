@@ -2,7 +2,7 @@ import csv
 import io
 
 from croesus.profiles.seed_default_profile import DEFAULT_PROFILE
-from croesus.web.forms import holdings_form_to_csv, parse_profile_form
+from croesus.web.forms import holdings_form_to_csv, parse_profile_form, parse_transaction_form
 
 
 def _base_form():
@@ -58,3 +58,18 @@ def test_holdings_form_to_csv_skips_empty_rows():
     text = holdings_form_to_csv(form)
     rows = list(csv.DictReader(io.StringIO(text)))
     assert len(rows) == 1
+
+
+def test_parse_transaction_buy_valid():
+    txn, errors = parse_transaction_form({
+        "transaction_type":"buy","asset_id":"a1","quantity":"5","price":"100",
+        "currency":"USD","fees":"1","transaction_date":"2026-06-20"}, "default")
+    assert errors == [] and txn is not None
+    assert txn.transaction_type == "buy" and txn.quantity == 5.0
+
+
+def test_parse_transaction_rejects_bad_quantity():
+    txn, errors = parse_transaction_form({
+        "transaction_type":"buy","asset_id":"a1","quantity":"-5","price":"100",
+        "currency":"USD","fees":"0","transaction_date":"2026-06-20"}, "default")
+    assert errors
