@@ -115,7 +115,7 @@ def get_read_connection(db_path=None):
 
 | 도메인 | 호출 | 반환 | 테이블 |
 |---|---|---|---|
-| opportunity | `run_opportunity_review(conn, methodology_key="moat_adjusted_intrinsic_value", as_of_date=d)` | `OpportunityReviewResult.cards: list[OpportunityCard]` | intrinsic_value_bands, valuation_snapshots, thesis_grades, assets |
+| opportunity | `run_opportunity_review(conn, methodology_key="moat_adjusted_intrinsic_value", as_of_date=d, portfolio_id=pid, profile_id="default")` | `OpportunityReviewResult` (`.cards: list[OpportunityCard]`, `.gate_summary: dict[str,int]`, `.recommendation_only`) | intrinsic_value_bands, valuation_snapshots, thesis_grades, assets, portfolio_holdings, portfolio_exposures, factor_values |
 | portfolio 보유 | `PortfolioRepository(conn).get_holdings(pid, d)` | `list[Holding]` | portfolio_holdings |
 | portfolio 익스포저 | `…get_exposures(pid, d)` | `list[Exposure]` | portfolio_exposures |
 | portfolio 드리프트 | `…get_drifts(pid, d)` | `list[PolicyDrift]` | policy_drifts |
@@ -163,11 +163,18 @@ def get_read_connection(db_path=None):
 - 시각화: amplifier/confirmation **게이지** 2개 · amplifier·confirmation **라인차트**(히스토리) ·
   성장×인플레 **2×2 사분면** · 4-method **레이더/막대**
 
-### `/opportunities`
-- 정렬 가능한 카드: 심볼·현재가·base 업사이드·thesis 확신도
+### `/opportunities` (Phase E risk-gate 반영)
+- 상단 **게이트 요약**: `gate_summary` = N pass / N warn / N block (색 배지). 게이트 상태로 필터(HTMX).
+- 정렬 가능한 카드: 심볼·현재가·base 업사이드·thesis 확신도 + **risk-gate verdict 배지**
+  (`status` pass=초록/warn=주황/block=빨강) + `reason_codes`(예: SECTOR_OVER_MAX, LIQUIDITY_BELOW_MINIMUM).
 - 시각화: bear/base/bull **레인지 바** · thesis 등급(moat/tech/sector/disruption) **색칩 히트** ·
-  (데스크톱) 업사이드 vs 확신도 **버블 산점도**
-- 상세 `/opportunities/{asset_id}`: 밴드 차트 + 전 evidence 텍스트 + bear case
+  (데스크톱) 업사이드 vs 확신도 **버블 산점도**(점 색 = 게이트 상태).
+- 상세 `/opportunities/{asset_id}`: 밴드 차트 + 전 evidence 텍스트 + bear case + **게이트 notes 전체**(사람이 읽는 사유).
+- **추천 전용**: 게이트는 재랭킹·매매 제안·쓰기를 하지 않음(Phase E 원칙). 대시보드도 표시만.
+
+> Phase E는 `run_opportunity_review`에서 `apply_risk_gate=True`(기본)로 카드에 `risk_gate: RiskGateVerdict`
+> (`status`, `reason_codes`, `notes`)를 붙이고 결과에 `gate_summary`를 담는다. 신규 테이블 없음(리뷰 시 재계산).
+> 대시보드는 `portfolio_id`(resolve) + `profile_id="default"`로 호출해 게이트를 함께 받아 표시한다.
 
 ### `/portfolio`
 - 총평가액·손익, 보유 표

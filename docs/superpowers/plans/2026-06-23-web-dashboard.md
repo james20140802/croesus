@@ -625,12 +625,16 @@ class OpportunityRow:
     bands: dict
     grades: dict
     confidence: str | None
+    gate_status: str | None = None          # 'pass' | 'warn' | 'block' (Phase E)
+    gate_reason_codes: list = field(default_factory=list)
+    gate_notes: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class OpportunityView:
     as_of_date: date | None
     rows: list[OpportunityRow] = field(default_factory=list)
+    gate_summary: dict | None = None        # {'pass': N, 'warn': N, 'block': N} (Phase E)
 
 
 @dataclass(frozen=True)
@@ -1154,7 +1158,7 @@ git commit -m "✨ feat: portfolio page with holdings, exposures, drifts, propos
 
 ---
 
-### Task 7: 기회 페이지 + 상세 (TTL 캐시 + 밴드/등급)
+### Task 7: 기회 페이지 + 상세 (TTL 캐시 + 밴드/등급 + Phase E risk-gate)
 
 **Files:**
 - Modify: `croesus/web/services.py` (`build_opportunity_view`, `build_opportunity_detail`)
@@ -1163,25 +1167,36 @@ git commit -m "✨ feat: portfolio page with holdings, exposures, drifts, propos
 - Test: `tests/test_web_pages.py`
 
 **Interfaces:**
-- Consumes: `run_opportunity_review(conn, methodology_key="moat_adjusted_intrinsic_value", as_of_date=None, limit=20)` → `OpportunityReviewResult.cards`. `opportunity_cache`(Task 3).
-- Produces: `services.build_opportunity_view(conn) -> OpportunityView`; `services.build_opportunity_detail(conn, asset_id) -> OpportunityRow | None`. 라우트 `GET /opportunities`, `GET /opportunities/{asset_id}`.
+- Consumes (Phase E, PR #49): `run_opportunity_review(conn, *, methodology_key="moat_adjusted_intrinsic_value", as_of_date=None, limit=20, portfolio_id="default", profile_id="default", apply_risk_gate=True, min_liquidity_usd=...)`. 게이팅 **기본 ON** → 각 `OpportunityCard`에 `card.risk_gate: RiskGateVerdict | None`(`status` ∈ {'pass','warn','block'}, `reason_codes: list[str]`, `notes: list[str]`), 결과에 `result.gate_summary: dict[str,int] | None`. `resolve_portfolio_id`, `opportunity_cache`(Task 3).
+- Produces: `services.build_opportunity_view(conn) -> OpportunityView`(`gate_summary` 포함); `services.build_opportunity_detail(conn, asset_id) -> OpportunityRow | None`. 라우트 `GET /opportunities?gate=`, `GET /opportunities/{asset_id}`.
 
 - [ ] **Step 1: 실패 테스트**
 
 ```python
-def test_opportunities_page_renders(monkeypatch):
+def test_opportunities_page_renders_with_gate(monkeypatch):
     from croesus.web.viewmodels import OpportunityView, OpportunityRow
-    view = OpportunityView(as_of_date=date(2026,6,20), rows=[OpportunityRow(
-        asset_id="a1", symbol="MSFT", name="Microsoft", current_price=400.0,
-        base_upside_pct=0.25, bands={"bear":350,"base":500,"bull":650},
-        grades={"moat":"A","tech":"B"}, confidence="high")])
-    monkeypatch.setattr("croesus.web.routes.opportunity.build_opportunity_view", lambda conn: view)
+    view = OpportunityView(as_of_date=date(2026,6,20), gate_summary={"pass":1,"warn":0,"block":1},
+        rows=[
+          OpportunityRow(asset_id="a1", symbol="MSFT", name="Microsoft", current_price=400.0,
+            base_upside_pct=0.25, bands={"bear":350,"base":500,"bull":650},
+            grades={"moat":"A","tech":"B"}, confidence="high",
+            gate_status="pass", gate_reason_codes=[], gate_notes=[]),
+          OpportunityRow(asset_id="a2", symbol="TSLA", name="Tesla", current_price=200.0,
+            base_upside_pct=0.10, bands={"bear":150,"base":260,"bull":350},
+            grades={"moat":"B"}, confidence="medium",
+            gate_status="block", gate_reason_codes=["SECTOR_OVER_MAX"],
+            gate_notes=["섹터 한도 초과"]),
+        ])
+    monkeypatch.setattr("croesus.web.routes.opportunity.build_opportunity_view",
+                        lambda conn, gate=None: view)
     monkeypatch.setattr("croesus.web.routes.opportunity.get_read_connection",
                         __import__("contextlib").contextmanager(lambda p: iter([None])))
     client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
     resp = client.get("/opportunities")
     assert resp.status_code == 200
-    assert "MSFT" in resp.text
+    assert "MSFT" in resp.text and "TSLA" in resp.text
+    assert "SECTOR_OVER_MAX" in resp.text      # 게이트 reason code 표시
+    assert "block" in resp.text                # 게이트 상태 배지
 ```
 
 - [ ] **Step 2: 실패 확인** — FAIL.
@@ -1196,21 +1211,36 @@ _OPP_METHODOLOGY = "moat_adjusted_intrinsic_value"
 
 
 def _card_to_row(card) -> OpportunityRow:
+    gate = card.risk_gate  # Phase E: RiskGateVerdict | None
     return OpportunityRow(
         asset_id=card.asset_id, symbol=card.symbol, name=card.name,
         current_price=card.current_price, base_upside_pct=card.base_upside_pct,
         bands=card.band_intrinsic_by_scenario,
         grades={"moat": card.moat_grade, "tech": card.tech_grade,
                 "sector": card.sector_grade, "disruption": card.disruption_grade},
-        confidence=card.thesis_confidence)
+        confidence=card.thesis_confidence,
+        gate_status=(gate.status if gate else None),
+        gate_reason_codes=(list(gate.reason_codes) if gate else []),
+        gate_notes=(list(gate.notes) if gate else []))
 
 
-def build_opportunity_view(conn) -> OpportunityView:
+def build_opportunity_view(conn, gate: str | None = None) -> OpportunityView:
+    pid = resolve_portfolio_id(conn)
+
     def factory():
-        result = run_opportunity_review(conn, methodology_key=_OPP_METHODOLOGY)
-        return OpportunityView(as_of_date=result.as_of_date,
-                               rows=[_card_to_row(c) for c in result.cards])
-    return opportunity_cache.get_or_set((_OPP_METHODOLOGY, "view"), factory)
+        result = run_opportunity_review(
+            conn, methodology_key=_OPP_METHODOLOGY,
+            portfolio_id=pid, profile_id="default", apply_risk_gate=True)
+        return OpportunityView(
+            as_of_date=result.as_of_date,
+            rows=[_card_to_row(c) for c in result.cards],
+            gate_summary=getattr(result, "gate_summary", None))
+    view = opportunity_cache.get_or_set((_OPP_METHODOLOGY, pid, "view"), factory)
+    if gate:  # 게이트 상태 필터(캐시된 전체에서 파생)
+        rows = [r for r in view.rows if r.gate_status == gate]
+        return OpportunityView(as_of_date=view.as_of_date, rows=rows,
+                               gate_summary=view.gate_summary)
+    return view
 
 
 def build_opportunity_detail(conn, asset_id: str):
@@ -1239,13 +1269,14 @@ router = APIRouter()
 
 
 @router.get("/opportunities", response_class=HTMLResponse)
-def opportunities(request: Request, db_path=Depends(get_db_path)) -> HTMLResponse:
+def opportunities(request: Request, gate: str | None = None, db_path=Depends(get_db_path)):
     with get_read_connection(db_path) as conn:
-        view = build_opportunity_view(conn)
+        view = build_opportunity_view(conn, gate)
     scatter = json.dumps([{"symbol": r.symbol, "upside": r.base_upside_pct or 0,
-                           "confidence": r.confidence or ""} for r in view.rows])
+                           "confidence": r.confidence or "", "gate": r.gate_status or "none"}
+                          for r in view.rows])
     return templates.TemplateResponse(request, "opportunities.html",
-        {"title": "기회", "view": view, "scatter_json": scatter})
+        {"title": "기회", "view": view, "scatter_json": scatter, "gate": gate})
 
 
 @router.get("/opportunities/{asset_id}", response_class=HTMLResponse)
@@ -1263,16 +1294,32 @@ def opportunity_detail(request: Request, asset_id: str, db_path=Depends(get_db_p
 {% extends "base.html" %}
 {% block content %}
 <h1>기회</h1>
-{% if not view.rows %}<section class="empty"><p>아직 기회 후보가 없습니다.</p></section>{% else %}
-<p class="muted">기준일 {{ view.as_of_date }}</p>
+{% if view.gate_summary %}
+<div class="gate-summary">
+  <span class="badge badge-ok">pass {{ view.gate_summary.get('pass', 0) }}</span>
+  <span class="badge badge-warn">warn {{ view.gate_summary.get('warn', 0) }}</span>
+  <span class="badge badge-bad">block {{ view.gate_summary.get('block', 0) }}</span>
+</div>
+<div class="filters">
+  {% for g in ["", "pass", "warn", "block"] %}
+  <a href="/opportunities{% if g %}?gate={{ g }}{% endif %}"
+     class="chip{% if gate==g or (not gate and not g) %} active{% endif %}">{{ g or "전체" }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+{% if not view.rows %}<section class="empty"><p>표시할 기회 후보가 없습니다.</p></section>{% else %}
+<p class="muted">기준일 {{ view.as_of_date }} · 추천 전용(게이트는 매매를 제안하지 않습니다)</p>
 <div class="card chart desktop-only" data-chart="scatter" data-series='{{ scatter_json }}'
      style="min-height:280px"></div>
 <div class="grid grid-cards">{% for r in view.rows %}
   <a class="card opp" href="/opportunities/{{ r.asset_id }}">
-    <strong>{{ r.symbol }}</strong> <span class="muted">{{ r.name or '' }}</span>
+    <div class="opp-head"><strong>{{ r.symbol }}</strong>
+      {% if r.gate_status %}<span class="gate gate-{{ r.gate_status }}">{{ r.gate_status }}</span>{% endif %}</div>
+    <span class="muted">{{ r.name or '' }}</span>
     <div>현재가 {{ '{:,.0f}'.format(r.current_price or 0) }}</div>
     <div class="upside {{ 'pos' if (r.base_upside_pct or 0) > 0 else 'neg' }}">
       업사이드 {{ ('%+.0f%%' % (r.base_upside_pct*100)) if r.base_upside_pct is not none else '—' }}</div>
+    {% if r.gate_reason_codes %}<div class="muted small">[{{ r.gate_reason_codes|join(', ') }}]</div>{% endif %}
     <div class="grades">{% for k,v in r.grades.items() if v %}
       <span class="grade grade-{{ v|lower }}">{{ k }}:{{ v }}</span>{% endfor %}</div>
   </a>{% endfor %}</div>
@@ -1286,25 +1333,29 @@ def opportunity_detail(request: Request, asset_id: str, db_path=Depends(get_db_p
 {% extends "base.html" %}
 {% block content %}
 {% if not row %}<section class="empty"><p>해당 자산을 찾을 수 없습니다.</p></section>{% else %}
-<h1>{{ row.symbol }} <span class="muted">{{ row.name or '' }}</span></h1>
+<h1>{{ row.symbol }} <span class="muted">{{ row.name or '' }}</span>
+  {% if row.gate_status %}<span class="gate gate-{{ row.gate_status }}">{{ row.gate_status }}</span>{% endif %}</h1>
 <div class="card chart" data-chart="bands" data-series='{{ bands_json }}'
      data-price="{{ row.current_price or 0 }}" style="min-height:260px"></div>
 <div class="grades">{% for k,v in row.grades.items() if v %}
   <span class="grade grade-{{ v|lower }}">{{ k }}: {{ v }}</span>{% endfor %}</div>
 <p>확신도: {{ row.confidence or '—' }}</p>
+{% if row.gate_notes %}<h2>리스크 게이트</h2>
+  {% if row.gate_reason_codes %}<p class="muted">[{{ row.gate_reason_codes|join(', ') }}]</p>{% endif %}
+  <ul>{% for n in row.gate_notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
 {% endif %}
 {% endblock %}
 ```
 
 `app.py`에 `opportunity` 라우터 등록.
 
-- [ ] **Step 5: 통과 확인** — Run: `pytest tests/test_web_pages.py::test_opportunities_page_renders -v` → PASS.
+- [ ] **Step 5: 통과 확인** — Run: `pytest tests/test_web_pages.py::test_opportunities_page_renders_with_gate -v` → PASS.
 
 - [ ] **Step 6: 커밋**
 
 ```bash
 git add croesus/web/services.py croesus/web/routes/opportunity.py croesus/web/templates/opportunities.html croesus/web/templates/opportunity_detail.html croesus/web/app.py tests/test_web_pages.py
-git commit -m "✨ feat: opportunities list + detail with TTL-cached review and band chart"
+git commit -m "✨ feat: opportunities page with Phase E risk-gate verdicts, summary, filter"
 ```
 
 ---
@@ -2126,9 +2177,12 @@ function initCharts() {
         yAxis: { type: 'value' },
         series: [{ type: 'line', smooth: true, data: data.map(d => d.amplifier_score) }] };
     } else if (kind === 'scatter') {
-      opt = { tooltip: {}, xAxis: { name: '업사이드' }, yAxis: { name: '확신도' },
+      var gateColor = { pass: '#1a7f37', warn: '#9a6700', block: '#cf222e', none: '#888' };
+      opt = { tooltip: { formatter: p => p.data[3] + ' (' + p.data[2] + ')' },
+        xAxis: { name: '업사이드' }, yAxis: { name: '확신도' },
         series: [{ type: 'scatter', symbolSize: 16,
-          data: data.map(d => [d.upside, d.confidence, d.symbol]) }] };
+          itemStyle: { color: p => gateColor[p.data[4]] || '#888' },
+          data: data.map(d => [d.upside, d.confidence, d.gate, d.symbol, d.gate]) }] };
     } else if (kind === 'bands') {
       var keys = Object.keys(data);
       opt = { tooltip: {}, xAxis: { type: 'category', data: keys },
@@ -2165,6 +2219,15 @@ table.data th, table.data td { text-align: left; padding: .4rem .5rem; border-bo
   border-radius: 999px; font-size: .8rem; border: 1px solid #8884; }
 .action-trim, .badge-bad, .grade-d { color: var(--bad); }
 .badge-ok, .grade-a { color: var(--ok); }
+.badge-warn { color: var(--warn); }
+.gate { display: inline-block; padding: .05rem .45rem; border-radius: 999px; font-size: .72rem;
+  font-weight: 700; text-transform: uppercase; }
+.gate-pass { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.gate-warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.gate-block { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.gate-summary { display: flex; gap: .4rem; margin: .5rem 0; }
+.opp-head { display: flex; justify-content: space-between; align-items: center; }
+.small { font-size: .8rem; }
 .btn { display: inline-block; padding: .45rem .8rem; border-radius: 8px;
   border: 1px solid #8885; text-decoration: none; color: inherit; background: transparent; cursor: pointer; }
 .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -2246,6 +2309,7 @@ git commit -m "✨ feat: adaptive CSS, vendored echarts/htmx, chart bootstrap + 
 - §5 재사용 함수(macro/screening/portfolio/opportunity 읽기) → Task 4–8. ✓
 - §6 적응형 레이아웃 → Task 12 CSS 브레이크포인트. ✓
 - §7 페이지·차트(도넛/라인/게이지/레인지/산점도/추천행동카드) → Task 4–8·12. ✓
+- §7 Phase E risk-gate(카드 verdict 배지·gate_summary·상태 필터·상세 notes) → Task 3 뷰모델 + Task 7. ✓
 - §8 Tailscale → Task 1 `__main__` URL 출력 + Task 12 README. ✓
 - §9 의존성 → Task 1. ✓
 - §10 테스트 → 각 Task TDD + Task 12 회귀. ✓
@@ -2258,6 +2322,9 @@ git commit -m "✨ feat: adaptive CSS, vendored echarts/htmx, chart bootstrap + 
 - `PortfolioTransaction` 생성자 필드명(Task 11 메모).
 - `TransactionRepository.record_transaction` 위치/시그니처(`transaction_repository.py:36`).
 - `PortfolioRepository.get_snapshot` 반환 dict 키(`total_market_value`,`unrealized_pnl`).
+- **Phase E 확인됨(PR #49)**: `RiskGateVerdict(status, reason_codes, notes)` (`opportunities/risk_gate.py:34`);
+  `OpportunityCard.risk_gate` 신규 필드(`review.py:49`); `OpportunityReviewResult.gate_summary` /
+  `recommendation_only`; `run_opportunity_review`에 `portfolio_id/profile_id/apply_risk_gate(기본 True)/min_liquidity_usd` 추가. 신규 테이블 없음.
 
 **Placeholder scan:** 모든 코드 step에 실제 코드 포함. "TBD/적절히 처리" 없음. ✓
 **Type consistency:** 뷰모델은 Task 3에서 1회 정의 후 Task 4–8에서 동일 필드 사용. `build_*` 함수명·`opportunity_cache` 일관. ✓
