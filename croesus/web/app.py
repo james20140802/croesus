@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from croesus.db.connection import resolve_db_path
@@ -18,5 +18,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    from croesus.web.db import DataUpdatingError
+    from croesus.web.deps import templates
+
+    @app.exception_handler(DataUpdatingError)
+    async def _updating_handler(request: Request, exc: DataUpdatingError):
+        return templates.TemplateResponse(
+            request, "error_updating.html", {"title": "동기화 중"}, status_code=503
+        )
 
     return app
