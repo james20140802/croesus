@@ -38,6 +38,13 @@ def test_write_connection_writes(tmp_path):
         assert conn.execute("SELECT count(*) FROM t").fetchone()[0] == 2
 
 
+def test_read_connection_raises_file_not_found_for_missing_db(tmp_path):
+    missing = tmp_path / "missing.duckdb"
+    with pytest.raises(FileNotFoundError):
+        with get_read_connection(missing):
+            pass
+
+
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from croesus.web import create_app

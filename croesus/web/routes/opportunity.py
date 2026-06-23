@@ -25,6 +25,9 @@ def opportunities(request: Request, gate: str | None = None, db_path=Depends(get
 def opportunity_detail(request: Request, asset_id: str, db_path=Depends(get_db_path)):
     with get_read_connection(db_path) as conn:
         row = build_opportunity_detail(conn, asset_id)
-    bands = json.dumps(row.bands) if row else "{}"
+    if row is None:
+        return templates.TemplateResponse(request, "opportunity_detail.html",
+            {"title": "기회", "row": None, "bands_json": "{}"}, status_code=404)
+    bands = json.dumps(row.bands)
     return templates.TemplateResponse(request, "opportunity_detail.html",
-        {"title": row.symbol if row else "기회", "row": row, "bands_json": bands})
+        {"title": row.symbol, "row": row, "bands_json": bands})

@@ -73,3 +73,11 @@ def test_parse_transaction_rejects_bad_quantity():
         "transaction_type":"buy","asset_id":"a1","quantity":"-5","price":"100",
         "currency":"USD","fees":"0","transaction_date":"2026-06-20"}, "default")
     assert errors
+
+
+def test_parse_profile_form_rejects_non_numeric_min_weight():
+    """Non-numeric min_weight must produce an error, not raise."""
+    form = _base_form()
+    form["min_weight"] = ["abc", ""]  # "abc" is non-numeric for first sleeve
+    _, _, errors = parse_profile_form(form, DEFAULT_PROFILE)
+    assert errors, "expected a non-empty errors list for non-numeric min_weight"

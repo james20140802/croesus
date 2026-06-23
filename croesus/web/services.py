@@ -6,6 +6,7 @@ from croesus.macro._loader import load_latest_macro_state
 from croesus.web.viewmodels import MacroView
 
 DEFAULT_PORTFOLIO_ID = "default"
+DEFAULT_PROFILE_ID = "default"
 opportunity_cache = TTLCache(ttl_seconds=60.0)
 
 
@@ -14,6 +15,13 @@ def resolve_portfolio_id(conn: duckdb.DuckDBPyConnection) -> str:
         "SELECT portfolio_id FROM portfolios ORDER BY created_at LIMIT 1"
     ).fetchone()
     return row[0] if row else DEFAULT_PORTFOLIO_ID
+
+
+def resolve_profile_id(conn: duckdb.DuckDBPyConnection, portfolio_id: str) -> str:
+    row = conn.execute(
+        "SELECT profile_id FROM portfolios WHERE portfolio_id = ?", [portfolio_id]
+    ).fetchone()
+    return row[0] if row and row[0] else DEFAULT_PROFILE_ID
 
 
 def resolve_symbol_map(
@@ -151,11 +159,12 @@ def _card_to_row(card) -> OpportunityRow:
 
 def build_opportunity_view(conn, gate: str | None = None) -> OpportunityView:
     pid = resolve_portfolio_id(conn)
+    profile_id = resolve_profile_id(conn, pid)
 
     def factory():
         result = run_opportunity_review(
             conn, methodology_key=_OPP_METHODOLOGY,
-            portfolio_id=pid, profile_id="default", apply_risk_gate=True)
+            portfolio_id=pid, profile_id=profile_id, apply_risk_gate=True)
         return OpportunityView(
             as_of_date=result.as_of_date,
             rows=[_card_to_row(c) for c in result.cards],

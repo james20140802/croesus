@@ -56,8 +56,16 @@ def parse_profile_form(form: dict, existing: InvestorProfile):
         except (IndexError, ValueError):
             errors.append(f"{name}: 타깃 비중이 숫자가 아닙니다")
             continue
-        min_w = float(mn[i]) if i < len(mn) and mn[i] not in ("", None) else None
-        max_w = float(mx[i]) if i < len(mx) and mx[i] not in ("", None) else None
+        try:
+            min_w = float(mn[i]) if i < len(mn) and mn[i] not in ("", None) else None
+        except ValueError:
+            errors.append(f"{name}: min/max 비중이 숫자가 아닙니다")
+            continue
+        try:
+            max_w = float(mx[i]) if i < len(mx) and mx[i] not in ("", None) else None
+        except ValueError:
+            errors.append(f"{name}: min/max 비중이 숫자가 아닙니다")
+            continue
         targets.append(PolicyTarget(profile_id=profile.profile_id, sleeve_name=name,
             target_weight=target_weight, min_weight=min_w, max_weight=max_w, metadata={}))
 

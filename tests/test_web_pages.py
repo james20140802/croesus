@@ -115,6 +115,16 @@ def test_opportunities_page_renders_with_gate(monkeypatch):
     assert "block" in resp.text                # 게이트 상태 배지
 
 
+def test_opportunity_detail_returns_404_for_unknown_asset(monkeypatch):
+    monkeypatch.setattr("croesus.web.routes.opportunity.build_opportunity_detail",
+                        lambda conn, asset_id: None)
+    monkeypatch.setattr("croesus.web.routes.opportunity.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/opportunities/nonexistent-asset-id")
+    assert resp.status_code == 404
+
+
 def test_home_aggregates(monkeypatch):
     from croesus.web.viewmodels import HomeView, Badge
     hv = HomeView(macro=Badge("레짐","Goldilocks","ok"),

@@ -15,6 +15,8 @@ class DataUpdatingError(RuntimeError):
 @contextmanager
 def _connect(db_path, *, read_only: bool) -> Iterator[duckdb.DuckDBPyConnection]:
     path = resolve_db_path(db_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Croesus database not found at {path}")
     try:
         conn = duckdb.connect(str(path), read_only=read_only)
     except duckdb.Error as exc:  # IOException 포함 — 락/사용중
