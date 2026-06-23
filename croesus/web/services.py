@@ -126,3 +126,50 @@ def build_portfolio_view(conn) -> PortfolioView:
     return PortfolioView(as_of_date=as_of, total_market_value=total_mv,
         unrealized_pnl=snapshot.get("unrealized_pnl"), holdings=h_rows,
         exposures=e_rows, drifts=d_rows, actions=a_rows)
+
+
+from croesus.opportunities.review import run_opportunity_review
+from croesus.web.viewmodels import OpportunityView, OpportunityRow
+
+_OPP_METHODOLOGY = "moat_adjusted_intrinsic_value"
+
+
+def _card_to_row(card) -> OpportunityRow:
+    gate = card.risk_gate  # Phase E: RiskGateVerdict | None
+    return OpportunityRow(
+        asset_id=card.asset_id, symbol=card.symbol, name=card.name,
+        current_price=card.current_price, base_upside_pct=card.base_upside_pct,
+        bands=card.band_intrinsic_by_scenario,
+        grades={"moat": card.moat_grade, "tech": card.tech_grade,
+                "sector": card.sector_grade, "disruption": card.disruption_grade},
+        confidence=card.thesis_confidence,
+        gate_status=(gate.status if gate else None),
+        gate_reason_codes=(list(gate.reason_codes) if gate else []),
+        gate_notes=(list(gate.notes) if gate else []))
+
+
+def build_opportunity_view(conn, gate: str | None = None) -> OpportunityView:
+    pid = resolve_portfolio_id(conn)
+
+    def factory():
+        result = run_opportunity_review(
+            conn, methodology_key=_OPP_METHODOLOGY,
+            portfolio_id=pid, profile_id="default", apply_risk_gate=True)
+        return OpportunityView(
+            as_of_date=result.as_of_date,
+            rows=[_card_to_row(c) for c in result.cards],
+            gate_summary=getattr(result, "gate_summary", None))
+    view = opportunity_cache.get_or_set((_OPP_METHODOLOGY, pid, "view"), factory)
+    if gate:  # 게이트 상태 필터(캐시된 전체에서 파생)
+        rows = [r for r in view.rows if r.gate_status == gate]
+        return OpportunityView(as_of_date=view.as_of_date, rows=rows,
+                               gate_summary=view.gate_summary)
+    return view
+
+
+def build_opportunity_detail(conn, asset_id: str):
+    view = build_opportunity_view(conn)
+    for row in view.rows:
+        if row.asset_id == asset_id:
+            return row
+    return None

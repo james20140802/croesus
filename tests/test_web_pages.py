@@ -87,3 +87,29 @@ def test_portfolio_page_renders(monkeypatch):
     resp = client.get("/portfolio")
     assert resp.status_code == 200
     assert "AAPL" in resp.text and "섹터 과다" in resp.text
+
+
+def test_opportunities_page_renders_with_gate(monkeypatch):
+    from croesus.web.viewmodels import OpportunityView, OpportunityRow
+    view = OpportunityView(as_of_date=date(2026,6,20), gate_summary={"pass":1,"warn":0,"block":1},
+        rows=[
+          OpportunityRow(asset_id="a1", symbol="MSFT", name="Microsoft", current_price=400.0,
+            base_upside_pct=0.25, bands={"bear":350,"base":500,"bull":650},
+            grades={"moat":"A","tech":"B"}, confidence="high",
+            gate_status="pass", gate_reason_codes=[], gate_notes=[]),
+          OpportunityRow(asset_id="a2", symbol="TSLA", name="Tesla", current_price=200.0,
+            base_upside_pct=0.10, bands={"bear":150,"base":260,"bull":350},
+            grades={"moat":"B"}, confidence="medium",
+            gate_status="block", gate_reason_codes=["SECTOR_OVER_MAX"],
+            gate_notes=["섹터 한도 초과"]),
+        ])
+    monkeypatch.setattr("croesus.web.routes.opportunity.build_opportunity_view",
+                        lambda conn, gate=None: view)
+    monkeypatch.setattr("croesus.web.routes.opportunity.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/opportunities")
+    assert resp.status_code == 200
+    assert "MSFT" in resp.text and "TSLA" in resp.text
+    assert "SECTOR_OVER_MAX" in resp.text      # 게이트 reason code 표시
+    assert "block" in resp.text                # 게이트 상태 배지

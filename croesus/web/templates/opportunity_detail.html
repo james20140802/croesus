@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+{% if not row %}<section class="empty"><p>해당 자산을 찾을 수 없습니다.</p></section>{% else %}
+<h1>{{ row.symbol }} <span class="muted">{{ row.name or '' }}</span>
+  {% if row.gate_status %}<span class="gate gate-{{ row.gate_status }}">{{ row.gate_status }}</span>{% endif %}</h1>
+<div class="card chart" data-chart="bands" data-series='{{ bands_json }}'
+     data-price="{{ row.current_price or 0 }}" style="min-height:260px"></div>
+<div class="grades">{% for k,v in row.grades.items() if v %}
+  <span class="grade grade-{{ v|lower }}">{{ k }}: {{ v }}</span>{% endfor %}</div>
+<p>확신도: {{ row.confidence or '—' }}</p>
+{% if row.gate_notes %}<h2>리스크 게이트</h2>
+  {% if row.gate_reason_codes %}<p class="muted">[{{ row.gate_reason_codes|join(', ') }}]</p>{% endif %}
+  <ul>{% for n in row.gate_notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+{% endif %}
+{% endblock %}
