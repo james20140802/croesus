@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from croesus.db.connection import resolve_db_path
-from croesus.web.routes import home, macro, screening
+from croesus.web.routes import home, macro, screening, portfolio
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -16,6 +16,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app.include_router(home.router)
     app.include_router(macro.router)
     app.include_router(screening.router)
+    app.include_router(portfolio.router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

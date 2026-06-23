@@ -85,3 +85,44 @@ def build_screening_view(conn, bucket: str | None = None) -> ScreeningView:
         except ValueError:
             as_of = None
     return ScreeningView(run_id=run_id, as_of_date=as_of, rows=rows)
+
+
+from croesus.portfolio.repository import PortfolioRepository
+from croesus.web.viewmodels import PortfolioView
+
+
+def build_portfolio_view(conn) -> PortfolioView:
+    pid = resolve_portfolio_id(conn)
+    repo = PortfolioRepository(conn)
+    row = conn.execute(
+        "SELECT max(as_of_date) FROM portfolio_holdings WHERE portfolio_id = ?", [pid]
+    ).fetchone()
+    as_of = row[0] if row else None
+    if as_of is None:
+        return PortfolioView(as_of_date=None, total_market_value=None, unrealized_pnl=None)
+    holdings = repo.get_holdings(pid, as_of)
+    exposures = repo.get_exposures(pid, as_of)
+    drifts = repo.get_drifts(pid, as_of)
+    snapshot = repo.get_snapshot(pid, as_of) or {}
+    run = repo.load_latest_rebalance_run(pid) or {}
+    actions = run.get("actions", [])
+    symbols = resolve_symbol_map(conn, [h.asset_id for h in holdings])
+    total_mv = snapshot.get("total_market_value")
+    h_rows = []
+    for h in holdings:
+        sym, name = symbols.get(h.asset_id, (h.asset_id, None))
+        weight = (h.market_value / total_mv) if (h.market_value and total_mv) else None
+        h_rows.append({"symbol": sym or h.asset_id, "name": name, "quantity": h.quantity,
+                       "market_value": h.market_value, "currency": h.currency, "weight": weight})
+    e_rows = [{"exposure_type": e.exposure_type, "exposure_name": e.exposure_name,
+               "weight": e.weight, "limit_weight": e.limit_weight,
+               "is_violation": e.is_violation} for e in exposures]
+    d_rows = [{"sleeve_name": d.sleeve_name, "current_weight": d.current_weight,
+               "target_weight": d.target_weight, "drift": d.drift,
+               "is_outside_band": d.is_outside_band} for d in drifts]
+    a_rows = [{"action_type": a.action_type, "human_readable_reason": a.human_readable_reason,
+               "reason_codes": a.reason_codes, "estimated_trade_value": a.estimated_trade_value,
+               "asset_id": a.asset_id, "sleeve_name": a.sleeve_name} for a in actions]
+    return PortfolioView(as_of_date=as_of, total_market_value=total_mv,
+        unrealized_pnl=snapshot.get("unrealized_pnl"), holdings=h_rows,
+        exposures=e_rows, drifts=d_rows, actions=a_rows)

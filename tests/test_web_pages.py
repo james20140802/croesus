@@ -67,3 +67,23 @@ def test_screening_page_renders(monkeypatch):
     resp = client.get("/screening")
     assert resp.status_code == 200
     assert "NVDA" in resp.text
+
+
+def test_portfolio_page_renders(monkeypatch):
+    from croesus.web.viewmodels import PortfolioView
+    view = PortfolioView(as_of_date=date(2026,6,21), total_market_value=100000.0,
+        unrealized_pnl=5000.0,
+        holdings=[{"symbol":"AAPL","quantity":10,"market_value":2000.0,"weight":0.02}],
+        exposures=[{"exposure_type":"sector","exposure_name":"Tech","weight":0.4,
+                    "limit_weight":0.35,"is_violation":True}],
+        drifts=[{"sleeve_name":"core_us_equity","current_weight":0.6,"target_weight":0.55,
+                 "drift":0.05,"is_outside_band":False}],
+        actions=[{"action_type":"trim","human_readable_reason":"섹터 과다",
+                  "reason_codes":["SECTOR_OVER_MAX"],"estimated_trade_value":1500.0}])
+    monkeypatch.setattr("croesus.web.routes.portfolio.build_portfolio_view", lambda conn: view)
+    monkeypatch.setattr("croesus.web.routes.portfolio.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/portfolio")
+    assert resp.status_code == 200
+    assert "AAPL" in resp.text and "섹터 과다" in resp.text
