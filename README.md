@@ -52,3 +52,16 @@ with get_connection() as conn:
 ```bash
 python -m pytest
 ```
+
+## 웹 대시보드
+
+```bash
+python -m croesus.web --port 8000          # 0.0.0.0 바인딩
+```
+
+기동 시 접속 URL을 출력합니다. Tailscale이 설치돼 있으면 tailnet IP가 표시되며,
+태블릿·폰에서 같은 tailnet으로 접속하면 됩니다. HTTPS가 필요하면:
+
+```bash
+tailscale serve --bg 8000
+```
