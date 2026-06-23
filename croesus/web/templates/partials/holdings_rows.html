@@ -1,0 +1,8 @@
+<tr>
+  <td><input name="symbol" value="{{ h.symbol if h.symbol is defined else '' }}" list="symbols"></td>
+  <td><input name="quantity" value="{{ h.quantity if h.quantity is defined else '' }}"></td>
+  <td><input name="avg_cost" value=""></td>
+  <td><input name="currency" value="{{ h.currency if h.currency is defined else 'USD' }}"></td>
+  <td><input name="market_value" value=""></td>
+  <td><button type="button" class="btn small" onclick="this.closest('tr').remove()">삭제</button></td>
+</tr>

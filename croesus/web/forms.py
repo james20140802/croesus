@@ -1,4 +1,6 @@
 from __future__ import annotations
+import csv
+import io
 from dataclasses import replace
 
 from croesus.profiles.models import InvestorProfile, PolicyTarget, Currency, TradeMode
@@ -61,3 +63,23 @@ def parse_profile_form(form: dict, existing: InvestorProfile):
     errors += [str(e) for e in getattr(pr, "errors", [])]
     errors += [str(e) for e in getattr(tr, "errors", [])]
     return profile, targets, errors
+
+
+_HOLDINGS_HEADER = ["symbol", "quantity", "avg_cost", "currency", "market_value"]
+
+
+def holdings_form_to_csv(form: dict) -> str:
+    def col(name):
+        v = form.get(name, [])
+        return v if isinstance(v, list) else [v]
+    symbols = col("symbol")
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=_HOLDINGS_HEADER)
+    writer.writeheader()
+    for i, sym in enumerate(symbols):
+        if not sym or not sym.strip():
+            continue
+        row = {h: (col(h)[i] if i < len(col(h)) else "") for h in _HOLDINGS_HEADER}
+        row["symbol"] = sym.strip()
+        writer.writerow(row)
+    return out.getvalue()

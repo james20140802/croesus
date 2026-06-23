@@ -1,5 +1,8 @@
+import csv
+import io
+
 from croesus.profiles.seed_default_profile import DEFAULT_PROFILE
-from croesus.web.forms import parse_profile_form
+from croesus.web.forms import holdings_form_to_csv, parse_profile_form
 
 
 def _base_form():
@@ -37,3 +40,21 @@ def test_parse_profile_form_rejects_positive_drawdown():
     form["max_tolerable_drawdown"] = "0.25"  # 양수 = 무효
     _, _, errors = parse_profile_form(form, DEFAULT_PROFILE)
     assert any("drawdown" in e.lower() or "드로다운" in e for e in errors)
+
+
+def test_holdings_form_to_csv():
+    form = {"symbol": ["AAPL", "CASH"], "quantity": ["10", ""],
+            "avg_cost": ["150", ""], "currency": ["USD", "USD"],
+            "market_value": ["", "500"]}
+    text = holdings_form_to_csv(form)
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert rows[0]["symbol"] == "AAPL" and rows[0]["quantity"] == "10"
+    assert rows[1]["symbol"] == "CASH" and rows[1]["market_value"] == "500"
+
+
+def test_holdings_form_to_csv_skips_empty_rows():
+    form = {"symbol": ["AAPL", ""], "quantity": ["10", ""], "avg_cost": ["150", ""],
+            "currency": ["USD", ""], "market_value": ["", ""]}
+    text = holdings_form_to_csv(form)
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert len(rows) == 1

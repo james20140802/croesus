@@ -59,3 +59,22 @@ def test_profile_post_valid_redirects(monkeypatch):
     }, follow_redirects=False)
     assert resp.status_code == 303
     assert len(_FakeProfileRepo.saved) == 1
+
+
+def test_holdings_post_recomputes(monkeypatch):
+    calls = {}
+
+    def fake_run(conn, path, *, portfolio_id, as_of_date=None):
+        calls["path"] = str(path)
+        calls["pid"] = portfolio_id
+
+    monkeypatch.setattr("croesus.web.routes.portfolio.run_portfolio_snapshot", fake_run)
+    monkeypatch.setattr("croesus.web.routes.portfolio.resolve_portfolio_id", lambda c: "default")
+    monkeypatch.setattr("croesus.web.routes.portfolio.get_write_connection",
+                        contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("x.duckdb"), raise_server_exceptions=False)
+    resp = client.post("/portfolio/holdings", data={
+        "symbol": ["AAPL"], "quantity": ["10"], "avg_cost": ["150"],
+        "currency": ["USD"], "market_value": [""]}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert calls["pid"] == "default" and calls["path"].endswith(".csv")
