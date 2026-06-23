@@ -51,3 +51,19 @@ def test_macro_page_renders(monkeypatch):
     assert resp.status_code == 200
     assert "Goldilocks" in resp.text
     assert "Aggressive" in resp.text
+
+
+def test_screening_page_renders(monkeypatch):
+    from croesus.web.viewmodels import ScreeningView, ScreeningRow
+    view = ScreeningView(run_id="screening-2026-06-21-abcd1234", as_of_date=date(2026,6,21),
+        rows=[ScreeningRow(rank=1, symbol="NVDA", name="Nvidia", score=0.91,
+              decision_bucket="shortlist", reason="strong momentum",
+              factor_scores={"momentum_score": 0.9})])
+    monkeypatch.setattr("croesus.web.routes.screening.build_screening_view",
+                        lambda conn, bucket=None: view)
+    monkeypatch.setattr("croesus.web.routes.screening.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/screening")
+    assert resp.status_code == 200
+    assert "NVDA" in resp.text

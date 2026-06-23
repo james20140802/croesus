@@ -49,3 +49,39 @@ def build_macro_view(conn) -> MacroView | None:
         opportunities=state.opportunities, regime_methods=state.regime_methods,
         history=history,
     )
+
+
+from croesus.screening.repository import ScreeningRepository
+from croesus.web.viewmodels import ScreeningView, ScreeningRow
+
+
+def _latest_screening_run_id(conn) -> str | None:
+    row = conn.execute(
+        "SELECT run_id FROM screening_results GROUP BY run_id ORDER BY run_id DESC LIMIT 1"
+    ).fetchone()
+    return row[0] if row else None
+
+
+def build_screening_view(conn, bucket: str | None = None) -> ScreeningView:
+    run_id = _latest_screening_run_id(conn)
+    if run_id is None:
+        return ScreeningView(run_id=None, as_of_date=None, rows=[])
+    candidates = ScreeningRepository(conn).list_results(run_id)
+    symbols = resolve_symbol_map(conn, [c.asset_id for c in candidates])
+    rows = []
+    for c in candidates:
+        if bucket and c.decision_bucket != bucket:
+            continue
+        sym, name = symbols.get(c.asset_id, (c.asset_id, None))
+        rows.append(ScreeningRow(rank=c.rank, symbol=sym or c.asset_id, name=name,
+            score=c.score, decision_bucket=c.decision_bucket, reason=c.reason,
+            factor_scores=c.factor_scores))
+    as_of = None
+    parts = run_id.split("-")
+    if len(parts) >= 4:
+        from datetime import date as _date
+        try:
+            as_of = _date.fromisoformat("-".join(parts[1:4]))
+        except ValueError:
+            as_of = None
+    return ScreeningView(run_id=run_id, as_of_date=as_of, rows=rows)

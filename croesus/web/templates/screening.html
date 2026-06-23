@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>스크리닝</h1>
+{% if view.run_id %}<p class="muted">최신 run: {{ view.run_id }}</p>{% endif %}
+<div class="filters">
+  {% for b in ["", "shortlist", "watch", "blocked_by_portfolio_fit"] %}
+  <a hx-get="/screening{% if b %}?bucket={{ b }}{% endif %}" hx-target="#screening-table"
+     class="chip{% if bucket==b or (not bucket and not b) %} active{% endif %}">{{ b or "전체" }}</a>
+  {% endfor %}
+</div>
+<div id="screening-table">{% include "partials/screening_table.html" %}</div>
+{% endblock %}
