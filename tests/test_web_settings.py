@@ -1,7 +1,9 @@
 from contextlib import contextmanager
+from datetime import date
 from fastapi.testclient import TestClient
 from croesus.web import create_app
 from croesus.profiles.seed_default_profile import DEFAULT_PROFILE, DEFAULT_POLICY_TARGETS
+from croesus.web.viewmodels import PortfolioView
 
 
 class _FakeProfileRepo:
@@ -97,3 +99,25 @@ def test_transaction_post_records(monkeypatch):
         "gross_amount":"","currency":"USD","fees":"1","transaction_date":"2026-06-20"},
         follow_redirects=False)
     assert resp.status_code == 303 and recorded["txn"].asset_id == "a1"
+
+
+def test_portfolio_edit_prepopulates_existing_holdings(monkeypatch):
+    fake_view = PortfolioView(
+        as_of_date=date(2026, 6, 23),
+        total_market_value=4000.0,
+        unrealized_pnl=0.0,
+        holdings=[{
+            "symbol": "AAPL", "name": "Apple", "quantity": 10,
+            "avg_cost": 150.0, "market_value": 2000.0,
+            "currency": "USD", "weight": 0.5,
+        }],
+    )
+    monkeypatch.setattr("croesus.web.routes.portfolio.build_portfolio_view",
+                        lambda conn: fake_view)
+    monkeypatch.setattr("croesus.web.routes.portfolio.get_read_connection",
+                        contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("x.duckdb"), raise_server_exceptions=True)
+    resp = client.get("/portfolio/edit")
+    assert resp.status_code == 200
+    assert "150.0" in resp.text, "avg_cost 150.0 not pre-populated in holdings editor"
+    assert "2000.0" in resp.text, "market_value 2000.0 not pre-populated in holdings editor"

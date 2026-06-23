@@ -113,7 +113,8 @@ def build_portfolio_view(conn) -> PortfolioView:
         sym, name = symbols.get(h.asset_id, (h.asset_id, None))
         weight = (h.market_value / total_mv) if (h.market_value and total_mv) else None
         h_rows.append({"symbol": sym or h.asset_id, "name": name, "quantity": h.quantity,
-                       "market_value": h.market_value, "currency": h.currency, "weight": weight})
+                       "avg_cost": h.avg_cost, "market_value": h.market_value,
+                       "currency": h.currency, "weight": weight})
     e_rows = [{"exposure_type": e.exposure_type, "exposure_name": e.exposure_name,
                "weight": e.weight, "limit_weight": e.limit_weight,
                "is_violation": e.is_violation} for e in exposures]
