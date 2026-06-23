@@ -2,7 +2,8 @@
 
 - **상태**: 설계 승인 대기 → 구현 플랜 작성 예정
 - **작성일**: 2026-06-23
-- **범위**: 읽기 전용, 인터랙티브, 적응형 웹 대시보드 (v1: macro · screening · portfolio · opportunity)
+- **범위**: 인터랙티브·적응형 웹앱. **읽기**(macro · screening · portfolio · opportunity 시각화) +
+  **설정 쓰기**(프로필 · 포트폴리오 보유 · 거래 원장 편집)
 
 ---
 
@@ -13,14 +14,20 @@ Croesus 파이프라인은 도메인별 결과를 `reports/<domain>/<YYYY-MM-DD>
 열거나 CLI를 써야 한다. 사용자는 **폰·태블릿·컴퓨터에서 결과를 보기 좋게 확인**하고 싶어 하며,
 Tailscale로 어디서든 접근하기를 원한다.
 
-목표: 파이프라인이 이미 계산해 둔 결과를 **시각화해 전달하는 읽기 전용 웹앱**.
-계산/쓰기는 일절 하지 않는다(추천 행동도 "표시만", 승인·실행은 v1 비범위 = Phase E 보류).
+목표: (1) 파이프라인이 이미 계산해 둔 결과를 **시각화해 전달**하고, (2) 사용자가 지금은 CLI·CSV·YAML로만
+가능한 **프로필·포트폴리오·거래 설정을 웹에서 직접 편집**하게 한다.
+
+쓰기 범위는 **설정(configuration)**에 한정한다: 프로필(위험 설정 + 슬리브 타깃), 포트폴리오 보유,
+거래 원장. 파이프라인 계산 자체나 **추천 행동의 승인·실행은 하지 않는다**(표시만, Phase E 보류).
+즉 "사용자가 자기 상황을 입력/갱신 → 시스템이 분석·추천 → 표시"의 입력단과 출력단을 웹이 담당하고,
+중간 계산과 의사결정 실행은 기존 파이프라인/사람의 몫으로 남긴다.
 
 ## 2. 핵심 결정 (확정)
 
 | 결정 | 선택 | 근거 |
 |---|---|---|
-| 앱의 목적 | **읽기 전용 대시보드** | 쓰기 경로 없음 → 설계 단순, 파이프라인과 단방향 |
+| 앱의 목적 | **읽기 대시보드 + 설정 편집** | 읽기 + 프로필·포트폴리오·거래 설정 쓰기. 계산/실행은 비범위 |
+| 보유 편집 방식 | **인라인 표 편집기** | 브라우저에서 행 추가/수정/삭제, 심볼 자동완성, 즉시 검증 |
 | 경험 | **인터랙티브 데이터 앱** | DuckDB 라이브 조회 + 차트/정렬/드릴다운 |
 | 스택 | **FastAPI + HTMX + Jinja2 + ECharts** | 순수 Python, npm 빌드 없음, 모바일 친화, Python-우선 철학과 일치 |
 | 레이아웃 | **적응형 (mobile-first, 단일 코드베이스)** | 화면이 커질수록 정보 밀도·차트 증가 |
@@ -43,19 +50,23 @@ croesus/web/
   __init__.py
   __main__.py        # argparse(--host/--port/--db-path) → uvicorn.run; tailscale URL 출력. `python -m croesus.web`
   app.py             # FastAPI 앱 팩토리: 라우트 등록, Jinja2 + static 마운트
-  db.py              # get_read_connection() 컨텍스트매니저, 락 우아 처리
+  db.py              # get_read_connection() + get_write_connection() 컨텍스트매니저, 락 우아 처리
   services.py        # 기존 repo를 감싼 얇은 뷰모델 빌더 + asset_id→(symbol,name) 매핑 + 날짜/포트폴리오 해석
+  forms.py           # 폼 입력 → 도메인 모델 변환 + 기존 검증 함수 호출, 에러 메시지 수집
   cache.py           # 단순 TTL 인메모리 캐시(opportunity 재계산용)
   routes/
     home.py          # GET /
     macro.py         # GET /macro
     opportunity.py   # GET /opportunities, GET /opportunities/{asset_id}
-    portfolio.py     # GET /portfolio
+    portfolio.py     # GET /portfolio, GET /portfolio/edit, POST /portfolio/holdings,
+                     #   GET /portfolio/transactions, POST /portfolio/transactions
     screening.py     # GET /screening
+    settings.py      # GET /settings/profile, POST /settings/profile
   templates/
-    base.html        # 모바일 하단 네비 + 반응형 그리드 셸, 다크/라이트 자동
+    base.html        # 모바일 하단 네비(+설정) + 반응형 그리드 셸, 다크/라이트 자동
     home.html, macro.html, opportunities.html, opportunity_detail.html, portfolio.html, screening.html
-    partials/        # HTMX 부분 렌더(필터·정렬 결과 조각)
+    portfolio_edit.html, transactions.html, settings_profile.html
+    partials/        # HTMX 부분 렌더(필터·정렬·검증 에러·행 추가 조각)
   static/
     css/app.css      # CSS 그리드 브레이크포인트, 의미 컬러, 애니메이션
     js/echarts.min.js, js/htmx.min.js, js/charts.js   # 벤더링 + 차트 초기화
@@ -89,6 +100,16 @@ def get_read_connection(db_path=None):
 - 싱크가 RW 락을 쥔 짧은 순간엔 read_only 연결도 실패 → `DataUpdatingError`를 잡아
   **503 + "데이터 동기화 중, 잠시 후 새로고침"** 페이지로 우아하게 처리.
 - **opportunity 리뷰**는 매 호출 시 자산을 재계산(가장 무거운 읽기) → `cache.py`의 **60초 TTL 캐시**로 감싼다.
+
+### 쓰기 연결 (설정 저장용)
+
+설정 편집은 read-write 연결이 필요하다. `get_write_connection()`는 **저장 POST 처리 동안에만**
+`duckdb.connect(path, read_only=False)`로 열고 즉시 닫는다(읽기와 동일하게 단명).
+
+- 같은 read-write 연결로 쓰기와 후처리 재계산을 모두 수행한다(read-write 연결은 읽기도 가능).
+- 싱크가 락을 쥔 순간 충돌 시 `DataUpdatingError` → **409/503 + "동기화 중이라 저장 실패, 재시도"**.
+  저장은 사용자 1인이 가끔 하는 일이라 충돌 확률이 낮고 재시도로 충분하다.
+- 한 요청 안에서 read_only와 read-write 연결을 **동시에 보유하지 않는다**(저장 요청은 쓰기 연결만 사용).
 
 ## 5. 재사용 함수 (전부 기존 — 신규 SQL 최소)
 
@@ -176,6 +197,7 @@ ECharts 호버 툴팁/하이라이트 · 시스템 `prefers-color-scheme` 다크
 - `fastapi>=0.110`
 - `uvicorn[standard]>=0.29`
 - `jinja2>=3.1`
+- `python-multipart>=0.0.9` (FastAPI 폼 데이터 처리에 필요 — 설정/편집 POST)
 
 htmx·echarts는 `static/`에 벤더링(파이썬 의존 아님). `[project.scripts]`는 추가하지 않음(`python -m` 관례 유지).
 
@@ -186,17 +208,61 @@ htmx·echarts는 `static/`에 벤더링(파이썬 의존 아님). `[project.scri
 - `get_read_connection`의 락 폴백: 외부에서 RW 연결을 쥔 상태를 시뮬레이션 → 503 "동기화 중" 확인.
 - 홈 집계(추천 행동 카드·경보) 스모크 테스트.
 - 데이터 없는 도메인의 빈 상태(친절한 "아직 데이터 없음") 렌더 확인.
+- **쓰기 경로**: 프로필 저장 POST → DB 반영 + 잘못된 입력(가중치 합≠1) 거부·에러 표시 검증.
+  보유 편집 POST → `replace_holdings` 반영 + 스냅샷 재계산으로 익스포저 갱신 확인.
+  거래 추가 POST → 원장 append + 검증 실패(수량≤0 등) 거부.
+- 쓰기 연결 락 폴백: 외부 RW 점유 시 저장이 409/503로 우아하게 실패하는지.
 
 ## 11. v1 비범위
 
-- 쓰기/액션 승인·실행 (Phase E)
-- 앱 레벨 인증
+- **추천 행동의 승인·실행** (Phase E) — 표시만, 버튼 없음
+- 파이프라인 계산 트리거(스크리닝/매크로/밸류에이션 재실행 등) — 보유 편집 후 스냅샷 재계산은 예외(13장)
+- 앱 레벨 인증 (Tailnet이 경계)
 - backtest · forward_test · performance 페이지 (v2)
 - 웹소켓 실시간 푸시 / 자동 새로고침
-- 멀티 포트폴리오 전환 (활성 포트폴리오 1개 가정)
+- 멀티 포트폴리오 전환 (활성 포트폴리오 1개 = `"default"` 가정)
 
-## 12. 미해결 / 구현 시 확인
+## 12. 설정/편집 (쓰기 경로)
 
-- `portfolios` 테이블에서 "활성/기본" 포트폴리오를 고르는 규칙(컬럼 존재 여부) — 구현 시 스키마 확인.
+현재 프로필·포트폴리오·거래는 CLI·CSV·YAML로만 설정 가능하다. 이를 웹 폼으로 옮기되
+**기존 쓰기 함수와 검증을 그대로 재사용**한다(신규 비즈니스 로직 없음, 폼↔모델 변환 + 표시만 추가).
+
+### 12.1 프로필 편집 — `GET/POST /settings/profile`
+- 폼 필드 = `InvestorProfile`(`profiles/models.py:49`): 기대수익·최대드로다운·투자기간·월납입·유동성버퍼,
+  한도(단일/섹터/산업/테마/국가/통화 비중)·월회전·리밸런싱 밴드·trade_mode·허용/비허용 자산유형,
+  그리고 슬리브 타깃 표(`PolicyTarget`: sleeve_name·target/min/max_weight + 자산 매핑 metadata).
+- 저장: `forms.py`가 폼 → `InvestorProfile` + `list[PolicyTarget]` 변환 → `validate_profile()` +
+  `validate_policy_targets()`(`profiles/validation.py`) 호출 → 통과 시 `ProfileRepository.save_profile()`(원자적).
+- 검증 에러(가중치 합=1, 드로다운<0, min≤target≤max 등)는 **에러로 저장 차단**, 경고는 비차단 표시(HTMX 인라인).
+
+### 12.2 포트폴리오 보유 편집 — `GET /portfolio/edit`, `POST /portfolio/holdings`
+- **인라인 표 편집기**: 행 = 종목(symbol 자동완성 → `assets`)·수량·평균단가·통화(또는 현금행은 평가액).
+  행 추가/수정/삭제는 HTMX 부분 렌더.
+- 저장: 폼 행 → `list[Holding]` 변환, `AssetResolver`로 symbol→asset_id 해석(`import_holdings.py`의 행 검증
+  규칙 재사용: 미해결 심볼·현금행 평가액 필수 등) → `PortfolioRepository.replace_holdings()`(원자적 교체).
+- **저장 직후 스냅샷 재계산**: 같은 쓰기 연결로 `run_portfolio_snapshot`을 호출해 평가액·익스포저·드리프트를
+  갱신 → 대시보드 즉시 반영. (파이프라인 일반 잡 러너가 아니라 방금 한 편집의 후처리.)
+- **안전장치**: 교체 전 직전 보유를 백업 행/CSV로 보존(기존 `holdings_backup_*.csv` 관례), 전체 삭제 등
+  파괴적 변경은 확인 단계.
+
+### 12.3 거래 원장 — `GET /portfolio/transactions`, `POST /portfolio/transactions`
+- 폼 = `PortfolioTransaction`(`portfolio/transactions.py:58`): 유형(buy/sell/deposit/withdrawal/dividend/fee/
+  manual_adjustment)·종목·수량·가격·금액·통화·수수료·일자.
+- 저장: `validate_transaction()` → `record_manual_transaction()`/`TransactionRepository.record_transaction()`(append-only).
+- 원장 목록 표시 + 합계. 보유를 원장에서 파생하려면 `derive_holdings_from_transactions()` 재사용.
+- **주의(기존 동작)**: CSV 보유와 거래 원장이 둘 다 있으면 스냅샷 시 수량 차이가 경고로 표시됨
+  (`portfolio_snapshot.py:227`). 편집기와 원장은 같은 `portfolio_holdings`로 수렴하며 이 정합성 경고를 그대로 노출.
+
+### 12.4 네비게이션 / UX
+- base.html에 **설정(⚙)** 진입점 추가. 모바일에서도 폼은 1열·큰 터치 타깃.
+- 저장 성공/실패는 토스트 + 인라인 검증 메시지. 적응형: 데스크톱은 폼+미리보기(예: 슬리브 도넛) 나란히.
+
+## 13. 미해결 / 구현 시 확인
+
+- 기본 포트폴리오는 `"default"` 단일(`is_active` 컬럼 없음) — services가 이를 기본값으로 사용.
 - 벤더링할 htmx/echarts 버전 고정.
 - opportunity TTL 캐시 키 = `(methodology_key, as_of_date)`.
+- `run_portfolio_snapshot`을 웹의 쓰기 연결로 재호출하는 방식 — 잡 함수가 외부 connection을 받는지,
+  아니면 내부에서 `get_connection`을 여는지 확인해 후자면 얇은 래퍼로 connection 주입(구현 시).
+- 보유 편집 백업 형식(별도 CSV vs metadata 보존) 및 보존 위치 결정.
+- 편집 후 캐시 무효화: 보유/프로필 저장 시 관련 TTL 캐시(opportunity·집계) 즉시 무효화.
