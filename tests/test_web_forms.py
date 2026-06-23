@@ -36,4 +36,4 @@ def test_parse_profile_form_rejects_positive_drawdown():
     form = _base_form()
     form["max_tolerable_drawdown"] = "0.25"  # 양수 = 무효
     _, _, errors = parse_profile_form(form, DEFAULT_PROFILE)
-    assert errors
+    assert any("drawdown" in e.lower() or "드로다운" in e for e in errors)

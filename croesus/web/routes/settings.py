@@ -5,7 +5,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from croesus.web.deps import templates, get_db_path
 from croesus.web.db import get_read_connection, get_write_connection
 from croesus.web.forms import parse_profile_form
-from croesus.web.services import resolve_portfolio_id
 from croesus.profiles.repository import ProfileRepository
 from croesus.profiles.seed_default_profile import DEFAULT_PROFILE
 
@@ -25,7 +24,10 @@ def _load_profile(conn):
 def edit_profile(request: Request, db_path=Depends(get_db_path)) -> HTMLResponse:
     with get_read_connection(db_path) as conn:
         profile = _load_profile(conn)
-        targets = ProfileRepository(conn).get_policy_targets(profile.profile_id)
+        try:
+            targets = ProfileRepository(conn).get_policy_targets(profile.profile_id)
+        except Exception:
+            targets = []
     return templates.TemplateResponse(request, "settings_profile.html",
         {"title": "프로필 설정", "profile": profile, "targets": targets, "errors": []})
 
