@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>프로필 설정</h1>
+{% include "partials/form_errors.html" %}
+<form method="post" action="/settings/profile" class="form">
+  <fieldset><legend>위험/목표</legend>
+    <label>기대 연수익 <input name="expected_annual_return" value="{{ profile.expected_annual_return }}"></label>
+    <label>최대 허용 드로다운(음수) <input name="max_tolerable_drawdown" value="{{ profile.max_tolerable_drawdown }}"></label>
+    <label>투자기간(년) <input name="investment_horizon_years" value="{{ profile.investment_horizon_years }}"></label>
+    <label>월 납입 <input name="monthly_contribution" value="{{ profile.monthly_contribution }}"></label>
+    <label>유동성 버퍼(개월) <input name="liquidity_buffer_months" value="{{ profile.liquidity_buffer_months }}"></label>
+  </fieldset>
+  <fieldset><legend>한도</legend>
+    {% for f in ["max_single_position_weight","max_sector_weight","max_industry_weight",
+                 "max_theme_weight","max_country_weight","max_currency_weight",
+                 "max_monthly_turnover","rebalance_band"] %}
+      <label>{{ f }} <input name="{{ f }}" value="{{ profile[f] }}"></label>{% endfor %}
+    <label>trade_mode
+      <select name="trade_mode">
+        <option value="propose_only" {{ 'selected' if profile.trade_mode.value=='propose_only' }}>propose_only</option>
+        <option value="approval_required" {{ 'selected' if profile.trade_mode.value=='approval_required' }}>approval_required</option>
+      </select></label>
+  </fieldset>
+  <fieldset><legend>슬리브 타깃 (합 = 1.0)</legend>
+    <table class="data"><thead><tr><th>슬리브</th><th>타깃</th><th>최소</th><th>최대</th></tr></thead>
+    <tbody>{% for t in targets %}
+      <tr><td><input name="sleeve_name" value="{{ t.sleeve_name }}"></td>
+        <td><input name="target_weight" value="{{ t.target_weight }}"></td>
+        <td><input name="min_weight" value="{{ t.min_weight if t.min_weight is not none else '' }}"></td>
+        <td><input name="max_weight" value="{{ t.max_weight if t.max_weight is not none else '' }}"></td></tr>
+    {% endfor %}
+      <tr><td><input name="sleeve_name" placeholder="새 슬리브"></td>
+        <td><input name="target_weight"></td><td><input name="min_weight"></td>
+        <td><input name="max_weight"></td></tr></tbody></table>
+  </fieldset>
+  <button type="submit" class="btn primary">저장</button>
+</form>
+{% endblock %}

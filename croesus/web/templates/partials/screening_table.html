@@ -1,0 +1,9 @@
+{% if not view.rows %}<p class="empty">표시할 후보가 없습니다.</p>{% else %}
+<table class="data">
+  <thead><tr><th>#</th><th>심볼</th><th>점수</th><th>버킷</th><th>사유</th></tr></thead>
+  <tbody>{% for r in view.rows %}
+    <tr><td>{{ r.rank or '' }}</td><td>{{ r.symbol }}</td>
+      <td>{{ '%.2f' % r.score if r.score is not none else '' }}</td>
+      <td><span class="bucket bucket-{{ r.decision_bucket }}">{{ r.decision_bucket }}</span></td>
+      <td class="muted">{{ r.reason }}</td></tr>{% endfor %}</tbody>
+</table>{% endif %}

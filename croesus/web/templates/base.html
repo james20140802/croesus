@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · Croesus</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/js/htmx.min.js" defer></script>
+  <script src="/static/js/echarts.min.js" defer></script>
+  <script src="/static/js/charts.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><a href="/" class="brand">Croesus</a></header>
+  <main class="container">{% block content %}{% endblock %}</main>
+  <nav class="bottomnav">
+    <a href="/">홈</a><a href="/macro">매크로</a><a href="/screening">스크리닝</a>
+    <a href="/portfolio">포트폴리오</a><a href="/opportunities">기회</a>
+    <a href="/settings/profile">설정</a>
+  </nav>
+</body>
+</html>

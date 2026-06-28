@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>거래 원장</h1>
+{% include "partials/form_errors.html" %}
+<form method="post" action="/portfolio/transactions" class="form inline">
+  <select name="transaction_type">
+    {% for t in ["buy","sell","deposit","withdrawal","dividend","fee","manual_adjustment"] %}
+    <option value="{{ t }}">{{ t }}</option>{% endfor %}</select>
+  <input name="asset_id" placeholder="asset_id">
+  <input name="quantity" placeholder="수량"><input name="price" placeholder="가격">
+  <input name="gross_amount" placeholder="금액(입출금/배당)">
+  <input name="currency" value="USD"><input name="fees" placeholder="수수료" value="0">
+  <input name="transaction_date" type="date" required>
+  <button type="submit" class="btn primary">기록</button>
+</form>
+<table class="data"><thead><tr><th>일자</th><th>유형</th><th>자산</th><th>수량</th><th>가격</th><th>통화</th></tr></thead>
+  <tbody>{% for t in ledger %}<tr><td>{{ t.date }}</td><td>{{ t.type }}</td>
+    <td>{{ t.asset_id or '' }}</td><td>{{ t.quantity }}</td><td>{{ t.price }}</td>
+    <td>{{ t.currency }}</td></tr>{% endfor %}</tbody></table>
+{% endblock %}

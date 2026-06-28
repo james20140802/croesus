@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><h1>포트폴리오</h1>
+  <a class="btn" href="/portfolio/edit">보유 편집</a>
+  <a class="btn" href="/portfolio/transactions">거래 원장</a></div>
+{% if not view.as_of_date %}
+  <section class="empty"><p>아직 보유 데이터가 없습니다. <a href="/portfolio/edit">보유를 입력</a>하세요.</p></section>
+{% else %}
+<p class="muted">기준일 {{ view.as_of_date }} · 평가액 {{ '{:,.0f}'.format(view.total_market_value or 0) }}
+  · 평가손익 {{ '{:,.0f}'.format(view.unrealized_pnl or 0) }}</p>
+
+<h2>추천 행동</h2>
+{% if view.actions %}<ul class="actions">{% for a in view.actions %}
+  <li><span class="action action-{{ a.action_type }}">{{ a.action_type }}</span>
+    {{ a.human_readable_reason }}
+    <small class="muted">[{{ a.reason_codes|join(', ') }}]</small></li>{% endfor %}</ul>
+{% else %}<p class="muted">현재 제안된 행동이 없습니다.</p>{% endif %}
+
+<div class="grid">
+  <div class="card chart" data-chart="donut" data-series='{{ donut_json }}' style="min-height:260px"></div>
+  <div class="card"><h2>익스포저</h2><table class="data">
+    <thead><tr><th>유형</th><th>이름</th><th>비중</th><th>한도</th></tr></thead>
+    <tbody>{% for e in view.exposures %}
+      <tr class="{{ 'violation' if e.is_violation }}"><td>{{ e.exposure_type }}</td>
+        <td>{{ e.exposure_name }}</td><td>{{ '%.1f%%' % (e.weight*100) }}</td>
+        <td>{{ ('%.1f%%' % (e.limit_weight*100)) if e.limit_weight else '—' }}</td></tr>
+    {% endfor %}</tbody></table></div>
+</div>
+
+<h2>정책 드리프트</h2><table class="data">
+  <thead><tr><th>슬리브</th><th>현재</th><th>타깃</th><th>드리프트</th></tr></thead>
+  <tbody>{% for d in view.drifts %}
+    <tr class="{{ 'outside' if d.is_outside_band }}"><td>{{ d.sleeve_name }}</td>
+      <td>{{ '%.1f%%' % (d.current_weight*100) }}</td><td>{{ '%.1f%%' % (d.target_weight*100) }}</td>
+      <td>{{ '%+.1f%%' % (d.drift*100) }}</td></tr>{% endfor %}</tbody></table>
+
+<h2>보유</h2><table class="data">
+  <thead><tr><th>심볼</th><th>수량</th><th>평가액</th><th>비중</th></tr></thead>
+  <tbody>{% for h in view.holdings %}
+    <tr><td>{{ h.symbol }}</td><td>{{ h.quantity }}</td>
+      <td>{{ '{:,.0f}'.format(h.market_value or 0) }}</td>
+      <td>{{ ('%.1f%%' % (h.weight*100)) if h.weight else '—' }}</td></tr>{% endfor %}</tbody></table>
+{% endif %}
+{% endblock %}

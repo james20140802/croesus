@@ -1,0 +1,8 @@
+<tr>
+  <td><input name="symbol" value="{{ h.symbol if h.symbol is defined else '' }}" list="symbols"></td>
+  <td><input name="quantity" value="{{ h.quantity if h.quantity is defined else '' }}"></td>
+  <td><input name="avg_cost" value="{{ h.avg_cost if h.avg_cost is defined and h.avg_cost is not none else '' }}"></td>
+  <td><input name="currency" value="{{ h.currency if h.currency is defined else 'USD' }}"></td>
+  <td><input name="market_value" value="{{ h.market_value if h.market_value is defined and h.market_value is not none else '' }}"></td>
+  <td><button type="button" class="btn small" onclick="this.closest('tr').remove()">삭제</button></td>
+</tr>

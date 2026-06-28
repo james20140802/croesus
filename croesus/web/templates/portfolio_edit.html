@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>보유 편집</h1>
+<form method="post" action="/portfolio/holdings" class="form">
+  <table class="data" id="holdings">
+    <thead><tr><th>심볼</th><th>수량</th><th>평균단가</th><th>통화</th><th>평가액(현금)</th><th></th></tr></thead>
+    <tbody>
+    {% for h in view.holdings %}
+      {% include "partials/holdings_rows.html" %}
+    {% endfor %}
+    {% set h = {"symbol":"","quantity":"","market_value":"","currency":"USD"} %}
+    {% include "partials/holdings_rows.html" %}
+    </tbody>
+  </table>
+  <button type="button" class="btn"
+    hx-get="/portfolio/edit/row" hx-target="#holdings tbody" hx-swap="beforeend">행 추가</button>
+  <button type="submit" class="btn primary">저장 후 재계산</button>
+</form>
+{% endblock %}

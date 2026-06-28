@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>오늘 한눈에</h1>
+<section class="card actions-card">
+  <div class="card-head"><h2>오늘의 추천 행동</h2>
+    <a href="/portfolio" class="muted">전체 {{ view.action_count }}건 →</a></div>
+  {% if view.actions %}<ul class="actions">{% for a in view.actions %}
+    <li><span class="action action-{{ a.action_type }}">{{ a.action_type }}</span>
+      {{ a.human_readable_reason }}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">현재 제안된 행동이 없습니다.</p>{% endif %}
+</section>
+<div class="grid grid-badges">
+  {% if view.macro %}<a class="card" href="/macro"><span class="muted">{{ view.macro.label }}</span>
+    <strong>{{ view.macro.value }}</strong></a>{% endif %}
+  <a class="card" href="/opportunities"><span class="muted">기회 후보</span>
+    <strong>{{ view.opportunity_count }}</strong></a>
+  <a class="card" href="/screening"><span class="muted">스크리닝 숏리스트</span>
+    <strong>{{ view.screening_count }}</strong></a>
+</div>
+{% if view.drift_alerts %}<section class="card alerts"><h2>경보</h2>
+  <ul>{% for a in view.drift_alerts %}<li>{{ a }}</li>{% endfor %}</ul></section>{% endif %}
+<div class="freshness">{% for b in view.freshness %}
+  <span class="badge badge-{{ b.tone }}">{{ b.label }} {{ b.value }}</span>{% endfor %}</div>
+{% endblock %}
