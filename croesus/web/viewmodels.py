@@ -18,6 +18,8 @@ class MacroView:
     regime_confidence: float
     amplifier_score: float
     confirmation_score: float
+    growth_direction: str = ""    # Expanding | Contracting
+    inflation_direction: str = ""  # Rising | Falling
     warnings: list[dict] = field(default_factory=list)
     opportunities: list[dict] = field(default_factory=list)
     regime_methods: dict = field(default_factory=dict)
@@ -84,3 +86,4 @@ class HomeView:
     drift_alerts: list[str]
     screening_count: int
     freshness: list[Badge] = field(default_factory=list)
+    macro_detail: "MacroView | None" = None

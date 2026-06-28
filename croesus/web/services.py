@@ -53,7 +53,10 @@ def build_macro_view(conn) -> MacroView | None:
     return MacroView(
         date=state.date, regime=state.regime, positioning=state.positioning,
         regime_confidence=state.regime_confidence, amplifier_score=state.amplifier_score,
-        confirmation_score=state.confirmation_score, warnings=state.warnings,
+        confirmation_score=state.confirmation_score,
+        growth_direction=getattr(state, "growth_direction", "") or "",
+        inflation_direction=getattr(state, "inflation_direction", "") or "",
+        warnings=state.warnings,
         opportunities=state.opportunities, regime_methods=state.regime_methods,
         history=history,
     )
@@ -97,6 +100,21 @@ def build_screening_view(conn, bucket: str | None = None) -> ScreeningView:
 
 from croesus.portfolio.repository import PortfolioRepository
 from croesus.web.viewmodels import PortfolioView
+from croesus.web import labels
+
+
+def _korean_action_reason(action, symbol: str | None) -> str:
+    """구조화된 필드(action_type, 사유 코드, 대상)로 한국어 사유 문장을 조립한다.
+
+    백엔드의 영문 human_readable_reason 대신, 사용자가 바로 이해할 수 있는
+    '대상 — 행동: 사유' 형태로 보여준다.
+    """
+    # 행동 종류는 칩으로 따로 보여주므로 사유 문장에서는 중복하지 않는다.
+    subject = symbol or labels.sleeve_label(getattr(action, "sleeve_name", None))
+    why = labels.reason_codes_label(getattr(action, "reason_codes", None) or [])
+    if subject and why:
+        return f"{subject} · {why}"
+    return why or subject or labels.action_label(action.action_type)
 
 
 def build_portfolio_view(conn) -> PortfolioView:
@@ -129,9 +147,18 @@ def build_portfolio_view(conn) -> PortfolioView:
     d_rows = [{"sleeve_name": d.sleeve_name, "current_weight": d.current_weight,
                "target_weight": d.target_weight, "drift": d.drift,
                "is_outside_band": d.is_outside_band} for d in drifts]
-    a_rows = [{"action_type": a.action_type, "human_readable_reason": a.human_readable_reason,
-               "reason_codes": a.reason_codes, "estimated_trade_value": a.estimated_trade_value,
-               "asset_id": a.asset_id, "sleeve_name": a.sleeve_name} for a in actions]
+    action_assets = resolve_symbol_map(conn, [a.asset_id for a in actions if a.asset_id])
+    a_rows = []
+    for a in actions:
+        sym, _ = action_assets.get(a.asset_id, (a.asset_id, None))
+        a_rows.append({
+            "action_type": a.action_type,
+            "human_readable_reason": a.human_readable_reason,
+            "reason_ko": _korean_action_reason(a, sym),
+            "reason_codes": a.reason_codes,
+            "estimated_trade_value": a.estimated_trade_value,
+            "asset_id": a.asset_id, "symbol": sym, "sleeve_name": a.sleeve_name,
+        })
     return PortfolioView(as_of_date=as_of, total_market_value=total_mv,
         unrealized_pnl=snapshot.get("unrealized_pnl"), holdings=h_rows,
         exposures=e_rows, drifts=d_rows, actions=a_rows)
@@ -193,12 +220,15 @@ def build_home_view(conn) -> HomeView:
     portfolio = build_portfolio_view(conn)
     opps = build_opportunity_view(conn)
     screening = build_screening_view(conn)
-    macro_badge = (Badge("레짐", f"{macro.regime} · {macro.positioning}", "ok")
-                   if macro else None)
-    drift_alerts = [f"{d['sleeve_name']} 밴드 이탈" for d in portfolio.drifts
-                    if d.get("is_outside_band")]
-    drift_alerts += [f"{e['exposure_name']} 한도 초과" for e in portfolio.exposures
-                     if e.get("is_violation")]
+    macro_badge = (
+        Badge("시장 자세",
+              f"{labels.regime_label(macro.regime)} · {labels.positioning_label(macro.positioning)}",
+              labels.positioning_tone(macro.positioning))
+        if macro else None)
+    drift_alerts = [f"{labels.sleeve_label(d['sleeve_name'])} 비중이 목표 범위를 벗어났습니다"
+                    for d in portfolio.drifts if d.get("is_outside_band")]
+    drift_alerts += [f"{labels.exposure_type_label(e['exposure_type'])} '{e['exposure_name']}' 비중이 한도를 넘었습니다"
+                     for e in portfolio.exposures if e.get("is_violation")]
     freshness = []
     if macro and macro.date:
         freshness.append(Badge("매크로", str(macro.date), "ok"))
@@ -208,4 +238,5 @@ def build_home_view(conn) -> HomeView:
         freshness.append(Badge("스크리닝", str(screening.as_of_date), "ok"))
     return HomeView(macro=macro_badge, actions=portfolio.actions[:3],
         action_count=len(portfolio.actions), opportunity_count=len(opps.rows),
-        drift_alerts=drift_alerts, screening_count=len(screening.rows), freshness=freshness)
+        drift_alerts=drift_alerts, screening_count=len(screening.rows), freshness=freshness,
+        macro_detail=macro)
