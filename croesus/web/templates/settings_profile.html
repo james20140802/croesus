@@ -1,6 +1,37 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>프로필 설정</h1>
+<h1>설정</h1>
+
+<h2>자동 데이터 갱신</h2>
+<div class="card">
+  {% if scheduler and scheduler.enabled %}
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap">
+      <div>
+        <span class="pill pill--ok">켜짐</span>
+        <strong style="margin-left:.3rem">매일 {{ scheduler.run_at }}</strong>
+        <span class="muted">에 시세·팩터·스크리닝을 자동으로 갱신합니다.</span>
+      </div>
+      <form method="post" action="/settings/refresh" style="margin:0">
+        <button class="btn small" type="submit" {{ 'disabled' if scheduler.running }}>
+          {{ '갱신 중…' if scheduler.running else '지금 갱신' }}</button>
+      </form>
+    </div>
+    <div class="muted small" style="margin-top:.6rem; display:flex; flex-wrap:wrap; gap:.3rem .9rem">
+      {% if scheduler.next_run %}<span>다음 예정 {{ scheduler.next_run }}</span>{% endif %}
+      {% if scheduler.last_run %}<span>마지막 실행 {{ scheduler.last_run }}
+        <span class="{{ 'tone-ok' if scheduler.last_status == '성공' else 'tone-bad' }}">{{ scheduler.last_status }}</span></span>{% endif %}
+    </div>
+    {% if scheduler.last_error %}<p class="small tone-bad" style="margin:.4rem 0 0">{{ scheduler.last_error }}</p>{% endif %}
+  {% else %}
+    <p style="margin:0"><span class="pill pill--neutral">꺼짐</span>
+      <span class="muted">자동 갱신이 꺼져 있습니다. 켜려면 서버를 <code>--schedule HH:MM</code> 옵션으로 실행하세요.</span></p>
+    <form method="post" action="/settings/refresh" style="margin:.7rem 0 0">
+      <button class="btn small" type="submit">지금 한 번 갱신</button>
+    </form>
+  {% endif %}
+</div>
+
+<h2>투자 성향</h2>
 {% include "partials/form_errors.html" %}
 <form method="post" action="/settings/profile" class="form">
   <fieldset><legend>위험/목표</legend>
@@ -10,19 +41,19 @@
     <label>월 납입 <input name="monthly_contribution" value="{{ profile.monthly_contribution }}"></label>
     <label>유동성 버퍼(개월) <input name="liquidity_buffer_months" value="{{ profile.liquidity_buffer_months }}"></label>
   </fieldset>
-  <fieldset><legend>한도</legend>
+  <fieldset><legend>한도 (0~1 비중)</legend>
     {% for f in ["max_single_position_weight","max_sector_weight","max_industry_weight",
                  "max_theme_weight","max_country_weight","max_currency_weight",
                  "max_monthly_turnover","rebalance_band"] %}
-      <label>{{ f }} <input name="{{ f }}" value="{{ profile[f] }}"></label>{% endfor %}
-    <label>trade_mode
+      <label>{{ f | field_label }} <input name="{{ f }}" value="{{ profile[f] }}"></label>{% endfor %}
+    <label>거래 모드
       <select name="trade_mode">
-        <option value="propose_only" {{ 'selected' if profile.trade_mode.value=='propose_only' }}>propose_only</option>
-        <option value="approval_required" {{ 'selected' if profile.trade_mode.value=='approval_required' }}>approval_required</option>
+        <option value="propose_only" {{ 'selected' if profile.trade_mode.value=='propose_only' }}>{{ 'propose_only' | trade_mode_label }}</option>
+        <option value="approval_required" {{ 'selected' if profile.trade_mode.value=='approval_required' }}>{{ 'approval_required' | trade_mode_label }}</option>
       </select></label>
   </fieldset>
   <fieldset><legend>슬리브 타깃 (합 = 1.0)</legend>
-    <table class="data"><thead><tr><th>슬리브</th><th>타깃</th><th>최소</th><th>최대</th></tr></thead>
+    <div class="table-wrap"><table class="data"><thead><tr><th>슬리브</th><th>타깃</th><th>최소</th><th>최대</th></tr></thead>
     <tbody>{% for t in targets %}
       <tr><td><input name="sleeve_name" value="{{ t.sleeve_name }}"></td>
         <td><input name="target_weight" value="{{ t.target_weight }}"></td>
@@ -31,7 +62,7 @@
     {% endfor %}
       <tr><td><input name="sleeve_name" placeholder="새 슬리브"></td>
         <td><input name="target_weight"></td><td><input name="min_weight"></td>
-        <td><input name="max_weight"></td></tr></tbody></table>
+        <td><input name="max_weight"></td></tr></tbody></table></div>
   </fieldset>
   <button type="submit" class="btn primary">저장</button>
 </form>

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from contextlib import asynccontextmanager
+from datetime import time
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -9,9 +11,25 @@ from croesus.web.routes import home, macro, screening, portfolio, opportunity, s
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-def create_app(db_path: str | Path | None = None) -> FastAPI:
-    app = FastAPI(title="Croesus Dashboard", docs_url=None, redoc_url=None)
+def create_app(db_path: str | Path | None = None, *, schedule_at: time | None = None) -> FastAPI:
+    from croesus.web.scheduler import DataScheduler
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        scheduler = None
+        if schedule_at is not None:
+            scheduler = DataScheduler(app.state.db_path, schedule_at)
+            scheduler.start()
+        app.state.scheduler = scheduler
+        try:
+            yield
+        finally:
+            if scheduler is not None:
+                await scheduler.stop()
+
+    app = FastAPI(title="Croesus Dashboard", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.db_path = str(resolve_db_path(db_path))
+    app.state.scheduler = None
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
     app.include_router(home.router)
     app.include_router(macro.router)
