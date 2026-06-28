@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -38,18 +39,23 @@ def edit_profile(request: Request, db_path=Depends(get_db_path)) -> HTMLResponse
          "scheduler": _scheduler_status(request)})
 
 
+# 스케줄러가 없을 때(수동 갱신만) 동시 실행을 막는 가드. 스케줄러가 있으면
+# run_once() 안의 state.running 체크가 같은 역할을 한다.
+_manual_refresh_lock = asyncio.Lock()
+
+
 @router.post("/settings/refresh")
 async def refresh_now(request: Request, db_path=Depends(get_db_path)):
     """수동으로 데이터 갱신을 한 번 실행한다(로컬 단일 사용자용)."""
-    import asyncio
-    from croesus.web.scheduler import _default_refresh
+    from croesus.web.scheduler import run_default_refresh
 
     scheduler = getattr(request.app.state, "scheduler", None)
     if scheduler is not None:
         await scheduler.run_once()
-    else:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _default_refresh, str(db_path), print)
+    elif not _manual_refresh_lock.locked():  # 이미 갱신 중이면 조용히 무시(중복 클릭 방지)
+        async with _manual_refresh_lock:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, run_default_refresh, str(db_path), print)
     return RedirectResponse("/settings/profile", status_code=303)
 
 

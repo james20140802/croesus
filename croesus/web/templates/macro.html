@@ -18,11 +18,12 @@
       → <strong class="tone-gilt">{{ view.regime | regime_label }}</strong>
       <span class="muted">(신뢰도 {{ '%.0f' % ((view.regime_confidence or 0) * 100) }}%)</span></p>
   </div>
+  {% set amp = view.amplifier_score or 0 %}
   <div class="card">
     <span class="pill pill--gilt">2단계 · 시장 스트레스</span>
     <p style="margin:.5rem 0 0">지금 시장은 얼마나 불안한가? 유동성·신용·금리를 5년 백분위로 환산해 0~100으로 봅니다.</p>
-    <p style="margin:.3rem 0 0"><strong>{{ (view.amplifier_score or 0) | round | int }} / 100</strong>
-      <span class="muted">— {{ '평온' if view.amplifier_score <= 30 else '보통' if view.amplifier_score <= 60 else '불안' }}</span></p>
+    <p style="margin:.3rem 0 0"><strong>{{ amp | round | int }} / 100</strong>
+      <span class="muted">— {{ '평온' if amp <= 30 else '보통' if amp <= 60 else '불안' }}</span></p>
   </div>
   <div class="card">
     <span class="pill pill--gilt">3단계 · 시장 확인</span>

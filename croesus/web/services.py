@@ -227,7 +227,7 @@ def build_home_view(conn) -> HomeView:
         if macro else None)
     drift_alerts = [f"{labels.sleeve_label(d['sleeve_name'])} 비중이 목표 범위를 벗어났습니다"
                     for d in portfolio.drifts if d.get("is_outside_band")]
-    drift_alerts += [f"{labels.exposure_type_label(e['exposure_type'])} '{e['exposure_name']}' 비중이 한도를 넘었습니다"
+    drift_alerts += [f"{labels.exposure_type_label(e.get('exposure_type'))} '{e.get('exposure_name', '')}' 비중이 한도를 넘었습니다"
                      for e in portfolio.exposures if e.get("is_violation")]
     freshness = []
     if macro and macro.date:

@@ -18,24 +18,33 @@ from pathlib import Path
 from typing import Callable
 
 
-def _default_refresh(db_path: str | Path, log: Callable[[str], None]) -> None:
+def run_default_refresh(db_path: str | Path, log: Callable[[str], None]) -> None:
     """기본 자동 갱신: 일일 시세/팩터 파이프라인 + 스크리닝.
 
     macro는 별도 cadence(주간/월간)로 갱신되므로 일일 자동 갱신에는 포함하지 않는다.
-    하나가 실패해도 다음 단계를 시도한다.
+    한 단계가 실패해도 다음 단계를 시도하고, 끝나면 기회 캐시를 비워 웹이 즉시
+    최신 데이터를 보여주게 한다.
     """
     from croesus.web.db import get_write_connection
+    from croesus.web import services
     from croesus.jobs.daily_run import run_daily_pipeline
     from croesus.jobs.screening_run import run_screening_job
 
     with get_write_connection(db_path) as conn:
         log("일일 파이프라인 시작 (시세·환율·팩터)")
-        run_daily_pipeline(conn, log=log)
+        try:
+            run_daily_pipeline(conn, log=log)
+        except Exception as exc:  # 파이프라인 실패가 스크리닝을 막지 않도록
+            log(f"일일 파이프라인 실패: {exc}")
         log("스크리닝 실행")
         try:
             run_screening_job(conn)
         except Exception as exc:  # 스크리닝 실패가 전체를 막지 않도록
             log(f"스크리닝 건너뜀: {exc}")
+
+    # DB가 갱신됐으므로 TTL 만료를 기다리지 않고 기회 캐시를 즉시 무효화한다.
+    services.opportunity_cache.invalidate()
+    log("기회 캐시 무효화 완료")
 
 
 @dataclass
@@ -70,7 +79,7 @@ class DataScheduler:
         db_path: str | Path,
         run_at: time,
         *,
-        refresh: Callable[[str | Path, Callable[[str], None]], None] = _default_refresh,
+        refresh: Callable[[str | Path, Callable[[str], None]], None] = run_default_refresh,
         now: Callable[[], datetime] = datetime.now,
     ) -> None:
         self._db_path = db_path
@@ -94,9 +103,9 @@ class DataScheduler:
         stamp = self._now().strftime("%H:%M:%S")
         line = f"[{stamp}] {msg}"
         print(f"[scheduler] {line}", flush=True)
-        tail = self.state.log_tail
-        tail.append(line)
-        del tail[:-20]  # 최근 20줄만 보관
+        # _log는 스레드풀에서도 호출되므로, as_dict()가 읽는 리스트를 제자리 변형하지
+        # 않고 한 번에 새 리스트로 교체한다(읽는 쪽은 항상 일관된 스냅샷을 본다).
+        self.state.log_tail = (self.state.log_tail + [line])[-20:]  # 최근 20줄만 보관
 
     # ── 백그라운드 루프 ───────────────────────────────────────────────────
     async def _loop(self) -> None:
@@ -144,6 +153,9 @@ class DataScheduler:
             self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
+        # asyncio 태스크는 취소하지만, 이미 스레드풀에서 돌고 있는 갱신 작업은
+        # 중간에 죽이지 않는다 — DuckDB 쓰기 트랜잭션을 강제 중단하는 것보다
+        # 끝까지 기다리는 편이 안전하다. 그래서 종료가 잠깐 늦어질 수 있다.
         if self._task and not self._task.done():
             self._task.cancel()
             try:

@@ -16,6 +16,10 @@ function initCharts() {
     if (el.offsetParent === null) return;            // 숨김(모바일 desktop-only) 스킵
     if (el.__inited) return; el.__inited = true;
     var kind = el.getAttribute('data-chart');
+    if (['donut', 'macro-history', 'scatter', 'bands'].indexOf(kind) === -1) {
+      el.__inited = false;                           // 알 수 없는 종류 — 빈 프레임 대신 건너뜀
+      return;
+    }
     var data = JSON.parse(el.getAttribute('data-series') || '[]');
     var chart = echarts.init(el, null, { renderer: 'svg' });
     var axis = { axisLine: { lineStyle: { color: line } }, axisLabel: { color: soft },

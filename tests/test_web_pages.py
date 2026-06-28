@@ -55,6 +55,22 @@ def test_macro_page_renders(monkeypatch):
     assert "Goldilocks" not in resp.text
 
 
+def test_macro_page_renders_with_null_amplifier(monkeypatch):
+    # amplifier_score가 NULL이어도 500이 아니라 정상 렌더되어야 한다
+    view = MacroView(
+        date=date(2026, 6, 22), regime="Reflation", positioning="Neutral",
+        regime_confidence=0.7, amplifier_score=None, confirmation_score=0.0,
+        warnings=[], opportunities=[], regime_methods={}, history=[],
+    )
+    monkeypatch.setattr("croesus.web.routes.macro.build_macro_view", lambda conn: view)
+    monkeypatch.setattr("croesus.web.routes.macro.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/macro")
+    assert resp.status_code == 200
+    assert "리플레이션" in resp.text
+
+
 def test_screening_page_renders(monkeypatch):
     from croesus.web.viewmodels import ScreeningView, ScreeningRow
     view = ScreeningView(run_id="screening-2026-06-21-abcd1234", as_of_date=date(2026,6,21),
@@ -116,6 +132,7 @@ def test_opportunities_page_renders_with_gate(monkeypatch):
     # 원시 코드 대신 한국어 라벨이 노출되어야 한다
     assert "섹터 비중이 상한을 넘었습니다" in resp.text   # SECTOR_OVER_MAX 한국어 라벨
     assert "편입 불가" in resp.text                       # block 게이트 상태 한국어
+    assert "pill--bad" in resp.text                       # block → bad 톤(심각도 색) 클래스
     assert "SECTOR_OVER_MAX" not in resp.text
 
 
