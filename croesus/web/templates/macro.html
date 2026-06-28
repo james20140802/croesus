@@ -1,26 +1,58 @@
 {% extends "base.html" %}
+{% from "partials/_posture.html" import posture %}
 {% block content %}
 <h1>매크로</h1>
 {% if not view %}
   <section class="empty"><p>아직 매크로 데이터가 없습니다.</p></section>
 {% else %}
-<div class="grid grid-macro">
+
+{{ posture(view) }}
+
+<h2>이렇게 판단했어요</h2>
+<p class="muted" style="margin-top:-.2rem">시장 국면을 세 단계의 렌즈로 겹쳐 봅니다.</p>
+<div class="grid">
   <div class="card">
-    <span class="muted">레짐</span>
-    <strong class="regime regime-{{ view.regime|lower }}">{{ view.regime }}</strong>
-    <span class="muted">포지셔닝: {{ view.positioning }}</span>
-    <span class="muted">신뢰도: {{ '%.0f' % (view.regime_confidence * 100) }}%</span>
+    <span class="pill pill--gilt">1단계 · 경기 국면</span>
+    <p style="margin:.5rem 0 0">지금 경제가 무엇을 하고 있나? 여러 경제 지표의 다수결로 성장·물가 방향을 정합니다.</p>
+    <p style="margin:.3rem 0 0"><strong>경기 {{ view.growth_direction | growth_label }} · 물가 {{ view.inflation_direction | inflation_label }}</strong>
+      → <strong class="tone-gilt">{{ view.regime | regime_label }}</strong>
+      <span class="muted">(신뢰도 {{ '%.0f' % ((view.regime_confidence or 0) * 100) }}%)</span></p>
   </div>
-  <div class="card"><span class="muted">Amplifier</span>
-    <strong>{{ '%.0f' % view.amplifier_score }}</strong></div>
-  <div class="card"><span class="muted">Confirmation</span>
-    <strong>{{ '%+.2f' % view.confirmation_score }}</strong></div>
-  <div class="card chart desktop-only" data-chart="macro-history"
-       data-series='{{ history_json }}' style="min-height:260px"></div>
+  <div class="card">
+    <span class="pill pill--gilt">2단계 · 시장 스트레스</span>
+    <p style="margin:.5rem 0 0">지금 시장은 얼마나 불안한가? 유동성·신용·금리를 5년 백분위로 환산해 0~100으로 봅니다.</p>
+    <p style="margin:.3rem 0 0"><strong>{{ (view.amplifier_score or 0) | round | int }} / 100</strong>
+      <span class="muted">— {{ '평온' if view.amplifier_score <= 30 else '보통' if view.amplifier_score <= 60 else '불안' }}</span></p>
+  </div>
+  <div class="card">
+    <span class="pill pill--gilt">3단계 · 시장 확인</span>
+    <p style="margin:.5rem 0 0">실제 시장 가격이 위 판단에 동의하는가? 변동성·추세·심리·환율을 -1~+1로 종합합니다.</p>
+    {% set c = view.confirmation_score or 0 %}
+    <p style="margin:.3rem 0 0"><strong>{{ '%+.2f' % c }}</strong>
+      <span class="muted">— {{ '시장이 국면에 동의' if c >= 0.3 else '시장이 국면과 반대' if c <= -0.3 else '혼조·관망' }}</span></p>
+  </div>
 </div>
-{% if view.warnings %}
-<h2>경고</h2><ul>{% for w in view.warnings %}
-  <li>{{ w.get('indicator','') }} — {{ w.get('code','') }}</li>{% endfor %}</ul>
+
+{% set signals = (view.opportunities or []) + (view.warnings or []) %}
+{% if signals %}
+<h2>지금 눈에 띄는 신호</h2>
+<ul class="actions">
+  {% for w in view.opportunities or [] %}
+  <li class="action-item"><span class="pill pill--ok">기회</span>
+    <div class="body"><div class="reason">{{ w.get('code') | macro_signal_label(w.get('indicator')) }}</div></div></li>
+  {% endfor %}
+  {% for w in view.warnings or [] %}
+  <li class="action-item"><span class="pill pill--bad">위험</span>
+    <div class="body"><div class="reason">{{ w.get('code') | macro_signal_label(w.get('indicator')) }}</div></div></li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if view.history %}
+<h2>최근 시장 스트레스 추이</h2>
+<div class="card chart desktop-only" data-chart="macro-history"
+     data-series='{{ history_json }}' style="min-height:240px"></div>
+<p class="card-note">최근 90일간의 시장 스트레스(0~100) 변화입니다.</p>
 {% endif %}
 {% endif %}
 {% endblock %}

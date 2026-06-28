@@ -5,16 +5,16 @@
 <form method="post" action="/portfolio/transactions" class="form inline">
   <select name="transaction_type">
     {% for t in ["buy","sell","deposit","withdrawal","dividend","fee","manual_adjustment"] %}
-    <option value="{{ t }}">{{ t }}</option>{% endfor %}</select>
-  <input name="asset_id" placeholder="asset_id">
+    <option value="{{ t }}">{{ t | tx_type_label }}</option>{% endfor %}</select>
+  <input name="asset_id" placeholder="종목 ID">
   <input name="quantity" placeholder="수량"><input name="price" placeholder="가격">
   <input name="gross_amount" placeholder="금액(입출금/배당)">
   <input name="currency" value="USD"><input name="fees" placeholder="수수료" value="0">
   <input name="transaction_date" type="date" required>
   <button type="submit" class="btn primary">기록</button>
 </form>
-<table class="data"><thead><tr><th>일자</th><th>유형</th><th>자산</th><th>수량</th><th>가격</th><th>통화</th></tr></thead>
-  <tbody>{% for t in ledger %}<tr><td>{{ t.date }}</td><td>{{ t.type }}</td>
-    <td>{{ t.asset_id or '' }}</td><td>{{ t.quantity }}</td><td>{{ t.price }}</td>
-    <td>{{ t.currency }}</td></tr>{% endfor %}</tbody></table>
+<div class="table-wrap"><table class="data"><thead><tr><th>일자</th><th>유형</th><th>자산</th><th class="num">수량</th><th class="num">가격</th><th>통화</th></tr></thead>
+  <tbody>{% for t in ledger %}<tr><td>{{ t.date }}</td><td><span class="pill pill--neutral">{{ t.type | tx_type_label }}</span></td>
+    <td>{{ t.asset_id or '' }}</td><td class="num">{{ t.quantity }}</td><td class="num">{{ t.price }}</td>
+    <td>{{ t.currency }}</td></tr>{% endfor %}</tbody></table></div>
 {% endblock %}

@@ -1,15 +1,32 @@
 {% extends "base.html" %}
 {% block content %}
 {% if not row %}<section class="empty"><p>해당 자산을 찾을 수 없습니다.</p></section>{% else %}
-<h1>{{ row.symbol }} <span class="muted">{{ row.name or '' }}</span>
-  {% if row.gate_status %}<span class="gate gate-{{ row.gate_status }}">{{ row.gate_status }}</span>{% endif %}</h1>
+<div class="page-head">
+  <h1 style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap">{{ row.symbol }}
+    <span class="muted" style="font-size:1rem; font-family:var(--font-sans)">{{ row.name or '' }}</span>
+    {% if row.gate_status %}<span class="pill pill--{{ row.gate_status | gate_tone }}">{{ row.gate_status | gate_label }}</span>{% endif %}</h1>
+</div>
+<div class="card">
+  <div style="display:flex; flex-wrap:wrap; gap:1.5rem">
+    <div class="metric"><span class="k">현재가</span><span class="v">{{ '{:,.0f}'.format(row.current_price or 0) }}</span></div>
+    <div class="metric"><span class="k">상승여력</span><span class="v {{ 'tone-ok' if (row.base_upside_pct or 0) > 0 else 'tone-bad' }}">{{ ('%+.0f%%' % (row.base_upside_pct*100)) if row.base_upside_pct is not none else '—' }}</span></div>
+    <div class="metric"><span class="k">확신도</span><span class="v">{{ row.confidence | confidence_label }}</span></div>
+  </div>
+</div>
+
+<h2>적정가 시나리오</h2>
 <div class="card chart" data-chart="bands" data-series='{{ bands_json }}'
-     data-price="{{ row.current_price or 0 }}" style="min-height:260px"></div>
+     data-price="{{ row.current_price or 0 }}" style="min-height:240px"></div>
+<p class="card-note">시나리오별 추정 적정가와 현재가 비교입니다.</p>
+
+<h2>평가 등급</h2>
 <div class="grades">{% for k,v in row.grades.items() if v %}
-  <span class="grade grade-{{ v|lower }}">{{ k }}: {{ v }}</span>{% endfor %}</div>
-<p>확신도: {{ row.confidence or '—' }}</p>
-{% if row.gate_notes %}<h2>리스크 게이트</h2>
-  {% if row.gate_reason_codes %}<p class="muted">[{{ row.gate_reason_codes|join(', ') }}]</p>{% endif %}
-  <ul>{% for n in row.gate_notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+  <span class="pill pill--lg pill--{{ v | grade_value_tone }}">{{ k | grade_group_label }} · {{ v | grade_value_label }}</span>{% endfor %}</div>
+
+{% if row.gate_notes %}
+<h2>리스크 점검</h2>
+{% if row.gate_reason_codes %}<p>{% for c in row.gate_reason_codes %}<span class="pill pill--warn" style="margin:.15rem .25rem .15rem 0">{{ c | reason_code_label }}</span>{% endfor %}</p>{% endif %}
+<ul class="muted" style="font-size:.88rem">{% for n in row.gate_notes %}<li>{{ n }}</li>{% endfor %}</ul>
+{% endif %}
 {% endif %}
 {% endblock %}

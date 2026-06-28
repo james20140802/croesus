@@ -1,9 +1,21 @@
 {% if not view.rows %}<p class="empty">표시할 후보가 없습니다.</p>{% else %}
+<div class="table-wrap">
 <table class="data">
-  <thead><tr><th>#</th><th>심볼</th><th>점수</th><th>버킷</th><th>사유</th></tr></thead>
+  <thead><tr><th>순위</th><th>심볼</th><th class="num">점수</th><th>판정</th></tr></thead>
   <tbody>{% for r in view.rows %}
-    <tr><td>{{ r.rank or '' }}</td><td>{{ r.symbol }}</td>
-      <td>{{ '%.2f' % r.score if r.score is not none else '' }}</td>
-      <td><span class="bucket bucket-{{ r.decision_bucket }}">{{ r.decision_bucket }}</span></td>
-      <td class="muted">{{ r.reason }}</td></tr>{% endfor %}</tbody>
-</table>{% endif %}
+    <tr>
+      <td class="num">{{ r.rank or '' }}</td>
+      <td><strong>{{ r.symbol }}</strong>{% if r.name %}<br><span class="muted small">{{ r.name }}</span>{% endif %}</td>
+      <td class="num">{{ '%.2f' % r.score if r.score is not none else '—' }}</td>
+      <td><span class="pill pill--{{ r.decision_bucket | bucket_tone }}">{{ r.decision_bucket | bucket_label }}</span></td>
+    </tr>{% endfor %}</tbody>
+</table>
+</div>
+<div class="card" style="margin-top:.8rem">
+  <span class="muted small">판정 뜻</span>
+  <ul style="margin:.4rem 0 0; padding-left:1.1rem; font-size:.84rem; color:var(--ink-soft)">
+    <li><strong class="tone-ok">후보</strong> — 상위권, 신규 편입을 검토할 만한 종목</li>
+    <li><strong>관찰</strong> — 점수는 나왔지만 당장 편입 대상은 아님</li>
+    <li><strong class="tone-warn">비중 제약</strong> — 점수는 충분하나 기존 비중 한도에 막힘</li>
+  </ul>
+</div>{% endif %}

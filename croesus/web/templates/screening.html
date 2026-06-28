@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>스크리닝</h1>
-{% if view.run_id %}<p class="muted">최신 run: {{ view.run_id }}</p>{% endif %}
+<p class="muted" style="margin-top:-.4rem">전체 종목을 정량 점수로 줄세워, 깊이 살펴볼 후보를 추립니다.
+  {% if view.run_id %}<br>최근 분석 {{ view.as_of_date or view.run_id }}{% endif %}</p>
 <div class="filters">
-  {% for b in ["", "shortlist", "watch", "blocked_by_portfolio_fit"] %}
+  {% for b in ["", "candidate", "watch", "blocked_by_portfolio_fit"] %}
   <a hx-get="/screening{% if b %}?bucket={{ b }}{% endif %}" hx-target="#screening-table"
-     class="chip{% if bucket==b or (not bucket and not b) %} active{% endif %}">{{ b or "전체" }}</a>
+     class="chip{% if bucket==b or (not bucket and not b) %} active{% endif %}">{{ b | bucket_label if b else "전체" }}</a>
   {% endfor %}
 </div>
 <div id="screening-table">{% include "partials/screening_table.html" %}</div>

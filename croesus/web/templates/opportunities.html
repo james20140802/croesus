@@ -1,34 +1,31 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>기회</h1>
+<p class="muted" style="margin-top:-.4rem">적정가(인트린식 밸류) 대비 저평가로 보이는 후보입니다. 매수 제안이 아니라 검토 후보예요.</p>
 {% if view.gate_summary %}
-<div class="gate-summary">
-  <span class="badge badge-ok">pass {{ view.gate_summary.get('pass', 0) }}</span>
-  <span class="badge badge-warn">warn {{ view.gate_summary.get('warn', 0) }}</span>
-  <span class="badge badge-bad">block {{ view.gate_summary.get('block', 0) }}</span>
-</div>
 <div class="filters">
   {% for g in ["", "pass", "warn", "block"] %}
   <a href="/opportunities{% if g %}?gate={{ g }}{% endif %}"
-     class="chip{% if gate==g or (not gate and not g) %} active{% endif %}">{{ g or "전체" }}</a>
+     class="chip{% if gate==g or (not gate and not g) %} active{% endif %}">{{
+       (g | gate_label) ~ ' ' ~ view.gate_summary.get(g, 0) if g else "전체" }}</a>
   {% endfor %}
 </div>
 {% endif %}
 {% if not view.rows %}<section class="empty"><p>표시할 기회 후보가 없습니다.</p></section>{% else %}
-<p class="muted">기준일 {{ view.as_of_date }} · 추천 전용(게이트는 매매를 제안하지 않습니다)</p>
+<p class="muted">기준일 {{ view.as_of_date }}</p>
 <div class="card chart desktop-only" data-chart="scatter" data-series='{{ scatter_json }}'
      style="min-height:280px"></div>
 <div class="grid grid-cards">{% for r in view.rows %}
   <a class="card opp" href="/opportunities/{{ r.asset_id }}">
-    <div class="opp-head"><strong>{{ r.symbol }}</strong>
-      {% if r.gate_status %}<span class="gate gate-{{ r.gate_status }}">{{ r.gate_status }}</span>{% endif %}</div>
-    <span class="muted">{{ r.name or '' }}</span>
-    <div>현재가 {{ '{:,.0f}'.format(r.current_price or 0) }}</div>
+    <div class="opp-head"><span class="sym">{{ r.symbol }}</span>
+      {% if r.gate_status %}<span class="pill pill--{{ r.gate_status | gate_tone }}">{{ r.gate_status | gate_label }}</span>{% endif %}</div>
+    <span class="muted small">{{ r.name or '' }}</span>
+    <div class="price">현재가 {{ '{:,.0f}'.format(r.current_price or 0) }}</div>
     <div class="upside {{ 'pos' if (r.base_upside_pct or 0) > 0 else 'neg' }}">
-      업사이드 {{ ('%+.0f%%' % (r.base_upside_pct*100)) if r.base_upside_pct is not none else '—' }}</div>
-    {% if r.gate_reason_codes %}<div class="muted small">[{{ r.gate_reason_codes|join(', ') }}]</div>{% endif %}
+      상승여력 {{ ('%+.0f%%' % (r.base_upside_pct*100)) if r.base_upside_pct is not none else '—' }}</div>
+    {% if r.gate_reason_codes %}<div class="muted small">{{ r.gate_reason_codes | reason_codes_label }}</div>{% endif %}
     <div class="grades">{% for k,v in r.grades.items() if v %}
-      <span class="grade grade-{{ v|lower }}">{{ k }}:{{ v }}</span>{% endfor %}</div>
+      <span class="pill pill--{{ v | grade_value_tone }}">{{ k | grade_group_label }} {{ v | grade_value_label }}</span>{% endfor %}</div>
   </a>{% endfor %}</div>
 {% endif %}
 {% endblock %}

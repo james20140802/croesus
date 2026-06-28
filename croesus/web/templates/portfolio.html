@@ -1,44 +1,61 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><h1>포트폴리오</h1>
-  <a class="btn" href="/portfolio/edit">보유 편집</a>
-  <a class="btn" href="/portfolio/transactions">거래 원장</a></div>
+<div class="page-head">
+  <h1>포트폴리오</h1>
+  <a class="btn small" href="/portfolio/edit">보유 편집</a>
+  <a class="btn small" href="/portfolio/transactions">거래 원장</a>
+</div>
 {% if not view.as_of_date %}
-  <section class="empty"><p>아직 보유 데이터가 없습니다. <a href="/portfolio/edit">보유를 입력</a>하세요.</p></section>
+  <section class="empty"><p>아직 보유 데이터가 없습니다.<br><a href="/portfolio/edit">보유를 입력</a>하면 분석이 시작됩니다.</p></section>
 {% else %}
-<p class="muted">기준일 {{ view.as_of_date }} · 평가액 {{ '{:,.0f}'.format(view.total_market_value or 0) }}
-  · 평가손익 {{ '{:,.0f}'.format(view.unrealized_pnl or 0) }}</p>
+<div class="stat-row">
+  <div class="stat"><span class="k">기준일</span><span class="v" style="font-size:1rem">{{ view.as_of_date }}</span></div>
+  <div class="stat"><span class="k">평가액</span><span class="v" style="font-size:1.15rem">{{ '{:,.0f}'.format(view.total_market_value or 0) }}</span></div>
+  <div class="stat"><span class="k">평가손익</span><span class="v {{ 'tone-ok' if (view.unrealized_pnl or 0) >= 0 else 'tone-bad' }}" style="font-size:1.15rem">{{ '{:+,.0f}'.format(view.unrealized_pnl or 0) }}</span></div>
+</div>
 
 <h2>추천 행동</h2>
 {% if view.actions %}<ul class="actions">{% for a in view.actions %}
-  <li><span class="action action-{{ a.action_type }}">{{ a.action_type }}</span>
-    {{ a.human_readable_reason }}
-    <small class="muted">[{{ a.reason_codes|join(', ') }}]</small></li>{% endfor %}</ul>
-{% else %}<p class="muted">현재 제안된 행동이 없습니다.</p>{% endif %}
+  <li class="action-item">
+    <span class="pill pill--{{ a.action_type | action_tone }}">{{ a.action_type | action_label }}</span>
+    <div class="body">
+      <div class="reason">{{ a.reason_ko or a.human_readable_reason }}</div>
+    </div>
+  </li>{% endfor %}</ul>
+{% else %}<p class="muted">지금은 권장하는 행동이 없습니다. 포트폴리오가 정책 범위 안에 있어요.</p>{% endif %}
 
-<div class="grid">
-  <div class="card chart" data-chart="donut" data-series='{{ donut_json }}' style="min-height:260px"></div>
-  <div class="card"><h2>익스포저</h2><table class="data">
-    <thead><tr><th>유형</th><th>이름</th><th>비중</th><th>한도</th></tr></thead>
-    <tbody>{% for e in view.exposures %}
-      <tr class="{{ 'violation' if e.is_violation }}"><td>{{ e.exposure_type }}</td>
-        <td>{{ e.exposure_name }}</td><td>{{ '%.1f%%' % (e.weight*100) }}</td>
-        <td>{{ ('%.1f%%' % (e.limit_weight*100)) if e.limit_weight else '—' }}</td></tr>
-    {% endfor %}</tbody></table></div>
-</div>
+<h2>구성 비중</h2>
+<div class="card chart" data-chart="donut" data-series='{{ donut_json }}' style="min-height:240px"></div>
 
-<h2>정책 드리프트</h2><table class="data">
-  <thead><tr><th>슬리브</th><th>현재</th><th>타깃</th><th>드리프트</th></tr></thead>
+<h2>익스포저</h2>
+<div class="table-wrap"><table class="data">
+  <thead><tr><th>유형</th><th>이름</th><th class="num">비중</th><th class="num">한도</th></tr></thead>
+  <tbody>{% for e in view.exposures %}
+    <tr class="{{ 'flagged' if e.is_violation }}">
+      <td><span class="pill pill--neutral">{{ e.exposure_type | exposure_type_label }}</span></td>
+      <td>{{ e.exposure_name }}</td>
+      <td class="num">{{ '%.1f%%' % (e.weight*100) }}</td>
+      <td class="num muted">{{ ('%.1f%%' % (e.limit_weight*100)) if e.limit_weight else '—' }}</td></tr>
+  {% endfor %}</tbody></table></div>
+<p class="card-note">붉게 표시된 줄은 한도를 넘은 항목입니다.</p>
+
+<h2>정책 드리프트</h2>
+<p class="muted" style="margin-top:-.3rem">자산군별 현재 비중이 목표에서 얼마나 벗어났는지입니다.</p>
+<div class="table-wrap"><table class="data">
+  <thead><tr><th>자산군</th><th class="num">현재</th><th class="num">목표</th><th class="num">차이</th></tr></thead>
   <tbody>{% for d in view.drifts %}
-    <tr class="{{ 'outside' if d.is_outside_band }}"><td>{{ d.sleeve_name }}</td>
-      <td>{{ '%.1f%%' % (d.current_weight*100) }}</td><td>{{ '%.1f%%' % (d.target_weight*100) }}</td>
-      <td>{{ '%+.1f%%' % (d.drift*100) }}</td></tr>{% endfor %}</tbody></table>
+    <tr class="{{ 'flagged' if d.is_outside_band }}">
+      <td>{{ d.sleeve_name | sleeve_label }}</td>
+      <td class="num">{{ '%.1f%%' % (d.current_weight*100) }}</td>
+      <td class="num">{{ '%.1f%%' % (d.target_weight*100) }}</td>
+      <td class="num {{ 'tone-bad' if d.is_outside_band }}">{{ '%+.1f%%' % (d.drift*100) }}</td></tr>{% endfor %}</tbody></table></div>
 
-<h2>보유</h2><table class="data">
-  <thead><tr><th>심볼</th><th>수량</th><th>평가액</th><th>비중</th></tr></thead>
+<h2>보유</h2>
+<div class="table-wrap"><table class="data">
+  <thead><tr><th>심볼</th><th class="num">수량</th><th class="num">평가액</th><th class="num">비중</th></tr></thead>
   <tbody>{% for h in view.holdings %}
-    <tr><td>{{ h.symbol }}</td><td>{{ h.quantity }}</td>
-      <td>{{ '{:,.0f}'.format(h.market_value or 0) }}</td>
-      <td>{{ ('%.1f%%' % (h.weight*100)) if h.weight else '—' }}</td></tr>{% endfor %}</tbody></table>
+    <tr><td><strong>{{ h.symbol }}</strong></td><td class="num">{{ h.quantity }}</td>
+      <td class="num">{{ '{:,.0f}'.format(h.market_value or 0) }}</td>
+      <td class="num">{{ ('%.1f%%' % (h.weight*100)) if h.weight else '—' }}</td></tr>{% endfor %}</tbody></table></div>
 {% endif %}
 {% endblock %}

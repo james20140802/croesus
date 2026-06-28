@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="empty">
-  <h1>데이터 동기화 중</h1>
-  <p>파이프라인이 데이터를 갱신하는 중입니다. 잠시 후 새로고침해 주세요.</p>
-  <button onclick="location.reload()">새로고침</button>
+  <div class="brand" style="justify-content:center; margin-bottom:.6rem"><span class="coin"></span></div>
+  <h1 style="margin:.2rem 0">데이터 갱신 중</h1>
+  <p>최신 시세와 분석을 불러오고 있습니다. 잠시 후 새로고침해 주세요.</p>
+  <button class="btn primary" onclick="location.reload()">새로고침</button>
 </section>
 {% endblock %}
