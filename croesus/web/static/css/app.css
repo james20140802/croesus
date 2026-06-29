@@ -142,6 +142,11 @@ h2::before {
   box-shadow: var(--shadow);
 }
 .card + .card, .card + .grid, .grid + .card, section + section { margin-top: var(--gap); }
+/* 그리드 아이템 간격은 grid-gap이 담당한다. 인접 마진(.card + .card)이 그리드
+   카드에도 먹으면 stretch 정렬에서 첫 카드만 그 마진만큼 더 커지므로 제거한다. */
+.grid > .card + .card,
+.grid-cards > .card + .card,
+.grid-macro > .card + .card { margin-top: 0; }
 
 /* ── 시그니처: 오늘의 시장 자세 ──────────────────────────────────────── */
 .posture {
@@ -270,6 +275,36 @@ table.data a { color: inherit; text-decoration: none; }
 table.data a:hover { color: var(--gilt); }
 .row-link { cursor: pointer; }
 .row-link:hover td { background: var(--gilt-wash); }
+
+/* ── 거래 원장(passbook 스타일) ─────────────────────────────────────── */
+.ledger {
+  list-style: none; margin: var(--gap) 0 0; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  overflow: hidden; background: var(--surface);
+}
+.led {
+  display: grid; grid-template-columns: 3.6rem 1fr auto; gap: .9rem;
+  align-items: center; padding: .7rem .85rem; border-top: 1px solid var(--line);
+}
+.led:first-child { border-top: 0; }
+.led:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 40%, transparent); }
+.led-date { text-align: center; line-height: 1.15; }
+.led-date .md {
+  display: block; font-family: var(--font-serif); font-weight: 600;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+}
+.led-date .yr { display: block; font-size: .7rem; color: var(--ink-soft); }
+.led-line { display: flex; align-items: baseline; gap: .45rem; flex-wrap: wrap; }
+.led-sym { font-family: var(--font-serif); letter-spacing: .01em; }
+.led-sub { margin-top: .15rem; }
+.led-amt { text-align: right; line-height: 1.15; white-space: nowrap; }
+.led-amt .amt {
+  display: block; font-family: var(--font-serif);
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.led-amt .cur { display: block; font-size: .7rem; }
+.led-amt.in .amt { color: var(--ok); }
+.led-amt.out .amt { color: var(--bad); }
 
 /* ── 필터 칩 ─────────────────────────────────────────────────────────── */
 .filters { display: flex; flex-wrap: wrap; gap: .4rem; margin: .2rem 0 1rem; }

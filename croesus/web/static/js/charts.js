@@ -41,15 +41,32 @@ function initCharts() {
         areaStyle: { color: gilt, opacity: 0.12 },
         data: data.map(function (d) { return d.amplifier_score; }) }];
     } else if (kind === 'scatter') {
+      // 확신도는 '낮음/보통/높음' 등급이므로 1·2·3 레벨로 환산해 세로축에 배치한다.
+      // 상승여력은 극단값(예: DCF 이상치)이 있어 축을 망가뜨리므로 가독 범위로
+      // 클램프하고, 실제 값은 툴팁에 보여 정직성을 유지한다.
       var gateColor = { pass: cssVar('--ok', '#2E6B4B'), warn: cssVar('--warn', '#936313'),
                         block: cssVar('--bad', '#A6402F'), none: soft };
-      opt.tooltip = { formatter: function (p) { return p.data[3] + ' (' + p.data[2] + ')'; } };
-      opt.grid = { left: 44, right: 16, top: 16, bottom: 36 };
-      opt.xAxis = Object.assign({ name: '상승여력', nameTextStyle: { color: soft } }, axis);
-      opt.yAxis = Object.assign({ name: '확신도', nameTextStyle: { color: soft } }, axis);
-      opt.series = [{ type: 'scatter', symbolSize: 16,
-        itemStyle: { color: function (p) { return gateColor[p.data[4]] || soft; }, opacity: 0.85 },
-        data: data.map(function (d) { return [d.upside, d.confidence, d.gate, d.symbol, d.gate]; }) }];
+      var confCats = ['낮음', '보통', '높음'];
+      var confLevel = { high: 2, medium: 1, low: 0 };
+      var clamp = function (v) { return Math.max(-100, Math.min(150, v)); };
+      opt.tooltip = { formatter: function (p) {
+        var pct = p.data[5];
+        return p.data[3] + '<br/>상승여력 ' + (pct >= 0 ? '+' : '') + Math.round(pct)
+          + '%<br/>확신도 ' + (confCats[p.data[1]] || '—'); } };
+      opt.grid = { left: 60, right: 20, top: 18, bottom: 42 };
+      opt.xAxis = Object.assign({ type: 'value', name: '상승여력(%)', nameLocation: 'middle',
+        nameGap: 26, nameTextStyle: { color: soft }, min: -100, max: 150,
+        axisLabel: { color: soft, formatter: '{value}%' } }, axis);
+      opt.yAxis = Object.assign({ type: 'category', name: '확신도', nameTextStyle: { color: soft },
+        data: confCats, boundaryGap: true,
+        axisLabel: { color: soft } }, axis);
+      opt.series = [{ type: 'scatter', symbolSize: 15,
+        itemStyle: { color: function (p) { return gateColor[p.data[4]] || soft; }, opacity: 0.85,
+          borderColor: cssVar('--surface', '#fff'), borderWidth: 1 },
+        data: data.map(function (d) {
+          var pct = (d.upside || 0) * 100;
+          return [clamp(pct), confLevel[d.confidence] || 0, d.gate, d.symbol, d.gate, pct];
+        }) }];
     } else if (kind === 'price') {
       opt.tooltip = { trigger: 'axis' };
       opt.grid = { left: 52, right: 14, top: 16, bottom: 28 };

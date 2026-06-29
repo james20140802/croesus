@@ -28,6 +28,7 @@
 <p class="muted">기준일 {{ view.as_of_date }}</p>
 <div class="card chart desktop-only" data-chart="scatter" data-series='{{ scatter_json }}'
      style="min-height:280px"></div>
+<p class="card-note desktop-only">가로축 = 상승여력(%), 세로축 = 확신도, 점 색 = 게이트(초록 통과·노랑 주의·빨강 불가). <strong>오른쪽 위(상승여력 크고 확신도 높음)</strong>에 가까울수록 매력적인 후보입니다. 상승여력이 매우 큰 값은 가독을 위해 +150%에서 잘려 표시되며, 실제 값은 점에 마우스를 올리면 보입니다.</p>
 <div class="grid grid-cards">{% for r in view.rows %}
   <a class="card opp" href="/opportunities/{{ r.asset_id }}">
     <div class="opp-head"><span class="sym">{{ r.symbol }}</span>
