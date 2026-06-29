@@ -266,6 +266,52 @@ def test_load_holdings_csv_imports_valid_rows(tmp_path: Path) -> None:
     assert aapl.as_of_date == AS_OF
 
 
+def test_load_holdings_csv_maps_cash_symbol_per_currency(tmp_path: Path) -> None:
+    # 'CASH'를 통화별 CASH_<CUR>로 매핑해야 한다. 그러지 않으면 USD·KRW 현금이
+    # 같은 asset_id(US_EQ_CASH)로 합쳐져 기본키 충돌(500)이 난다.
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "symbol,quantity,avg_cost,currency,market_value\n"
+        "CASH,,,USD,2557.84\n"
+        "CASH,,,KRW,1000000\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert result.skipped == 0
+    by_id = {h.asset_id: h for h in result.holdings}
+    assert set(by_id) == {"CASH_USD", "CASH_KRW"}  # 통화별로 분리
+    assert by_id["CASH_USD"].currency == "USD"
+    assert by_id["CASH_KRW"].currency == "KRW"
+    assert by_id["CASH_USD"].market_value == 2557.84
+    # 현금 줄은 증권 리졸버를 타지 않는다.
+    assert all(s.status == "cash" for s in result.resolver_statuses)
+
+
+def test_load_holdings_csv_dedupes_duplicate_asset_rows(tmp_path: Path) -> None:
+    # 같은 통화 현금을 두 줄 적어도 500 대신 첫 줄만 반영하고 경고한다.
+    db_path = tmp_path / "p.duckdb"
+    migrate(db_path)
+    csv_path = _write_csv(
+        tmp_path / "h.csv",
+        "symbol,quantity,avg_cost,currency,market_value\n"
+        "CASH,,,USD,1000\n"
+        "CASH,,,USD,2000\n",
+    )
+
+    with get_connection(db_path) as conn:
+        _seed_assets(conn)
+        result = load_holdings_csv(csv_path, conn, AS_OF)
+
+    assert [h.asset_id for h in result.holdings] == ["CASH_USD"]
+    assert result.holdings[0].market_value == 1000.0  # 첫 줄 유지
+    assert any("중복 보유" in w for w in result.warnings)
+
+
 def test_load_holdings_csv_defaults_portfolio_id(tmp_path: Path) -> None:
     db_path = tmp_path / "p.duckdb"
     migrate(db_path)
