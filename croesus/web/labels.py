@@ -179,8 +179,32 @@ TRADE_MODE_LABEL = {
 }
 
 
+# 설정 화면 각 항목의 도움말(? 아이콘 툴팁).
+FIELD_HELP = {
+    "expected_annual_return": "1년에 목표로 하는 평균 수익률입니다. 0.1 = 연 10%.",
+    "max_tolerable_drawdown": "고점 대비 견딜 수 있는 최대 하락폭(음수). -0.25 = 최대 -25%까지 감내.",
+    "investment_horizon_years": "목표를 향해 투자하는 기간(년).",
+    "monthly_contribution": "매달 새로 넣는 금액.",
+    "liquidity_buffer_months": "비상시 대비해 현금으로 두는 생활비 개월 수.",
+    "max_single_position_weight": "한 종목이 차지할 수 있는 최대 비중. 0.1 = 10%.",
+    "max_sector_weight": "한 섹터(예: 기술)에 담을 수 있는 최대 합산 비중.",
+    "max_industry_weight": "한 산업에 담을 수 있는 최대 합산 비중.",
+    "max_theme_weight": "한 테마(예: AI)에 담을 수 있는 최대 합산 비중.",
+    "max_country_weight": "한 국가에 담을 수 있는 최대 합산 비중.",
+    "max_currency_weight": "한 통화에 담을 수 있는 최대 합산 비중.",
+    "max_monthly_turnover": "한 달에 사고팔 수 있는 포트폴리오 비중 상한(회전율). 0.15 = 월 15%.",
+    "rebalance_band": "목표 비중에서 이만큼 벗어나면 리밸런싱을 제안. 0.05 = ±5%p.",
+    "trade_mode": "제안만: 추천만 만들고 매매는 직접. 승인 후 실행: 승인한 건만 실행.",
+    "sleeve_targets": "자산군(슬리브)별 목표 비중과 허용 범위입니다. 타깃의 합은 1.0이 되어야 합니다.",
+}
+
+
 def field_label(v: str | None) -> str:
     return LIMIT_FIELD_LABEL.get(v or "", _humanize(v or ""))
+
+
+def field_help(v: str | None) -> str:
+    return FIELD_HELP.get(v or "", "")
 
 
 def trade_mode_label(v: str | None) -> str:
@@ -196,6 +220,30 @@ TX_TYPE_LABEL = {
 
 def tx_type_label(v: str | None) -> str:
     return TX_TYPE_LABEL.get(v or "", _humanize(v or ""))
+
+
+# ── 종목 상세: 팩터 점수 / 지표 이름 ──────────────────────────────────────
+FACTOR_SCORE_LABEL = {
+    "momentum_score": "모멘텀", "trend_score": "추세(200일선)", "liquidity_score": "유동성",
+    "valuation_score": "밸류에이션", "quality_score": "퀄리티", "low_beta_score": "저변동(저베타)",
+    "volatility_penalty": "변동성 위험",
+    "momentum_1m_pct": "1개월 모멘텀", "momentum_3m_pct": "3개월 모멘텀", "momentum_6m_pct": "6개월 모멘텀",
+    "beta_1y": "베타(1년)", "roe": "ROE", "net_margin": "순이익률", "debt_to_equity": "부채/자본",
+    "pe_ratio": "PER", "pb_ratio": "PBR", "ev_to_ebitda": "EV/EBITDA",
+    "fcf_yield": "FCF 수익률", "price_to_intrinsic": "가격/내재가치",
+    "above_200d_ma": "200일선 위", "beta": "베타",
+}
+
+# 상세 페이지에 백분위 막대로 보여줄 종합 점수(0~100, 높을수록 좋음; 변동성만 반대)
+FACTOR_SCORE_BARS = ["momentum_score", "trend_score", "liquidity_score",
+                     "valuation_score", "quality_score", "low_beta_score"]
+# 참고용 원시 지표
+FACTOR_RAW_METRICS = ["roe", "net_margin", "debt_to_equity", "pe_ratio",
+                      "pb_ratio", "ev_to_ebitda", "fcf_yield", "beta_1y"]
+
+
+def factor_score_label(v: str | None) -> str:
+    return FACTOR_SCORE_LABEL.get(v or "", _humanize(v or ""))
 
 
 # ── 정책 슬리브(sleeve) 이름 ──────────────────────────────────────────────
@@ -335,6 +383,8 @@ JINJA_FILTERS = {
     "exposure_type_label": exposure_type_label,
     "sleeve_label": sleeve_label,
     "field_label": field_label,
+    "field_help": field_help,
     "trade_mode_label": trade_mode_label,
     "tx_type_label": tx_type_label,
+    "factor_score_label": factor_score_label,
 }

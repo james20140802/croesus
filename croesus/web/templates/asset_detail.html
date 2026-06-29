@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+{% if not view %}
+  <section class="empty"><p>해당 종목을 찾을 수 없습니다.</p></section>
+{% else %}
+<div class="page-head">
+  <h1 style="display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap">{{ view.symbol }}
+    <span class="muted" style="font-size:1rem; font-family:var(--font-sans)">{{ view.name or '' }}</span></h1>
+</div>
+{% if view.current_price %}<p class="muted" style="margin-top:-.4rem">현재가 {{ '{:,.2f}'.format(view.current_price) }}</p>{% endif %}
+
+{% if view.price_history %}
+<div class="card chart" data-chart="price" data-series='{{ price_json }}' style="min-height:240px"></div>
+<p class="card-note">최근 {{ view.price_history|length }}거래일 종가 추이입니다.</p>
+{% endif %}
+
+{% if view.screening %}
+{% set s = view.screening %}
+<h2>스크리닝 결과</h2>
+<div class="card">
+  <div style="display:flex; flex-wrap:wrap; gap:1.4rem; align-items:baseline">
+    <div class="metric"><span class="k">종합 점수</span>
+      <span class="v">{{ '%.2f' % s.score if s.score is not none else '—' }}</span></div>
+    {% if s.rank %}<div class="metric"><span class="k">순위</span><span class="v">{{ s.rank }}</span></div>{% endif %}
+    <div class="metric"><span class="k">판정</span>
+      <span class="v" style="font-size:1rem"><span class="pill pill--{{ s.decision_bucket | bucket_tone }}">{{ s.decision_bucket | bucket_label }}</span></span></div>
+  </div>
+  <p class="muted small" style="margin:.6rem 0 0">{{ s.decision_bucket | bucket_desc }}</p>
+  {% if s.reason_codes %}<div style="margin-top:.5rem">{% for c in s.reason_codes %}<span class="pill pill--neutral" style="margin:.1rem .2rem .1rem 0">{{ c | reason_code_label }}</span>{% endfor %}</div>{% endif %}
+</div>
+
+{% set fs = s.factor_scores %}
+{% set bars = [["momentum_score","모멘텀"],["trend_score","추세(200일선)"],["liquidity_score","유동성"],["valuation_score","밸류에이션"],["quality_score","퀄리티"],["low_beta_score","저변동(저베타)"]] %}
+<h2>점수 근거</h2>
+<div class="card">
+  <p class="muted small" style="margin:0 0 .7rem">각 항목은 전체 종목 대비 백분위(0~100, 높을수록 우수)입니다.</p>
+  {% for key, lbl in bars %}{% if fs.get(key) is not none %}
+  <div style="margin:.5rem 0">
+    <div style="display:flex; justify-content:space-between; font-size:.85rem">
+      <span>{{ lbl }}</span><span class="num">{{ '%.0f' % fs.get(key) }}</span></div>
+    <div class="meter"><div class="meter__fill" style="width: {{ fs.get(key) }}%; background: var(--gilt)"></div></div>
+  </div>
+  {% endif %}{% endfor %}
+  {% if fs.get('volatility_penalty') is not none %}
+  <div style="margin:.5rem 0">
+    <div style="display:flex; justify-content:space-between; font-size:.85rem">
+      <span>변동성 위험 <span class="muted">(낮을수록 좋음)</span></span><span class="num">{{ '%.0f' % fs.get('volatility_penalty') }}</span></div>
+    <div class="meter"><div class="meter__fill" style="width: {{ fs.get('volatility_penalty') }}%; background: var(--bad)"></div></div>
+  </div>{% endif %}
+</div>
+
+{% set raw = [["roe","ROE",1],["net_margin","순이익률",1],["fcf_yield","FCF 수익률",1],["debt_to_equity","부채/자본",0],["pe_ratio","PER",0],["pb_ratio","PBR",0],["ev_to_ebitda","EV/EBITDA",0],["beta_1y","베타(1년)",0]] %}
+{% set ns = namespace(any=false) %}
+{% for key, lbl, pct in raw %}{% if fs.get(key) is not none %}{% set ns.any = true %}{% endif %}{% endfor %}
+{% if ns.any %}
+<h2>참고 지표</h2>
+<div class="table-wrap"><table class="data"><tbody>
+  {% for key, lbl, pct in raw %}{% if fs.get(key) is not none %}
+  <tr><td>{{ lbl }}</td><td class="num">{{ ('%.1f%%' % (fs.get(key)*100)) if pct else ('%.2f' % fs.get(key)) }}</td></tr>
+  {% endif %}{% endfor %}
+</tbody></table></div>
+{% endif %}
+{% endif %}
+
+<h2>정성 평가 (LLM)</h2>
+{% if view.thesis %}
+{% set t = view.thesis %}
+<div class="card">
+  <div class="grades" style="margin-bottom:.6rem">
+    {% if t.moat_grade %}<span class="pill pill--{{ t.moat_grade | grade_value_tone }}">경제적 해자 · {{ t.moat_grade | grade_value_label }}</span>{% endif %}
+    {% if t.tech_grade %}<span class="pill pill--{{ t.tech_grade | grade_value_tone }}">기술 경쟁력 · {{ t.tech_grade | grade_value_label }}</span>{% endif %}
+    {% if t.sector_grade %}<span class="pill pill--{{ t.sector_grade | grade_value_tone }}">산업 추세 · {{ t.sector_grade | grade_value_label }}</span>{% endif %}
+    {% if t.disruption_grade %}<span class="pill pill--{{ t.disruption_grade | grade_value_tone }}">파괴 위험 · {{ t.disruption_grade | grade_value_label }}</span>{% endif %}
+  </div>
+  <p class="muted small">확신도 {{ t.confidence | confidence_label }} · 근거 {{ '재무공시' if t.evidence_source == 'filing' else '일반지식' }} · {{ t.as_of_date }}</p>
+  {% if t.moat_evidence %}<p><strong>해자</strong> — {{ t.moat_evidence }}</p>{% endif %}
+  {% if t.tech_evidence %}<p><strong>기술</strong> — {{ t.tech_evidence }}</p>{% endif %}
+  {% if t.sector_evidence %}<p><strong>산업</strong> — {{ t.sector_evidence }}</p>{% endif %}
+  {% if t.bear_case %}<p class="tone-bad"><strong>약세 시나리오</strong> — {{ t.bear_case }}</p>{% endif %}
+</div>
+{% else %}
+<div class="card"><p class="muted" style="margin:0">아직 이 종목의 LLM 정성 평가가 없습니다. 정성 평가는 로컬 LLM(Ollama)이 켜져 있어야 생성됩니다.</p></div>
+{% endif %}
+{% endif %}
+{% endblock %}

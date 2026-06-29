@@ -184,10 +184,26 @@ h2::before {
   background: linear-gradient(90deg, var(--ok), var(--warn) 60%, var(--bad)); }
 .meter__scale { display: flex; justify-content: space-between; font-size: .68rem; color: var(--ink-faint); margin-top: .2rem; }
 
-/* 도움말 점(툴팁) */
-.hint { display: inline-flex; align-items: center; justify-content: center;
-  width: .95rem; height: .95rem; border-radius: 50%; border: 1px solid var(--line-strong);
-  color: var(--ink-faint); font-size: .62rem; font-weight: 700; cursor: help; }
+/* 도움말 ? 아이콘 + 툴팁 — hover(데스크톱) / focus·tap(모바일) 모두 동작 */
+.hint { position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 1.05rem; height: 1.05rem; border-radius: 50%; border: 1px solid var(--line-strong);
+  background: var(--surface-2); color: var(--ink-faint); font-size: .66rem; font-weight: 700;
+  cursor: help; padding: 0; vertical-align: middle; flex: none; }
+.hint:hover, .hint:focus-visible { color: var(--gilt); border-color: var(--gilt); }
+.hint[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 30;
+  width: max-content; max-width: min(260px, 72vw);
+  padding: .5rem .6rem; border-radius: 8px;
+  background: var(--ink); color: var(--bg);
+  font-size: .76rem; font-weight: 400; line-height: 1.45; letter-spacing: 0;
+  text-align: left; white-space: normal; box-shadow: var(--shadow);
+  opacity: 0; transform: translateY(-3px); pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+.hint[data-tip]:hover::after, .hint[data-tip]:focus::after {
+  opacity: 1; transform: translateY(0);
+}
 
 /* ── 알약/뱃지 ───────────────────────────────────────────────────────── */
 .pill {
@@ -250,6 +266,10 @@ table.data tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--su
 .num { font-family: var(--font-serif); font-variant-numeric: tabular-nums; text-align: right; }
 th.num, td.num { text-align: right; }
 tr.flagged td { background: var(--bad-wash) !important; }
+table.data a { color: inherit; text-decoration: none; }
+table.data a:hover { color: var(--gilt); }
+.row-link { cursor: pointer; }
+.row-link:hover td { background: var(--gilt-wash); }
 
 /* ── 필터 칩 ─────────────────────────────────────────────────────────── */
 .filters { display: flex; flex-wrap: wrap; gap: .4rem; margin: .2rem 0 1rem; }
@@ -287,6 +307,13 @@ tr.flagged td { background: var(--bad-wash) !important; }
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--ink);
 }
+/* 설정 폼 — 라벨 위, 입력 아래의 카드형 필드 */
+.form-grid { display: grid; gap: .2rem 1.3rem; grid-template-columns: 1fr; }
+.field { display: flex; flex-direction: column; gap: .3rem; margin: .55rem 0; }
+.field > label { margin: 0; display: flex; align-items: center; gap: .35rem; font-weight: 600; color: var(--ink); }
+.field input, .field select { max-width: none; }
+.field .unit { color: var(--ink-faint); font-weight: 400; font-size: .78rem; }
+@media (min-width: 680px) { .form-grid { grid-template-columns: 1fr 1fr; } }
 .errors { border: 1px solid var(--bad); border-radius: var(--radius-sm);
   padding: .7rem .8rem; margin: .6rem 0; background: var(--bad-wash); color: var(--bad); }
 
@@ -341,7 +368,6 @@ a:focus-visible, button:focus-visible, .chip:focus-visible, input:focus-visible,
 @media (min-width: 680px) {
   .grid-cards { grid-template-columns: repeat(2, 1fr); }
   .grid-macro { grid-template-columns: repeat(2, 1fr); }
-  .tabbar { position: sticky; }
 }
 @media (min-width: 1024px) {
   .grid { grid-template-columns: repeat(2, 1fr); }

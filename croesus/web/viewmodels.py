@@ -35,6 +35,7 @@ class ScreeningRow:
     decision_bucket: str
     reason: str
     factor_scores: dict
+    asset_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,17 @@ class OpportunityView:
 
 
 @dataclass(frozen=True)
+class AssetDetailView:
+    asset_id: str
+    symbol: str
+    name: str | None
+    current_price: float | None
+    price_history: list[dict] = field(default_factory=list)   # [{date, close}]
+    screening: dict | None = None    # {score, rank, decision_bucket, reason, reason_codes, factor_scores}
+    thesis: dict | None = None       # thesis_grades row (LLM) or None
+
+
+@dataclass(frozen=True)
 class HomeView:
     macro: Badge | None
     actions: list[dict]
@@ -87,3 +99,4 @@ class HomeView:
     screening_count: int
     freshness: list[Badge] = field(default_factory=list)
     macro_detail: "MacroView | None" = None
+    portfolio: dict | None = None  # {value, pnl, as_of, top_holdings:[{symbol,weight}]}

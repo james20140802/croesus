@@ -86,7 +86,7 @@ def build_screening_view(conn, bucket: str | None = None) -> ScreeningView:
         sym, name = symbols.get(c.asset_id, (c.asset_id, None))
         rows.append(ScreeningRow(rank=c.rank, symbol=sym or c.asset_id, name=name,
             score=c.score, decision_bucket=c.decision_bucket, reason=c.reason,
-            factor_scores=c.factor_scores))
+            factor_scores=c.factor_scores, asset_id=c.asset_id))
     as_of = None
     parts = run_id.split("-")
     if len(parts) >= 4:
@@ -212,6 +212,78 @@ def build_opportunity_detail(conn, asset_id: str):
     return None
 
 
+from croesus.web.viewmodels import AssetDetailView
+
+
+def _parse_json(value):
+    import json
+    if value is None:
+        return {}
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+
+
+def build_asset_detail(conn, asset_id: str, *, history_days: int = 180) -> AssetDetailView | None:
+    """한 종목의 상세: 가격 추이 + 스크리닝 점수 근거 + LLM 정성 평가."""
+    arow = conn.execute(
+        "SELECT symbol, name FROM assets WHERE asset_id = ?", [asset_id]
+    ).fetchone()
+    if arow is None:
+        return None
+    symbol, name = arow[0], arow[1]
+
+    price_rows = conn.execute(
+        "SELECT date, close FROM prices_daily WHERE asset_id = ? "
+        "ORDER BY date DESC LIMIT ?", [asset_id, history_days]
+    ).fetchall()
+    price_history = [{"date": str(r[0]), "close": r[1]} for r in reversed(price_rows)]
+    current_price = price_history[-1]["close"] if price_history else None
+
+    screening = None
+    srow = conn.execute(
+        "SELECT run_id, score, rank, decision_bucket, reason, reason_codes, factor_scores "
+        "FROM screening_results WHERE asset_id = ? ORDER BY run_id DESC LIMIT 1",
+        [asset_id],
+    ).fetchone()
+    if srow is not None:
+        screening = {
+            "run_id": srow[0], "score": srow[1], "rank": srow[2],
+            "decision_bucket": srow[3], "reason": srow[4],
+            "reason_codes": _parse_json(srow[5]) or [],
+            "factor_scores": _parse_json(srow[6]) or {},
+        }
+
+    thesis = None
+    try:
+        trow = conn.execute(
+            "SELECT moat_grade, moat_evidence, tech_grade, tech_evidence, "
+            "sector_grade, sector_evidence, disruption_grade, disruption_evidence, "
+            "bear_case, confidence, evidence_source, as_of_date "
+            "FROM thesis_grades WHERE asset_id = ? AND status = 'generated' "
+            "ORDER BY as_of_date DESC LIMIT 1", [asset_id]
+        ).fetchone()
+        if trow is not None:
+            thesis = {
+                "moat_grade": trow[0], "moat_evidence": trow[1],
+                "tech_grade": trow[2], "tech_evidence": trow[3],
+                "sector_grade": trow[4], "sector_evidence": trow[5],
+                "disruption_grade": trow[6], "disruption_evidence": trow[7],
+                "bear_case": trow[8], "confidence": trow[9],
+                "evidence_source": trow[10], "as_of_date": str(trow[11]),
+            }
+    except Exception:  # thesis_grades 테이블이 없거나 비어 있어도 무해
+        thesis = None
+
+    return AssetDetailView(
+        asset_id=asset_id, symbol=symbol or asset_id, name=name,
+        current_price=current_price, price_history=price_history,
+        screening=screening, thesis=thesis)
+
+
 from croesus.web.viewmodels import HomeView, Badge
 
 
@@ -236,7 +308,20 @@ def build_home_view(conn) -> HomeView:
         freshness.append(Badge("포트폴리오", str(portfolio.as_of_date), "ok"))
     if screening.as_of_date:
         freshness.append(Badge("스크리닝", str(screening.as_of_date), "ok"))
+    portfolio_summary = None
+    if portfolio.as_of_date:
+        top = sorted(
+            [h for h in portfolio.holdings if h.get("weight") is not None],
+            key=lambda h: h["weight"], reverse=True,
+        )[:4]
+        portfolio_summary = {
+            "value": portfolio.total_market_value,
+            "pnl": portfolio.unrealized_pnl,
+            "as_of": portfolio.as_of_date,
+            "top_holdings": [{"symbol": h["symbol"], "weight": h["weight"]} for h in top],
+            "holding_count": len(portfolio.holdings),
+        }
     return HomeView(macro=macro_badge, actions=portfolio.actions[:3],
         action_count=len(portfolio.actions), opportunity_count=len(opps.rows),
         drift_alerts=drift_alerts, screening_count=len(screening.rows), freshness=freshness,
-        macro_detail=macro)
+        macro_detail=macro, portfolio=portfolio_summary)

@@ -5,7 +5,7 @@
   {% if view.run_id %}<br>최근 분석 {{ view.as_of_date or view.run_id }}{% endif %}</p>
 <div class="filters">
   {% for b in ["", "candidate", "watch", "blocked_by_portfolio_fit"] %}
-  <a hx-get="/screening{% if b %}?bucket={{ b }}{% endif %}" hx-target="#screening-table"
+  <a href="/screening{% if b %}?bucket={{ b }}{% endif %}"
      class="chip{% if bucket==b or (not bucket and not b) %} active{% endif %}">{{ b | bucket_label if b else "전체" }}</a>
   {% endfor %}
 </div>

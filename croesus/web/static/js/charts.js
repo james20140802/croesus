@@ -16,7 +16,7 @@ function initCharts() {
     if (el.offsetParent === null) return;            // 숨김(모바일 desktop-only) 스킵
     if (el.__inited) return; el.__inited = true;
     var kind = el.getAttribute('data-chart');
-    if (['donut', 'macro-history', 'scatter', 'bands'].indexOf(kind) === -1) {
+    if (['donut', 'macro-history', 'scatter', 'bands', 'price'].indexOf(kind) === -1) {
       el.__inited = false;                           // 알 수 없는 종류 — 빈 프레임 대신 건너뜀
       return;
     }
@@ -50,6 +50,16 @@ function initCharts() {
       opt.series = [{ type: 'scatter', symbolSize: 16,
         itemStyle: { color: function (p) { return gateColor[p.data[4]] || soft; }, opacity: 0.85 },
         data: data.map(function (d) { return [d.upside, d.confidence, d.gate, d.symbol, d.gate]; }) }];
+    } else if (kind === 'price') {
+      opt.tooltip = { trigger: 'axis' };
+      opt.grid = { left: 52, right: 14, top: 16, bottom: 28 };
+      opt.xAxis = Object.assign({ type: 'category', data: data.map(function (d) { return d.date; }),
+        axisLabel: { color: soft, showMaxLabel: true } }, axis);
+      opt.yAxis = Object.assign({ type: 'value', scale: true }, axis);
+      opt.series = [{ type: 'line', smooth: true, showSymbol: false,
+        lineStyle: { color: gilt, width: 2 },
+        areaStyle: { color: gilt, opacity: 0.10 },
+        data: data.map(function (d) { return d.close; }) }];
     } else if (kind === 'bands') {
       var keys = Object.keys(data);
       opt.tooltip = { trigger: 'axis' };

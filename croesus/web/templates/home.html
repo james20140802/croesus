@@ -5,6 +5,28 @@
 
 {% if view.macro_detail %}{{ posture(view.macro_detail) }}{% endif %}
 
+{% if view.portfolio %}
+<a class="card" href="/portfolio" style="margin-top:1.4rem; text-decoration:none; color:inherit; display:block">
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:.6rem">
+    <span class="muted small">내 포트폴리오 · {{ view.portfolio.as_of }}</span>
+    <span class="muted small">전체 보기 →</span>
+  </div>
+  <div style="display:flex; flex-wrap:wrap; gap:1.4rem; margin-top:.5rem">
+    <div class="metric"><span class="k">평가액</span>
+      <span class="v">{{ '{:,.0f}'.format(view.portfolio.value or 0) }}</span></div>
+    <div class="metric"><span class="k">평가손익</span>
+      <span class="v {{ 'tone-ok' if (view.portfolio.pnl or 0) >= 0 else 'tone-bad' }}">{{ '{:+,.0f}'.format(view.portfolio.pnl or 0) }}</span></div>
+  </div>
+  {% if view.portfolio.top_holdings %}
+  <div style="display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.7rem">
+    {% for h in view.portfolio.top_holdings %}
+    <span class="pill pill--neutral">{{ h.symbol }} {{ '%.0f%%' % (h.weight*100) }}</span>{% endfor %}
+    {% if view.portfolio.holding_count > view.portfolio.top_holdings|length %}
+    <span class="pill pill--neutral">+{{ view.portfolio.holding_count - view.portfolio.top_holdings|length }}</span>{% endif %}
+  </div>{% endif %}
+</a>
+{% endif %}
+
 <div class="page-head" style="margin-top:1.6rem">
   <h2 style="margin:0">오늘 할 일</h2>
   <a href="/portfolio" class="muted">전체 {{ view.action_count }}건 →</a>
