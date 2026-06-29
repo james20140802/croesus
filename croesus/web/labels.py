@@ -246,6 +246,36 @@ def factor_score_label(v: str | None) -> str:
     return FACTOR_SCORE_LABEL.get(v or "", _humanize(v or ""))
 
 
+# ── 매크로 원자료(raw_indicators) 시리즈 이름 ─────────────────────────────
+INDICATOR_LABEL = {
+    # 금리·신용
+    "T10Y2Y": "장단기 금리차(10Y-2Y)", "DGS10": "미 국채 10년", "DGS2": "미 국채 2년",
+    "DFII10": "실질금리(TIPS 10Y)", "EFFR": "연방기금 실효금리",
+    "BAMLH0A0HYM2": "하이일드 신용 스프레드", "BAMLC0A0CM": "투자등급 신용 스프레드",
+    "RRPONTSYD": "역레포(RRP)", "DRTSCILM": "은행 대출태도",
+    # 유동성
+    "WALCL": "연준 대차대조표", "WTREGEN": "재무부 일반계정(TGA)", "M2SL": "M2 통화량",
+    "NFCI": "시카고 연준 금융여건지수",
+    # 성장
+    "CFNAI": "시카고 연준 활동지수", "UNRATE": "실업률", "ICSA": "신규 실업수당 청구",
+    "RSXFS": "소매판매", "INDPRO": "산업생산", "GDPC1": "실질 GDP",
+    "ism_mfg_pmi": "ISM 제조업 PMI", "ism_svc_pmi": "ISM 서비스업 PMI",
+    "CES0500000003": "임금 상승률",
+    # 물가
+    "CPILFESL": "근원 CPI", "PCEPILFE": "근원 PCE", "T5YIE": "5년 기대 인플레이션",
+    "DCOILWTICO": "WTI 유가",
+    # 시장
+    "^VIX": "VIX(변동성)", "^VIX3M": "3개월 VIX", "^GSPC": "S&P 500",
+    "DX-Y.NYB": "달러 인덱스(DXY)", "KRW=X": "원/달러 환율",
+    "HG=F": "구리 선물", "GC=F": "금 선물", "CL=F": "WTI 선물",
+    "copper_gold_ratio": "구리/금 비율",
+}
+
+
+def indicator_label(v: str | None) -> str:
+    return INDICATOR_LABEL.get(v or "", v or "")
+
+
 # ── 정책 슬리브(sleeve) 이름 ──────────────────────────────────────────────
 SLEEVE_LABEL = {
     "cash": "현금",
@@ -387,4 +417,5 @@ JINJA_FILTERS = {
     "trade_mode_label": trade_mode_label,
     "tx_type_label": tx_type_label,
     "factor_score_label": factor_score_label,
+    "indicator_label": indicator_label,
 }

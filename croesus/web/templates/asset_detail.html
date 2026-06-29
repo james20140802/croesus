@@ -30,36 +30,57 @@
 </div>
 
 {% set fs = s.factor_scores %}
-{% set bars = [["momentum_score","모멘텀"],["trend_score","추세(200일선)"],["liquidity_score","유동성"],["valuation_score","밸류에이션"],["quality_score","퀄리티"],["low_beta_score","저변동(저베타)"]] %}
-<h2>점수 근거</h2>
-<div class="card">
-  <p class="muted small" style="margin:0 0 .7rem">각 항목은 전체 종목 대비 백분위(0~100, 높을수록 우수)입니다.</p>
+{% set rf = view.raw_factors %}
+{% macro fmt(v, kind) -%}
+  {%- if v is none -%}—
+  {%- elif kind == 'pct' -%}{{ '%.1f%%' % (v*100) }}
+  {%- elif kind == 'money' -%}{{ '{:,.0f}'.format(v) }}
+  {%- elif kind == 'bool' -%}{{ '예' if v >= 0.5 else '아니오' }}
+  {%- else -%}{{ '%.2f' % v }}{%- endif -%}
+{%- endmacro %}
+
+{% set bars = [["momentum_score","모멘텀"],["trend_score","추세(200일선)"],["liquidity_score","유동성"],["valuation_score","밸류에이션(저평가)"],["quality_score","퀄리티"],["low_beta_score","저변동(저베타)"]] %}
+{% set rawlist = [
+  ["momentum_1m","1개월 모멘텀","pct"],["momentum_3m","3개월 모멘텀","pct"],["momentum_6m","6개월 모멘텀","pct"],
+  ["volatility_3m","변동성(3개월)","pct"],["liquidity_1m","유동성(1개월 거래대금)","money"],["above_200d_ma","200일선 위","bool"],
+  ["beta_1y","베타(1년)","num"],["roe","ROE","pct"],["net_margin","순이익률","pct"],["debt_to_equity","부채/자본","num"],
+  ["pe_ratio","PER","num"],["pb_ratio","PBR","num"],["ev_to_ebitda","EV/EBITDA","num"],["fcf_yield","FCF 수익률","pct"],
+  ["price_to_intrinsic","가격/내재가치","num"]] %}
+
+<div class="page-head" style="margin-bottom:.3rem">
+  <h2 style="margin:0">점수 근거</h2>
+  <div class="segmented" role="tablist">
+    <button type="button" class="seg active" data-panel="pct-panel">백분위</button>
+    <button type="button" class="seg" data-panel="val-panel">실제값</button>
+  </div>
+</div>
+
+<div class="card" id="pct-panel">
+  <p class="muted small" style="margin:0 0 .7rem">각 항목은 전체 종목 대비 <strong>백분위(0~100)</strong>입니다. 변동성을 빼면 모두 <strong>높을수록 우수</strong>합니다.</p>
   {% for key, lbl in bars %}{% if fs.get(key) is not none %}
   <div style="margin:.5rem 0">
     <div style="display:flex; justify-content:space-between; font-size:.85rem">
-      <span>{{ lbl }}</span><span class="num">{{ '%.0f' % fs.get(key) }}</span></div>
-    <div class="meter"><div class="meter__fill" style="width: {{ fs.get(key) }}%; background: var(--gilt)"></div></div>
+      <span>{{ lbl }}</span><span class="num">{{ '%.0f' % (fs.get(key) * 100) }}</span></div>
+    <div class="meter"><div class="meter__fill" style="width: {{ (fs.get(key) * 100) | round | int }}%; background: var(--gilt)"></div></div>
   </div>
   {% endif %}{% endfor %}
   {% if fs.get('volatility_penalty') is not none %}
   <div style="margin:.5rem 0">
     <div style="display:flex; justify-content:space-between; font-size:.85rem">
-      <span>변동성 위험 <span class="muted">(낮을수록 좋음)</span></span><span class="num">{{ '%.0f' % fs.get('volatility_penalty') }}</span></div>
-    <div class="meter"><div class="meter__fill" style="width: {{ fs.get('volatility_penalty') }}%; background: var(--bad)"></div></div>
+      <span>변동성 위험 <span class="muted">(낮을수록 좋음)</span></span><span class="num">{{ '%.0f' % (fs.get('volatility_penalty') * 100) }}</span></div>
+    <div class="meter"><div class="meter__fill" style="width: {{ (fs.get('volatility_penalty') * 100) | round | int }}%; background: var(--bad)"></div></div>
   </div>{% endif %}
 </div>
 
-{% set raw = [["roe","ROE",1],["net_margin","순이익률",1],["fcf_yield","FCF 수익률",1],["debt_to_equity","부채/자본",0],["pe_ratio","PER",0],["pb_ratio","PBR",0],["ev_to_ebitda","EV/EBITDA",0],["beta_1y","베타(1년)",0]] %}
-{% set ns = namespace(any=false) %}
-{% for key, lbl, pct in raw %}{% if fs.get(key) is not none %}{% set ns.any = true %}{% endif %}{% endfor %}
-{% if ns.any %}
-<h2>참고 지표</h2>
-<div class="table-wrap"><table class="data"><tbody>
-  {% for key, lbl, pct in raw %}{% if fs.get(key) is not none %}
-  <tr><td>{{ lbl }}</td><td class="num">{{ ('%.1f%%' % (fs.get(key)*100)) if pct else ('%.2f' % fs.get(key)) }}</td></tr>
-  {% endif %}{% endfor %}
-</tbody></table></div>
-{% endif %}
+<div class="card" id="val-panel" hidden>
+  <p class="muted small" style="margin:0 0 .6rem">스크리닝이 참고한 실제 지표 값입니다.</p>
+  <div class="table-wrap"><table class="data"><tbody>
+    {% for key, lbl, kind in rawlist %}
+    {% set v = rf.get(key) if rf.get(key) is not none else fs.get(key) %}
+    {% if v is not none %}<tr><td>{{ lbl }}</td><td class="num">{{ fmt(v, kind) }}</td></tr>{% endif %}
+    {% endfor %}
+  </tbody></table></div>
+</div>
 {% endif %}
 
 <h2>정성 평가 (LLM)</h2>
@@ -82,4 +103,19 @@
 <div class="card"><p class="muted" style="margin:0">아직 이 종목의 LLM 정성 평가가 없습니다. 정성 평가는 로컬 LLM(Ollama)이 켜져 있어야 생성됩니다.</p></div>
 {% endif %}
 {% endif %}
+
+<script>
+(function () {
+  document.querySelectorAll('.segmented').forEach(function (group) {
+    group.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg'); if (!btn) return;
+      group.querySelectorAll('.seg').forEach(function (b) { b.classList.toggle('active', b === btn); });
+      var show = btn.getAttribute('data-panel');
+      ['pct-panel', 'val-panel'].forEach(function (id) {
+        var el = document.getElementById(id); if (el) el.hidden = (id !== show);
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

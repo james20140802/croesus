@@ -55,5 +55,20 @@
      data-series='{{ history_json }}' style="min-height:240px"></div>
 <p class="card-note">최근 90일간의 시장 스트레스(0~100) 변화입니다.</p>
 {% endif %}
+
+{% if view.raw_indicators %}
+<h2>수집한 원자료</h2>
+<details class="card">
+  <summary style="cursor:pointer; font-weight:600">국면 판단에 쓰인 지표 {{ view.raw_indicators.values()|list|length }}개 보기</summary>
+  <p class="muted small" style="margin:.6rem 0">FRED·시장 데이터의 최신 값입니다. 이 값들을 종합해 위 국면·스트레스·확인 점수를 계산합니다.</p>
+  <div class="table-wrap"><table class="data"><thead><tr><th>지표</th><th class="num">최신 값</th></tr></thead>
+  <tbody>
+    {% for k, v in view.raw_indicators|dictsort if not k.startswith('amp_') and not k.endswith('_pct') %}
+    <tr><td>{{ k | indicator_label }} <span class="muted small">{{ k }}</span></td>
+      <td class="num">{{ '{:,.2f}'.format(v) }}</td></tr>
+    {% endfor %}
+  </tbody></table></div>
+</details>
+{% endif %}
 {% endif %}
 {% endblock %}

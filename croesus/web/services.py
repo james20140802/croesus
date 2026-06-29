@@ -59,6 +59,7 @@ def build_macro_view(conn) -> MacroView | None:
         warnings=state.warnings,
         opportunities=state.opportunities, regime_methods=state.regime_methods,
         history=history,
+        raw_indicators=getattr(state, "raw_indicators", {}) or {},
     )
 
 
@@ -159,9 +160,40 @@ def build_portfolio_view(conn) -> PortfolioView:
             "estimated_trade_value": a.estimated_trade_value,
             "asset_id": a.asset_id, "symbol": sym, "sleeve_name": a.sleeve_name,
         })
+    pnl = snapshot.get("unrealized_pnl")
+    cost_basis = snapshot.get("total_cost_basis")
+    if cost_basis is None and total_mv is not None and pnl is not None:
+        cost_basis = total_mv - pnl
+    return_pct = (pnl / cost_basis * 100) if (pnl is not None and cost_basis) else None
+
+    base_currency = "USD"
+    try:
+        p = PortfolioRepository(conn).get_portfolio(pid)
+        base_currency = getattr(p, "base_currency", None) or "USD"
+    except Exception:
+        pass
+
+    history = []
+    try:
+        hrows = conn.execute(
+            "SELECT as_of_date, total_market_value, total_cost_basis, unrealized_pnl "
+            "FROM portfolio_snapshots WHERE portfolio_id = ? ORDER BY as_of_date", [pid]
+        ).fetchall()
+        for r in hrows:
+            mv, cb, p_ = r[1], r[2], r[3]
+            if cb is None and mv is not None and p_ is not None:
+                cb = mv - p_
+            history.append({
+                "date": str(r[0]), "market_value": mv, "cost_basis": cb,
+                "return_pct": (p_ / cb * 100) if (p_ is not None and cb) else None,
+            })
+    except Exception:
+        history = []
+
     return PortfolioView(as_of_date=as_of, total_market_value=total_mv,
-        unrealized_pnl=snapshot.get("unrealized_pnl"), holdings=h_rows,
-        exposures=e_rows, drifts=d_rows, actions=a_rows)
+        unrealized_pnl=pnl, cost_basis=cost_basis, return_pct=return_pct,
+        base_currency=base_currency, holdings=h_rows,
+        exposures=e_rows, drifts=d_rows, actions=a_rows, history=history)
 
 
 from croesus.opportunities.review import run_opportunity_review
@@ -257,6 +289,19 @@ def build_asset_detail(conn, asset_id: str, *, history_days: int = 180) -> Asset
             "factor_scores": _parse_json(srow[6]) or {},
         }
 
+    raw_factors = {}
+    try:
+        frows = conn.execute(
+            "SELECT fv.factor_name, fv.value FROM factor_values fv "
+            "JOIN (SELECT factor_name, MAX(date) md FROM factor_values "
+            "      WHERE asset_id = ? GROUP BY factor_name) m "
+            "  ON fv.factor_name = m.factor_name AND fv.date = m.md "
+            "WHERE fv.asset_id = ?", [asset_id, asset_id]
+        ).fetchall()
+        raw_factors = {r[0]: r[1] for r in frows}
+    except Exception:
+        raw_factors = {}
+
     thesis = None
     try:
         trow = conn.execute(
@@ -281,7 +326,7 @@ def build_asset_detail(conn, asset_id: str, *, history_days: int = 180) -> Asset
     return AssetDetailView(
         asset_id=asset_id, symbol=symbol or asset_id, name=name,
         current_price=current_price, price_history=price_history,
-        screening=screening, thesis=thesis)
+        screening=screening, raw_factors=raw_factors, thesis=thesis)
 
 
 from croesus.web.viewmodels import HomeView, Badge
@@ -317,6 +362,8 @@ def build_home_view(conn) -> HomeView:
         portfolio_summary = {
             "value": portfolio.total_market_value,
             "pnl": portfolio.unrealized_pnl,
+            "return_pct": portfolio.return_pct,
+            "currency": portfolio.base_currency,
             "as_of": portfolio.as_of_date,
             "top_holdings": [{"symbol": h["symbol"], "weight": h["weight"]} for h in top],
             "holding_count": len(portfolio.holdings),

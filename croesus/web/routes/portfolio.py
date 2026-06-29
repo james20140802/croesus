@@ -21,8 +21,9 @@ def portfolio(request: Request, db_path=Depends(get_db_path)) -> HTMLResponse:
         view = build_portfolio_view(conn)
     donut = json.dumps([{"name": h["symbol"], "value": h["market_value"] or 0}
                         for h in view.holdings])
+    equity = json.dumps(view.history)
     return templates.TemplateResponse(request, "portfolio.html",
-        {"title": "포트폴리오", "view": view, "donut_json": donut})
+        {"title": "포트폴리오", "view": view, "donut_json": donut, "equity_json": equity})
 
 
 @router.get("/portfolio/edit", response_class=HTMLResponse)

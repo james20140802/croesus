@@ -13,9 +13,12 @@
   </div>
   <div style="display:flex; flex-wrap:wrap; gap:1.4rem; margin-top:.5rem">
     <div class="metric"><span class="k">평가액</span>
-      <span class="v">{{ '{:,.0f}'.format(view.portfolio.value or 0) }}</span></div>
+      <span class="v">{{ '{:,.0f}'.format(view.portfolio.value or 0) }} <span class="muted" style="font-size:.8rem">{{ view.portfolio.currency }}</span></span></div>
     <div class="metric"><span class="k">평가손익</span>
-      <span class="v {{ 'tone-ok' if (view.portfolio.pnl or 0) >= 0 else 'tone-bad' }}">{{ '{:+,.0f}'.format(view.portfolio.pnl or 0) }}</span></div>
+      <span class="v {{ 'tone-ok' if (view.portfolio.pnl or 0) >= 0 else 'tone-bad' }}">{{ '{:+,.0f}'.format(view.portfolio.pnl or 0) }} <span class="muted" style="font-size:.8rem">{{ view.portfolio.currency }}</span></span></div>
+    {% if view.portfolio.return_pct is not none %}
+    <div class="metric"><span class="k">수익률</span>
+      <span class="v {{ 'tone-ok' if view.portfolio.return_pct >= 0 else 'tone-bad' }}">{{ '%+.1f%%' % view.portfolio.return_pct }}</span></div>{% endif %}
   </div>
   {% if view.portfolio.top_holdings %}
   <div style="display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.7rem">

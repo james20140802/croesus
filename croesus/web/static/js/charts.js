@@ -16,7 +16,7 @@ function initCharts() {
     if (el.offsetParent === null) return;            // 숨김(모바일 desktop-only) 스킵
     if (el.__inited) return; el.__inited = true;
     var kind = el.getAttribute('data-chart');
-    if (['donut', 'macro-history', 'scatter', 'bands', 'price'].indexOf(kind) === -1) {
+    if (['donut', 'macro-history', 'scatter', 'bands', 'price', 'equity'].indexOf(kind) === -1) {
       el.__inited = false;                           // 알 수 없는 종류 — 빈 프레임 대신 건너뜀
       return;
     }
@@ -60,6 +60,26 @@ function initCharts() {
         lineStyle: { color: gilt, width: 2 },
         areaStyle: { color: gilt, opacity: 0.10 },
         data: data.map(function (d) { return d.close; }) }];
+    } else if (kind === 'equity') {
+      var ok = cssVar('--ok', '#2E6B4B');
+      opt.tooltip = { trigger: 'axis' };
+      opt.legend = { data: ['평가액', '수익률'], textStyle: { color: soft }, top: 0 };
+      opt.grid = { left: 56, right: 52, top: 30, bottom: 28 };
+      opt.xAxis = Object.assign({ type: 'category', data: data.map(function (d) { return d.date; }) }, axis);
+      opt.yAxis = [
+        Object.assign({ type: 'value', scale: true, name: '평가액', nameTextStyle: { color: soft } }, axis),
+        Object.assign({ type: 'value', name: '수익률 %', position: 'right',
+          axisLabel: { color: soft, formatter: '{value}%' },
+          axisLine: { lineStyle: { color: line } }, splitLine: { show: false } }, {}),
+      ];
+      opt.series = [
+        { name: '평가액', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 0,
+          lineStyle: { color: gilt, width: 2 }, areaStyle: { color: gilt, opacity: 0.10 },
+          data: data.map(function (d) { return d.market_value; }) },
+        { name: '수익률', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+          lineStyle: { color: ok, width: 2, type: 'dashed' },
+          data: data.map(function (d) { return d.return_pct; }) },
+      ];
     } else if (kind === 'bands') {
       var keys = Object.keys(data);
       opt.tooltip = { trigger: 'axis' };

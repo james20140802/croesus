@@ -280,6 +280,13 @@ table.data a:hover { color: var(--gilt); }
 }
 .chip.active { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 600; }
 
+/* ── 세그먼트 토글 ───────────────────────────────────────────────────── */
+.segmented { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px;
+  overflow: hidden; background: var(--surface); }
+.segmented .seg { border: none; background: transparent; color: var(--ink-soft);
+  font: inherit; font-size: .8rem; font-weight: 600; padding: .25rem .8rem; cursor: pointer; }
+.segmented .seg.active { background: var(--ink); color: var(--bg); }
+
 /* ── 기회 카드 그리드 ────────────────────────────────────────────────── */
 .opp { text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: .35rem; }
 .opp-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }

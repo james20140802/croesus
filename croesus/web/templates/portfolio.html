@@ -9,10 +9,28 @@
   <section class="empty"><p>아직 보유 데이터가 없습니다.<br><a href="/portfolio/edit">보유를 입력</a>하면 분석이 시작됩니다.</p></section>
 {% else %}
 <div class="stat-row">
-  <div class="stat"><span class="k">기준일</span><span class="v" style="font-size:1rem">{{ view.as_of_date }}</span></div>
-  <div class="stat"><span class="k">평가액</span><span class="v" style="font-size:1.15rem">{{ '{:,.0f}'.format(view.total_market_value or 0) }}</span></div>
+  <div class="stat"><span class="k">평가액</span><span class="v" style="font-size:1.15rem">{{ '{:,.0f}'.format(view.total_market_value or 0) }} <span class="muted" style="font-size:.72rem">{{ view.base_currency }}</span></span></div>
   <div class="stat"><span class="k">평가손익</span><span class="v {{ 'tone-ok' if (view.unrealized_pnl or 0) >= 0 else 'tone-bad' }}" style="font-size:1.15rem">{{ '{:+,.0f}'.format(view.unrealized_pnl or 0) }}</span></div>
+  <div class="stat"><span class="k">수익률</span><span class="v {{ 'tone-ok' if (view.return_pct or 0) >= 0 else 'tone-bad' }}" style="font-size:1.15rem">{{ ('%+.1f%%' % view.return_pct) if view.return_pct is not none else '—' }}</span></div>
 </div>
+<p class="muted small" style="margin:.3rem 0 0">기준일 {{ view.as_of_date }} · 통화 {{ view.base_currency }}</p>
+
+{% if view.history and view.history|length > 1 %}
+<h2>평가액 추이</h2>
+<div class="card chart" data-chart="equity" data-series='{{ equity_json }}' style="min-height:240px"></div>
+<p class="card-note">스냅샷이 쌓일수록 평가액·수익률 추이가 더 길게 표시됩니다.</p>
+{% endif %}
+
+<h2>구성 비중</h2>
+<div class="card chart" data-chart="donut" data-series='{{ donut_json }}' style="min-height:240px"></div>
+
+<h2>보유</h2>
+<div class="table-wrap"><table class="data">
+  <thead><tr><th>심볼</th><th class="num">수량</th><th class="num">평가액 ({{ view.base_currency }})</th><th class="num">비중</th></tr></thead>
+  <tbody>{% for h in view.holdings %}
+    <tr><td><strong>{{ h.symbol }}</strong></td><td class="num">{{ h.quantity }}</td>
+      <td class="num">{{ '{:,.0f}'.format(h.market_value or 0) }}</td>
+      <td class="num">{{ ('%.1f%%' % (h.weight*100)) if h.weight else '—' }}</td></tr>{% endfor %}</tbody></table></div>
 
 <h2>추천 행동</h2>
 {% if view.actions %}<ul class="actions">{% for a in view.actions %}
@@ -23,9 +41,6 @@
     </div>
   </li>{% endfor %}</ul>
 {% else %}<p class="muted">지금은 권장하는 행동이 없습니다. 포트폴리오가 정책 범위 안에 있어요.</p>{% endif %}
-
-<h2>구성 비중</h2>
-<div class="card chart" data-chart="donut" data-series='{{ donut_json }}' style="min-height:240px"></div>
 
 <h2>익스포저</h2>
 <div class="table-wrap"><table class="data">
@@ -49,13 +64,5 @@
       <td class="num">{{ '%.1f%%' % (d.current_weight*100) }}</td>
       <td class="num">{{ '%.1f%%' % (d.target_weight*100) }}</td>
       <td class="num {{ 'tone-bad' if d.is_outside_band }}">{{ '%+.1f%%' % (d.drift*100) }}</td></tr>{% endfor %}</tbody></table></div>
-
-<h2>보유</h2>
-<div class="table-wrap"><table class="data">
-  <thead><tr><th>심볼</th><th class="num">수량</th><th class="num">평가액</th><th class="num">비중</th></tr></thead>
-  <tbody>{% for h in view.holdings %}
-    <tr><td><strong>{{ h.symbol }}</strong></td><td class="num">{{ h.quantity }}</td>
-      <td class="num">{{ '{:,.0f}'.format(h.market_value or 0) }}</td>
-      <td class="num">{{ ('%.1f%%' % (h.weight*100)) if h.weight else '—' }}</td></tr>{% endfor %}</tbody></table></div>
 {% endif %}
 {% endblock %}
