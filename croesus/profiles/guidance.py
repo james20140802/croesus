@@ -137,6 +137,11 @@ def _load_map() -> tuple[list[RiskBand], list[HistoricalEpisode]]:
 _BANDS, _EPISODES = _load_map()
 
 
+def all_risk_bands() -> list[RiskBand]:
+    """The editable risk bands, in ascending-risk order, for the settings UI."""
+    return list(_BANDS)
+
+
 def _find_band_for_return(value: float) -> RiskBand | None:
     """Return the band whose expected_return_range contains ``value``.
 

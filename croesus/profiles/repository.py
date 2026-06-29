@@ -104,6 +104,35 @@ class ProfileRepository:
         columns = [desc[0] for desc in self.conn.description]
         return self._row_to_profile(dict(zip(columns, row)))
 
+    def list_profiles(self) -> list[InvestorProfile]:
+        """Every stored profile, name-ordered — backs the settings load menu."""
+        rows = self.conn.execute(
+            "SELECT * FROM investor_profiles ORDER BY name"
+        ).fetchall()
+        columns = [desc[0] for desc in self.conn.description]
+        return [self._row_to_profile(dict(zip(columns, row))) for row in rows]
+
+    def delete_profile(self, profile_id: str) -> None:
+        """Remove a profile and its policy targets atomically.
+
+        Refuses to delete ``"default"`` — that is the active profile every engine
+        reads, so dropping it would leave the system without a policy.
+        """
+        if profile_id == "default":
+            raise ValueError("the default profile cannot be deleted")
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.conn.execute(
+                "DELETE FROM policy_targets WHERE profile_id = ?", [profile_id]
+            )
+            self.conn.execute(
+                "DELETE FROM investor_profiles WHERE profile_id = ?", [profile_id]
+            )
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
     def upsert_policy_targets(self, targets: list[PolicyTarget]) -> None:
         if not targets:
             return

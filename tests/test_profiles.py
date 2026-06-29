@@ -134,6 +134,37 @@ def test_profile_repository_get_missing_profile_returns_none(tmp_path: Path) -> 
         assert ProfileRepository(conn).get_profile("missing") is None
 
 
+def test_profile_repository_list_and_delete(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+    target = PolicyTarget(profile_id="user-aggr", sleeve_name="cash", target_weight=1.0)
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        repo.save_profile(_valid_profile(), [])  # the active "default"
+        repo.save_profile(_valid_profile(profile_id="user-aggr", name="aggr"), [target])
+
+        listed = {p.profile_id for p in repo.list_profiles()}
+        assert {"default", "user-aggr"} <= listed
+
+        repo.delete_profile("user-aggr")
+        assert {p.profile_id for p in repo.list_profiles()} == {"default"}
+        # its policy targets are gone too
+        assert repo.get_policy_targets("user-aggr") == []
+
+
+def test_profile_repository_delete_refuses_default(tmp_path: Path) -> None:
+    db_path = tmp_path / "profiles.duckdb"
+    migrate(db_path)
+
+    with get_connection(db_path) as conn:
+        repo = ProfileRepository(conn)
+        repo.save_profile(_valid_profile(), [])
+        with pytest.raises(ValueError):
+            repo.delete_profile("default")
+        assert repo.get_profile("default") is not None
+
+
 def test_profile_repository_upsert_preserves_created_at(tmp_path: Path) -> None:
     db_path = tmp_path / "profiles.duckdb"
     migrate(db_path)
