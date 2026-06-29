@@ -49,8 +49,26 @@ def test_macro_page_renders(monkeypatch):
     client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
     resp = client.get("/macro")
     assert resp.status_code == 200
-    assert "Goldilocks" in resp.text
-    assert "Aggressive" in resp.text
+    # 원시 영문 상수가 아니라 한국어 라벨이 노출되어야 한다
+    assert "골디락스" in resp.text
+    assert "공격적" in resp.text
+    assert "Goldilocks" not in resp.text
+
+
+def test_macro_page_renders_with_null_amplifier(monkeypatch):
+    # amplifier_score가 NULL이어도 500이 아니라 정상 렌더되어야 한다
+    view = MacroView(
+        date=date(2026, 6, 22), regime="Reflation", positioning="Neutral",
+        regime_confidence=0.7, amplifier_score=None, confirmation_score=0.0,
+        warnings=[], opportunities=[], regime_methods={}, history=[],
+    )
+    monkeypatch.setattr("croesus.web.routes.macro.build_macro_view", lambda conn: view)
+    monkeypatch.setattr("croesus.web.routes.macro.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/macro")
+    assert resp.status_code == 200
+    assert "리플레이션" in resp.text
 
 
 def test_screening_page_renders(monkeypatch):
@@ -111,8 +129,11 @@ def test_opportunities_page_renders_with_gate(monkeypatch):
     resp = client.get("/opportunities")
     assert resp.status_code == 200
     assert "MSFT" in resp.text and "TSLA" in resp.text
-    assert "SECTOR_OVER_MAX" in resp.text      # 게이트 reason code 표시
-    assert "block" in resp.text                # 게이트 상태 배지
+    # 원시 코드 대신 한국어 라벨이 노출되어야 한다
+    assert "섹터 비중이 상한을 넘었습니다" in resp.text   # SECTOR_OVER_MAX 한국어 라벨
+    assert "편입 불가" in resp.text                       # block 게이트 상태 한국어
+    assert "pill--bad" in resp.text                       # block → bad 톤(심각도 색) 클래스
+    assert "SECTOR_OVER_MAX" not in resp.text
 
 
 def test_opportunity_detail_returns_404_for_unknown_asset(monkeypatch):
@@ -126,15 +147,24 @@ def test_opportunity_detail_returns_404_for_unknown_asset(monkeypatch):
 
 
 def test_home_aggregates(monkeypatch):
-    from croesus.web.viewmodels import HomeView, Badge
+    from croesus.web.viewmodels import HomeView, Badge, MacroView
+    macro_detail = MacroView(
+        date=date(2026, 6, 22), regime="Goldilocks", positioning="Aggressive",
+        regime_confidence=0.8, amplifier_score=30.0, confirmation_score=0.4,
+        growth_direction="Expanding", inflation_direction="Falling")
     hv = HomeView(macro=Badge("레짐","Goldilocks","ok"),
-        actions=[{"action_type":"trim","human_readable_reason":"섹터 과다"}],
-        action_count=1, opportunity_count=3, drift_alerts=["core_us_equity 밴드 이탈"],
-        screening_count=12, freshness=[Badge("매크로","2026-06-22","ok")])
+        actions=[{"action_type":"trim","reason_ko":"QQQM · 단일 종목 비중이 상한을 넘었습니다",
+                  "human_readable_reason":"섹터 과다"}],
+        action_count=1, opportunity_count=3, drift_alerts=["현금 비중이 목표 범위를 벗어났습니다"],
+        screening_count=12, freshness=[Badge("매크로","2026-06-22","ok")],
+        macro_detail=macro_detail)
     monkeypatch.setattr("croesus.web.routes.home.build_home_view", lambda conn: hv)
     monkeypatch.setattr("croesus.web.routes.home.get_read_connection",
                         __import__("contextlib").contextmanager(lambda p: iter([None])))
     client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "섹터 과다" in resp.text and "Goldilocks" in resp.text
+    # 한국어 사유 + 한국어 레짐 라벨이 노출되고, 원시 영문 상수는 보이지 않아야 한다
+    assert "QQQM · 단일 종목 비중이 상한을 넘었습니다" in resp.text
+    assert "골디락스" in resp.text
+    assert "Goldilocks" not in resp.text

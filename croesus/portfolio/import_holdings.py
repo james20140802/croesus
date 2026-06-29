@@ -87,34 +87,55 @@ def load_holdings_csv(
                         )
                     )
             elif symbol:
-                resolution = resolver.resolve_symbol(symbol)
-                asset_id = resolution.asset_id or ""
-                if asset_id:
+                cash_id = _cash_asset_id(symbol, _clean(row.get("currency")), base_currency)
+                if cash_id is not None:
+                    # 현금은 증권 리졸버를 태우지 않고 통화별 ``CASH_<CUR>``로 매핑한다.
+                    # (그러지 않으면 'CASH'가 US_EQ_CASH 한 개로 합쳐져, USD·KRW 현금이
+                    #  같은 asset_id가 되며 기본키 충돌 → 500이 난다.)
+                    asset_id = cash_id
+                    known_asset_ids.add(asset_id)
                     resolver_statuses.append(
                         ResolverStatus(
                             row_number=line_no,
-                            status=resolution.status,
+                            status="cash",
                             symbol=symbol,
                             asset_id=asset_id,
-                            message=resolution.message,
+                            message="cash holding",
                         )
                     )
-                    known_asset_ids.add(asset_id)
-                    if resolution.message and "failed" in resolution.message.lower():
-                        warnings.append(f"row {line_no}: {resolution.message}")
+                    # 통화 칸이 비어 있어도 ``CASH_<CUR>``의 통화를 권위 있게 채운다.
+                    row = {**row, "currency": _currency_from_cash(asset_id)}
                 else:
-                    message = resolution.message or "symbol unresolved"
-                    warnings.append(f"row {line_no}: unresolved symbol {symbol}, skipped")
-                    resolver_statuses.append(
-                        ResolverStatus(
-                            row_number=line_no,
-                            status="unresolved",
-                            symbol=symbol,
-                            message=message,
+                    resolution = resolver.resolve_symbol(symbol)
+                    asset_id = resolution.asset_id or ""
+                    if asset_id:
+                        resolver_statuses.append(
+                            ResolverStatus(
+                                row_number=line_no,
+                                status=resolution.status,
+                                symbol=symbol,
+                                asset_id=asset_id,
+                                message=resolution.message,
+                            )
                         )
-                    )
-                    skipped += 1
-                    continue
+                        known_asset_ids.add(asset_id)
+                        if resolution.message and "failed" in resolution.message.lower():
+                            warnings.append(f"row {line_no}: {resolution.message}")
+                    else:
+                        message = resolution.message or "symbol unresolved"
+                        warnings.append(
+                            f"row {line_no}: unresolved symbol {symbol}, skipped"
+                        )
+                        resolver_statuses.append(
+                            ResolverStatus(
+                                row_number=line_no,
+                                status="unresolved",
+                                symbol=symbol,
+                                message=message,
+                            )
+                        )
+                        skipped += 1
+                        continue
             if not asset_id:
                 warnings.append(f"row {line_no}: missing asset_id, skipped")
                 skipped += 1
@@ -176,6 +197,8 @@ def load_holdings_csv(
                 )
             )
 
+    holdings = _dedupe_holdings(holdings, warnings)
+
     return HoldingsImport(
         holdings=holdings,
         warnings=warnings,
@@ -229,3 +252,45 @@ def _currency_from_cash(asset_id: str) -> str | None:
         return None
     currency = asset_id.removeprefix("CASH_").strip()
     return currency.upper() if currency else None
+
+
+# 사용자가 현금 줄에 적는 심볼들. 통화 무관(전부 ``CASH_<CUR>``로 매핑).
+_CASH_SYMBOLS = {"CASH", "$CASH", "CASH$", "현금"}
+
+
+def _cash_asset_id(symbol: str, row_currency: str, base_currency: str | None) -> str | None:
+    """현금 줄이면 ``CASH_<통화>``를, 아니면 ``None``을 돌려준다.
+
+    ``CASH_KRW``처럼 통화를 직접 적었으면 그 통화를, ``CASH``/``현금``이면 통화 칸
+    (없으면 기준통화)을 쓴다. 통화별로 asset_id가 갈리므로 USD·KRW 현금을 같이
+    저장해도 기본키가 충돌하지 않는다.
+    """
+    sym = (symbol or "").strip().upper()
+    if sym.startswith("CASH_"):
+        currency = sym.removeprefix("CASH_").strip()
+    elif sym in _CASH_SYMBOLS or symbol in _CASH_SYMBOLS:
+        currency = (row_currency or base_currency or _FALLBACK_CURRENCY).strip()
+    else:
+        return None
+    return f"CASH_{(currency or _FALLBACK_CURRENCY).upper()}"
+
+
+def _dedupe_holdings(
+    holdings: list[Holding], warnings: list[str]
+) -> list[Holding]:
+    """같은 (asset_id) 중복 줄을 제거해 기본키 충돌(500)을 막는다.
+
+    같은 종목/현금을 두 줄에 적으면 ``replace_holdings``의 executemany가
+    기본키 위반으로 터지므로, 첫 줄만 남기고 나머지는 경고와 함께 버린다.
+    """
+    seen: set[str] = set()
+    kept: list[Holding] = []
+    for h in holdings:
+        if h.asset_id in seen:
+            warnings.append(
+                f"중복 보유 {h.asset_id} — 첫 줄만 반영하고 이후 줄은 무시합니다"
+            )
+            continue
+        seen.add(h.asset_id)
+        kept.append(h)
+    return kept

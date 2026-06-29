@@ -1,24 +1,66 @@
 {% extends "base.html" %}
+{% from "partials/_posture.html" import posture %}
 {% block content %}
 <h1>오늘 한눈에</h1>
-<section class="card actions-card">
-  <div class="card-head"><h2>오늘의 추천 행동</h2>
-    <a href="/portfolio" class="muted">전체 {{ view.action_count }}건 →</a></div>
-  {% if view.actions %}<ul class="actions">{% for a in view.actions %}
-    <li><span class="action action-{{ a.action_type }}">{{ a.action_type }}</span>
-      {{ a.human_readable_reason }}</li>{% endfor %}</ul>
-  {% else %}<p class="muted">현재 제안된 행동이 없습니다.</p>{% endif %}
-</section>
-<div class="grid grid-badges">
-  {% if view.macro %}<a class="card" href="/macro"><span class="muted">{{ view.macro.label }}</span>
-    <strong>{{ view.macro.value }}</strong></a>{% endif %}
-  <a class="card" href="/opportunities"><span class="muted">기회 후보</span>
-    <strong>{{ view.opportunity_count }}</strong></a>
-  <a class="card" href="/screening"><span class="muted">스크리닝 숏리스트</span>
-    <strong>{{ view.screening_count }}</strong></a>
+
+{% if view.macro_detail %}{{ posture(view.macro_detail) }}{% endif %}
+
+{% if view.portfolio %}
+<a class="card" href="/portfolio" style="margin-top:1.4rem; text-decoration:none; color:inherit; display:block">
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:.6rem">
+    <span class="muted small">내 포트폴리오 · {{ view.portfolio.as_of }}</span>
+    <span class="muted small">전체 보기 →</span>
+  </div>
+  <div style="display:flex; flex-wrap:wrap; gap:1.4rem; margin-top:.5rem">
+    <div class="metric"><span class="k">평가액</span>
+      <span class="v">{{ '{:,.0f}'.format(view.portfolio.value or 0) }} <span class="muted" style="font-size:.8rem">{{ view.portfolio.currency }}</span></span></div>
+    <div class="metric"><span class="k">평가손익</span>
+      <span class="v {{ 'tone-ok' if (view.portfolio.pnl or 0) >= 0 else 'tone-bad' }}">{{ '{:+,.0f}'.format(view.portfolio.pnl or 0) }} <span class="muted" style="font-size:.8rem">{{ view.portfolio.currency }}</span></span></div>
+    {% if view.portfolio.return_pct is not none %}
+    <div class="metric"><span class="k">수익률</span>
+      <span class="v {{ 'tone-ok' if view.portfolio.return_pct >= 0 else 'tone-bad' }}">{{ '%+.1f%%' % view.portfolio.return_pct }}</span></div>{% endif %}
+  </div>
+  {% if view.portfolio.top_holdings %}
+  <div style="display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.7rem">
+    {% for h in view.portfolio.top_holdings %}
+    <span class="pill pill--neutral">{{ h.symbol }} {{ '%.0f%%' % (h.weight*100) }}</span>{% endfor %}
+    {% if view.portfolio.holding_count > view.portfolio.top_holdings|length %}
+    <span class="pill pill--neutral">+{{ view.portfolio.holding_count - view.portfolio.top_holdings|length }}</span>{% endif %}
+  </div>{% endif %}
+</a>
+{% endif %}
+
+<div class="page-head" style="margin-top:1.6rem">
+  <h2 style="margin:0">오늘 할 일</h2>
+  <a href="/portfolio" class="muted">전체 {{ view.action_count }}건 →</a>
 </div>
-{% if view.drift_alerts %}<section class="card alerts"><h2>경보</h2>
-  <ul>{% for a in view.drift_alerts %}<li>{{ a }}</li>{% endfor %}</ul></section>{% endif %}
-<div class="freshness">{% for b in view.freshness %}
-  <span class="badge badge-{{ b.tone }}">{{ b.label }} {{ b.value }}</span>{% endfor %}</div>
+{% if view.actions %}
+<ul class="actions">{% for a in view.actions %}
+  <li class="action-item">
+    <span class="pill pill--{{ a.action_type | action_tone }}">{{ a.action_type | action_label }}</span>
+    <div class="body">
+      <div class="reason">{{ a.reason_ko or a.human_readable_reason }}</div>
+    </div>
+  </li>{% endfor %}</ul>
+{% else %}<p class="muted">지금은 권장하는 행동이 없습니다. 포트폴리오가 정책 범위 안에 있어요.</p>{% endif %}
+
+<div class="stat-row">
+  <a class="stat" href="/opportunities"><span class="k">기회 후보</span><span class="v">{{ view.opportunity_count }}</span></a>
+  <a class="stat" href="/screening"><span class="k">스크리닝</span><span class="v">{{ view.screening_count }}</span></a>
+  <a class="stat" href="/portfolio"><span class="k">추천 행동</span><span class="v">{{ view.action_count }}</span></a>
+</div>
+
+{% if view.drift_alerts %}
+<section class="alertbox" style="margin-top:1.4rem">
+  <h2>점검이 필요해요</h2>
+  <ul>{% for a in view.drift_alerts %}<li>{{ a }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+{% if view.freshness %}
+<div class="freshness">
+  <span class="lead">데이터 기준일</span>
+  {% for b in view.freshness %}<span class="pill pill--neutral">{{ b.label }} {{ b.value }}</span>{% endfor %}
+</div>
+{% endif %}
 {% endblock %}

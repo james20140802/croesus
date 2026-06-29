@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Callable
+from typing import Callable, Iterable
 
 import duckdb
 
@@ -24,15 +24,22 @@ def grade_theses(
     *,
     run_id: str,
     as_of_date: date | None = None,
+    only_asset_ids: Iterable[str] | None = None,
     client: ChatClient | None = None,
     log: Callable[[str], None] = print,
 ) -> ThesisRunResult:
-    """Grade the structural thesis of every event-prefiltered candidate.
+    """Grade the structural thesis of a prefiltered candidate shortlist.
 
-    Funnel = assets with an event on ``as_of_date`` (LLM only on the shortlist).
-    ``as_of_date`` defaults to the latest event cohort (``MAX(events.as_of_date)``),
-    so a weekend/holiday run grades the last trading day's events that event_scan
-    actually stored — not today's empty date.
+    Funnel (LLM only on the shortlist):
+      - default → assets with an event on ``as_of_date`` (the opportunity engine's
+        event-driven cohort).
+      - ``only_asset_ids`` given → exactly those assets (e.g. the screening
+        candidates + current holdings), bypassing the event gate. The explicit
+        list is itself the cost control, so it does not require an event row.
+
+    ``as_of_date`` defaults to the latest event cohort (``MAX(events.as_of_date)``)
+    so a weekend/holiday run grades the last trading day's events; when an explicit
+    shortlist is given and no events exist yet it falls back to ``date.today()``.
     Failure contract: ``LlmUnavailable`` stops the whole run (server down);
     ``LlmError`` / unparseable response persists a ``failed`` grade and continues.
     """
@@ -48,18 +55,24 @@ def grade_theses(
         row = conn.execute("SELECT MAX(as_of_date) FROM events").fetchone()
         as_of_date = row[0] if row else None
         if as_of_date is None:
-            log("thesis_grader: no events to grade")
-            return result
+            if only_asset_ids is not None:
+                as_of_date = date.today()  # explicit shortlist, no event cohort yet
+            else:
+                log("thesis_grader: no events to grade")
+                return result
 
-    candidate_ids = [
-        r[0]
-        for r in conn.execute(
-            "SELECT DISTINCT asset_id FROM events WHERE as_of_date = ? ORDER BY asset_id",
-            [as_of_date],
-        ).fetchall()
-    ]
+    if only_asset_ids is not None:
+        candidate_ids = sorted(set(only_asset_ids))
+    else:
+        candidate_ids = [
+            r[0]
+            for r in conn.execute(
+                "SELECT DISTINCT asset_id FROM events WHERE as_of_date = ? ORDER BY asset_id",
+                [as_of_date],
+            ).fetchall()
+        ]
     if not candidate_ids:
-        log("thesis_grader: no event candidates")
+        log("thesis_grader: no candidates to grade")
         return result
 
     assets_by_id = {a.asset_id: a for a in AssetRepository(conn).list_active()}

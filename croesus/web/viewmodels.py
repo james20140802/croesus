@@ -18,10 +18,13 @@ class MacroView:
     regime_confidence: float
     amplifier_score: float
     confirmation_score: float
+    growth_direction: str = ""    # Expanding | Contracting
+    inflation_direction: str = ""  # Rising | Falling
     warnings: list[dict] = field(default_factory=list)
     opportunities: list[dict] = field(default_factory=list)
     regime_methods: dict = field(default_factory=dict)
     history: list[dict] = field(default_factory=list)
+    raw_indicators: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,7 @@ class ScreeningRow:
     decision_bucket: str
     reason: str
     factor_scores: dict
+    asset_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,10 +51,14 @@ class PortfolioView:
     as_of_date: date | None
     total_market_value: float | None
     unrealized_pnl: float | None
+    cost_basis: float | None = None
+    return_pct: float | None = None
+    base_currency: str = "USD"
     holdings: list[dict] = field(default_factory=list)
     exposures: list[dict] = field(default_factory=list)
     drifts: list[dict] = field(default_factory=list)
     actions: list[dict] = field(default_factory=list)
+    history: list[dict] = field(default_factory=list)  # [{date, market_value, cost_basis, return_pct}]
 
 
 @dataclass(frozen=True)
@@ -76,6 +84,18 @@ class OpportunityView:
 
 
 @dataclass(frozen=True)
+class AssetDetailView:
+    asset_id: str
+    symbol: str
+    name: str | None
+    current_price: float | None
+    price_history: list[dict] = field(default_factory=list)   # [{date, close}]
+    screening: dict | None = None    # {score, rank, decision_bucket, reason, reason_codes, factor_scores}
+    raw_factors: dict = field(default_factory=dict)  # {factor_name: value} 최신 factor_values
+    thesis: dict | None = None       # thesis_grades row (LLM) or None
+
+
+@dataclass(frozen=True)
 class HomeView:
     macro: Badge | None
     actions: list[dict]
@@ -84,3 +104,5 @@ class HomeView:
     drift_alerts: list[str]
     screening_count: int
     freshness: list[Badge] = field(default_factory=list)
+    macro_detail: "MacroView | None" = None
+    portfolio: dict | None = None  # {value, pnl, as_of, top_holdings:[{symbol,weight}]}

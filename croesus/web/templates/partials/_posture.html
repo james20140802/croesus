@@ -1,0 +1,35 @@
+{# 오늘의 시장 자세 — 3계층 매크로 모델을 한 문장으로 풀어내는 시그니처 패널.
+   m: MacroView #}
+{% macro posture(m) %}
+{% set stress = (m.amplifier_score or 0) | round | int %}
+<section class="posture">
+  <span class="eyebrow">오늘의 시장 자세</span>
+  <div class="regime">{{ m.regime | regime_label }}</div>
+  <div class="tagline">{{ m.regime | regime_tagline }}</div>
+
+  <div class="posture-stats">
+    <div class="metric" style="flex-basis:100%">
+      <span class="k">시장 스트레스 <button type="button" class="hint" data-tip="유동성·신용·금리 지표가 최근 5년 대비 얼마나 불안한지. 0은 평온, 100은 극단적 불안.">?</button></span>
+      <span class="v">{{ stress }}<span class="muted" style="font-size:.8rem"> / 100</span></span>
+      <div class="meter"><div class="meter__fill" style="width: {{ stress }}%"></div></div>
+      <div class="meter__scale"><span>평온</span><span>보통</span><span>불안</span></div>
+    </div>
+    <div class="metric">
+      <span class="k">레짐 신뢰도 <button type="button" class="hint" data-tip="여러 경제 지표가 현재 국면 판단에 얼마나 일치하는지.">?</button></span>
+      <span class="v">{{ '%.0f' % ((m.regime_confidence or 0) * 100) }}%</span>
+    </div>
+    <div class="metric">
+      <span class="k">시장 확인도 <button type="button" class="hint" data-tip="실제 시장 가격(변동성·추세·심리 등)이 국면 판단에 동의하는 정도. +1 동의, -1 반대.">?</button></span>
+      {% set c = m.confirmation_score or 0 %}
+      <span class="v {{ 'tone-ok' if c >= 0.3 else 'tone-bad' if c <= -0.3 else '' }}">{{ '%+.2f' % c }}</span>
+      <span class="muted" style="font-size:.78rem">
+        {{ '시장이 동의' if c >= 0.3 else '시장이 반대' if c <= -0.3 else '혼조' }}</span>
+    </div>
+  </div>
+
+  <div class="verdict">
+    권장 자세 <span class="pill pill--lg pill--{{ m.positioning | positioning_tone }}">{{ m.positioning | positioning_label }}</span>
+    <div class="muted" style="margin-top:.35rem; font-weight:400">{{ m.positioning | positioning_guidance }}</div>
+  </div>
+</section>
+{% endmacro %}

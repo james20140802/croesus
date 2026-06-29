@@ -8,7 +8,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from croesus.web.deps import templates, get_db_path
 from croesus.web.db import get_read_connection, get_write_connection
 from croesus.web.forms import holdings_form_to_csv, parse_transaction_form
-from croesus.web.services import build_portfolio_view, resolve_portfolio_id, opportunity_cache
+from croesus.web.services import (
+    build_portfolio_view, resolve_portfolio_id, resolve_symbol_map, opportunity_cache,
+)
 from croesus.portfolio.transaction_repository import TransactionRepository
 from croesus.jobs.portfolio_snapshot import run_portfolio_snapshot
 
@@ -21,8 +23,9 @@ def portfolio(request: Request, db_path=Depends(get_db_path)) -> HTMLResponse:
         view = build_portfolio_view(conn)
     donut = json.dumps([{"name": h["symbol"], "value": h["market_value"] or 0}
                         for h in view.holdings])
+    equity = json.dumps(view.history)
     return templates.TemplateResponse(request, "portfolio.html",
-        {"title": "포트폴리오", "view": view, "donut_json": donut})
+        {"title": "포트폴리오", "view": view, "donut_json": donut, "equity_json": equity})
 
 
 @router.get("/portfolio/edit", response_class=HTMLResponse)
@@ -56,13 +59,32 @@ def add_holding_row(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "partials/holdings_rows.html", {"h": {}})
 
 
+# 돈이 들어오는/나가는 거래(원장 표시에서 +/− 흐름과 색을 가른다).
+_INFLOW = {"sell", "deposit", "dividend"}
+_OUTFLOW = {"buy", "withdrawal", "fee"}
+
+
 def _fetch_ledger(conn, pid: str) -> list[dict]:
     rows = conn.execute(
-        "SELECT transaction_date, transaction_type, asset_id, quantity, price, currency "
-        "FROM portfolio_transactions WHERE portfolio_id = ? ORDER BY transaction_date DESC LIMIT 100",
+        "SELECT transaction_date, transaction_type, asset_id, quantity, price, "
+        "currency, gross_amount, fees FROM portfolio_transactions "
+        "WHERE portfolio_id = ? ORDER BY transaction_date DESC, transaction_id DESC LIMIT 100",
         [pid]).fetchall()
-    return [{"date": str(r[0]), "type": r[1], "asset_id": r[2], "quantity": r[3],
-             "price": r[4], "currency": r[5]} for r in rows]
+    symbols = resolve_symbol_map(conn, [r[2] for r in rows if r[2]])
+    ledger = []
+    for date, ttype, asset_id, qty, price, currency, gross, fees in rows:
+        sym, name = symbols.get(asset_id, (None, None)) if asset_id else (None, None)
+        amount = gross
+        if amount is None and qty is not None and price is not None:
+            amount = qty * price
+        ledger.append({
+            "date": str(date), "type": ttype, "asset_id": asset_id,
+            "symbol": sym or asset_id, "name": name,
+            "quantity": qty, "price": price, "currency": currency or "USD",
+            "amount": amount, "fees": fees or 0.0,
+            "flow": "in" if ttype in _INFLOW else "out" if ttype in _OUTFLOW else None,
+        })
+    return ledger
 
 
 @router.get("/portfolio/transactions", response_class=HTMLResponse)

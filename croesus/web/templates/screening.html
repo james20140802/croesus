@@ -1,12 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>스크리닝</h1>
-{% if view.run_id %}<p class="muted">최신 run: {{ view.run_id }}</p>{% endif %}
+<p class="muted" style="margin-top:-.4rem">전체 종목을 정량 점수로 줄세워, 깊이 살펴볼 후보를 추립니다.
+  {% if view.run_id %}<br>최근 분석 {{ view.as_of_date or view.run_id }}{% endif %}</p>
 <div class="filters">
-  {% for b in ["", "shortlist", "watch", "blocked_by_portfolio_fit"] %}
-  <a hx-get="/screening{% if b %}?bucket={{ b }}{% endif %}" hx-target="#screening-table"
-     class="chip{% if bucket==b or (not bucket and not b) %} active{% endif %}">{{ b or "전체" }}</a>
+  {% for b in ["", "candidate", "watch", "blocked_by_portfolio_fit"] %}
+  <a href="/screening{% if b %}?bucket={{ b }}{% endif %}"
+     class="chip{% if bucket==b or (not bucket and not b) %} active{% endif %}">{{ b | bucket_label if b else "전체" }}</a>
   {% endfor %}
 </div>
 <div id="screening-table">{% include "partials/screening_table.html" %}</div>
+
+<details class="card" style="margin-top:1rem">
+  <summary style="cursor:pointer; font-weight:600">점수는 어떻게 계산되나요?</summary>
+  <p class="muted small" style="margin:.6rem 0 .4rem">각 종목을 전체 대비 백분위로 매긴 뒤, 아래 항목을 가중 합산합니다(변동성만 차감). 가중치는 현재 시장 자세에 따라 조정됩니다.</p>
+  <ul style="margin:0; padding-left:1.1rem; font-size:.86rem; color:var(--ink-soft)">
+    <li><strong>모멘텀</strong> — 1·3·6개월 추세가 강할수록 ↑</li>
+    <li><strong>추세</strong> — 200일선 위에 있으면 ↑</li>
+    <li><strong>유동성</strong> — 거래대금이 많을수록 ↑</li>
+    <li><strong>밸류에이션</strong> — 쌀수록(저PER·저PBR 등) ↑</li>
+    <li><strong>퀄리티</strong> — ROE·이익률 높고 부채 낮을수록 ↑</li>
+    <li><strong>저변동(저베타)</strong> — 시장 민감도가 낮을수록 ↑</li>
+    <li><strong>변동성 위험</strong> — 변동성이 클수록 점수에서 <em>차감</em></li>
+  </ul>
+  <p class="muted small" style="margin:.5rem 0 0">개별 종목을 누르면 항목별 백분위와 실제 값을 볼 수 있어요.</p>
+</details>
 {% endblock %}

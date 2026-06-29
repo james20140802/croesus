@@ -304,6 +304,44 @@ def test_grade_theses_grades_candidates_and_isolates(tmp_path: Path) -> None:
     assert bbb.status == STATUS_FAILED and bbb.error and bbb.moat_grade is None
 
 
+def test_grade_theses_only_asset_ids_bypasses_event_gate(tmp_path: Path) -> None:
+    # An explicit shortlist (screening candidates + holdings) is graded directly,
+    # even for assets with no event row — the list is its own cost control.
+    from croesus.assets.models import Asset
+    from croesus.assets.repository import AssetRepository
+    from croesus.research.thesis_grader import grade_theses
+    from croesus.research.thesis_models import STATUS_GENERATED
+    from croesus.research.thesis_repository import ThesisGradeRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    asof = date(2026, 6, 19)
+
+    class OkClient:
+        base_url = "x"
+        model = "fake"
+
+        def chat(self, messages):
+            return _GRADER_RESPONSE
+
+    with get_connection(db_path) as conn:
+        # NO events seeded at all. AAA is in the shortlist; ZZZ is not.
+        AssetRepository(conn).upsert_many([
+            Asset(asset_id="US_EQ_AAA", symbol="AAA", name="AAA Inc.", asset_type="equity"),
+            Asset(asset_id="US_EQ_ZZZ", symbol="ZZZ", name="ZZZ Inc.", asset_type="equity"),
+        ])
+        result = grade_theses(
+            conn, run_id="r1", as_of_date=asof,
+            only_asset_ids=["US_EQ_AAA"], client=OkClient(),
+        )
+        repo = ThesisGradeRepository(conn)
+        aaa = repo.load_for_asset("US_EQ_AAA", asof)
+        assert repo.load_for_asset("US_EQ_ZZZ", asof) is None  # not in shortlist
+
+    assert result.generated == 1
+    assert aaa is not None and aaa.status == STATUS_GENERATED and aaa.moat_grade == "wide"
+
+
 def test_grade_theses_aborts_when_llm_unavailable(tmp_path: Path) -> None:
     from croesus.research.llm_client import LlmUnavailable
     from croesus.research.thesis_grader import grade_theses
