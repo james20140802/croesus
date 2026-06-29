@@ -1,20 +1,60 @@
 {% extends "base.html" %}
 {% block content %}
+{% set csym = {"USD":"$","KRW":"₩","EUR":"€","JPY":"¥","GBP":"£"} %}
+{% set tone = {"buy":"gilt","sell":"gilt","deposit":"ok","dividend":"ok","withdrawal":"bad","fee":"bad","manual_adjustment":"neutral"} %}
 <h1>거래 원장</h1>
+<p class="muted" style="margin-top:-.4rem">매매·입출금·배당을 시간순으로 기록합니다. 보유 수량과 평가는 이 기록과 보유 편집을 함께 반영해요.</p>
+
 {% include "partials/form_errors.html" %}
-<form method="post" action="/portfolio/transactions" class="form inline">
-  <select name="transaction_type">
-    {% for t in ["buy","sell","deposit","withdrawal","dividend","fee","manual_adjustment"] %}
-    <option value="{{ t }}">{{ t | tx_type_label }}</option>{% endfor %}</select>
-  <input name="asset_id" placeholder="종목 ID">
-  <input name="quantity" placeholder="수량"><input name="price" placeholder="가격">
-  <input name="gross_amount" placeholder="금액(입출금/배당)">
-  <input name="currency" value="USD"><input name="fees" placeholder="수수료" value="0">
-  <input name="transaction_date" type="date" required>
-  <button type="submit" class="btn primary">기록</button>
-</form>
-<div class="table-wrap"><table class="data"><thead><tr><th>일자</th><th>유형</th><th>자산</th><th class="num">수량</th><th class="num">가격</th><th>통화</th></tr></thead>
-  <tbody>{% for t in ledger %}<tr><td>{{ t.date }}</td><td><span class="pill pill--neutral">{{ t.type | tx_type_label }}</span></td>
-    <td>{{ t.asset_id or '' }}</td><td class="num">{{ t.quantity }}</td><td class="num">{{ t.price }}</td>
-    <td>{{ t.currency }}</td></tr>{% endfor %}</tbody></table></div>
+
+<details class="card" open>
+  <summary style="cursor:pointer; font-weight:600">거래 기록하기</summary>
+  <form method="post" action="/portfolio/transactions" class="form" style="margin-top:.7rem">
+    <div class="form-grid">
+      <div class="field"><label>유형</label>
+        <select name="transaction_type">
+          {% for t in ["buy","sell","deposit","withdrawal","dividend","fee","manual_adjustment"] %}
+          <option value="{{ t }}">{{ t | tx_type_label }}</option>{% endfor %}</select></div>
+      <div class="field"><label>일자</label><input name="transaction_date" type="date" required></div>
+      <div class="field"><label>종목 ID <span class="muted">· 매매·배당</span></label><input name="asset_id" placeholder="예: US_ETF_VOO"></div>
+      <div class="field"><label>통화</label><input name="currency" value="USD"></div>
+      <div class="field"><label>수량 <span class="muted">· 매매</span></label><input name="quantity" inputmode="decimal" placeholder="예: 2"></div>
+      <div class="field"><label>가격 <span class="muted">· 1주당</span></label><input name="price" inputmode="decimal" placeholder="예: 670"></div>
+      <div class="field"><label>금액 <span class="muted">· 입출금·배당</span></label><input name="gross_amount" inputmode="decimal" placeholder="현금 흐름"></div>
+      <div class="field"><label>수수료</label><input name="fees" inputmode="decimal" value="0"></div>
+    </div>
+    <p class="muted small" style="margin:.5rem 0 .7rem">매수·매도는 <strong>수량 × 가격</strong>으로, 입금·출금·배당은 <strong>금액</strong>으로 적어주세요.</p>
+    <button type="submit" class="btn primary">기록</button>
+  </form>
+</details>
+
+{% if not ledger %}
+<section class="empty"><p>아직 기록된 거래가 없어요.<br>위에서 첫 거래를 기록해 보세요.</p></section>
+{% else %}
+<ol class="ledger">
+  {% for t in ledger %}
+  {% set cs = csym.get(t.currency, '') %}
+  <li class="led">
+    <div class="led-date"><span class="md">{{ t.date[5:] }}</span><span class="yr">{{ t.date[:4] }}</span></div>
+    <div class="led-body">
+      <div class="led-line">
+        <span class="pill pill--{{ tone.get(t.type, 'neutral') }}">{{ t.type | tx_type_label }}</span>
+        {% if t.symbol %}<strong class="led-sym">{{ t.symbol }}</strong>{% endif %}
+        {% if t.name %}<span class="muted small">{{ t.name }}</span>{% endif %}
+      </div>
+      {% if t.quantity is not none and t.price is not none %}
+      <div class="led-sub muted small">{{ '%g'|format(t.quantity) }}주 × {{ cs }}{{ '{:,.2f}'.format(t.price) }}{% if t.fees %} · 수수료 {{ cs }}{{ '{:,.2f}'.format(t.fees) }}{% endif %}</div>
+      {% endif %}
+    </div>
+    <div class="led-amt {{ t.flow or '' }}">
+      {% if t.amount is not none %}
+      <span class="amt">{{ '+' if t.flow == 'in' else '−' if t.flow == 'out' else '' }}{{ cs }}{{ '{:,.2f}'.format(t.amount) }}</span>
+      <span class="cur muted">{{ t.currency }}</span>
+      {% else %}<span class="amt muted">—</span>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+<p class="card-note">최근 100건까지 보여줍니다.</p>
+{% endif %}
 {% endblock %}
