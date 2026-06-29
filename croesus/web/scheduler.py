@@ -18,12 +18,95 @@ from pathlib import Path
 from typing import Callable
 
 
-def run_default_refresh(db_path: str | Path, log: Callable[[str], None]) -> None:
-    """기본 자동 갱신: 일일 시세/팩터 파이프라인 + 스크리닝.
+def _shortlist_asset_ids(conn) -> list[str]:
+    """정성평가/기회 분석 대상 = 최신 스크리닝 후보 ∪ 현재 보유 종목.
+
+    CLAUDE.md 원칙대로 "스크리닝으로 먼저 좁힌 shortlist에만 LLM 심층연구"를
+    적용한다. 전 종목(이벤트 코호트 ≈ 전 자산)을 매번 평가하면 자동 갱신이
+    수십 분간 대시보드를 막으므로, 의사결정에 실제로 쓰이는 종목으로 한정한다.
+    현금/파생 의사(疑似) 자산은 제외한다.
+    """
+    ids: set[str] = set()
+    row = conn.execute("SELECT max(run_id) FROM screening_results").fetchone()
+    run_id = row[0] if row else None
+    if run_id:
+        ids.update(
+            r[0]
+            for r in conn.execute(
+                "SELECT asset_id FROM screening_results "
+                "WHERE run_id = ? AND decision_bucket = 'candidate'",
+                [run_id],
+            ).fetchall()
+        )
+    hrow = conn.execute("SELECT max(as_of_date) FROM portfolio_holdings").fetchone()
+    as_of = hrow[0] if hrow else None
+    if as_of is not None:
+        ids.update(
+            r[0]
+            for r in conn.execute(
+                "SELECT DISTINCT asset_id FROM portfolio_holdings WHERE as_of_date = ?",
+                [as_of],
+            ).fetchall()
+        )
+    return sorted(a for a in ids if not a.startswith("CASH_"))
+
+
+def _run_research_refresh(conn, log: Callable[[str], None]) -> None:
+    """이벤트 스캔 → 정성평가(shortlist) → 내재가치 밴드 계산.
+
+    LLM(Ollama)이 꺼져 있으면 우아하게 건너뛰고(전체 갱신을 막지 않음), 밴드는
+    thesis 등급이 있는 종목에만 저장되므로 자연히 shortlist로 한정된다.
+    """
+    from uuid import uuid4
+
+    from croesus.events.scan import run_event_scan
+    from croesus.research.thesis_grader import grade_theses
+    from croesus.factors.equity.compute_valuation import (
+        compute_and_store_valuation_factors,
+    )
+
+    log("이벤트 스캔 (정성평가 대상 선별)")
+    try:
+        run_event_scan(conn)
+    except Exception as exc:  # 이벤트 스캔 실패가 나머지를 막지 않도록
+        log(f"이벤트 스캔 건너뜀: {exc}")
+
+    shortlist = _shortlist_asset_ids(conn)
+    if not shortlist:
+        log("정성평가 대상 없음 — 건너뜀")
+        return
+
+    log(f"정성 평가 시작 — 스크리닝 후보+보유 {len(shortlist)}종목 (LLM)")
+    try:
+        result = grade_theses(conn, run_id=uuid4().hex, only_asset_ids=shortlist, log=log)
+    except Exception as exc:  # LLM 외 예기치 못한 오류도 갱신을 막지 않도록
+        log(f"정성 평가 건너뜀: {exc}")
+        return
+    if result.skipped_reason:
+        log(f"정성 평가 건너뜀 — LLM 미가용: {result.skipped_reason}")
+        return
+    log(f"정성 평가 완료 — 생성 {result.generated} 실패 {result.failed}")
+
+    log("내재가치 밴드 계산 (기회 카드)")
+    try:
+        compute_and_store_valuation_factors(conn, include_dcf=True, log=lambda _m: None)
+        log("내재가치 밴드 계산 완료")
+    except Exception as exc:
+        log(f"밴드 계산 건너뜀: {exc}")
+
+
+def run_default_refresh(
+    db_path: str | Path,
+    log: Callable[[str], None],
+    *,
+    include_research: bool = True,
+) -> None:
+    """기본 자동 갱신: 일일 시세/팩터 파이프라인 + 스크리닝 + (선택) 리서치.
 
     macro는 별도 cadence(주간/월간)로 갱신되므로 일일 자동 갱신에는 포함하지 않는다.
-    한 단계가 실패해도 다음 단계를 시도하고, 끝나면 기회 캐시를 비워 웹이 즉시
-    최신 데이터를 보여주게 한다.
+    리서치 단계(정성평가·기회 밴드)는 스크리닝이 만든 shortlist를 입력으로 쓰므로
+    스크리닝 뒤에 실행한다. 한 단계가 실패해도 다음 단계를 시도하고, 끝나면 기회
+    캐시를 비워 웹이 즉시 최신 데이터를 보여주게 한다.
     """
     from croesus.web.db import get_write_connection
     from croesus.web import services
@@ -41,6 +124,11 @@ def run_default_refresh(db_path: str | Path, log: Callable[[str], None]) -> None
             run_screening_job(conn)
         except Exception as exc:  # 스크리닝 실패가 전체를 막지 않도록
             log(f"스크리닝 건너뜀: {exc}")
+        if include_research:
+            try:
+                _run_research_refresh(conn, log)
+            except Exception as exc:  # 리서치 실패가 전체를 막지 않도록
+                log(f"리서치 갱신 건너뜀: {exc}")
 
     # DB가 갱신됐으므로 TTL 만료를 기다리지 않고 기회 캐시를 즉시 무효화한다.
     services.opportunity_cache.invalidate()
