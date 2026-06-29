@@ -11,6 +11,19 @@
   {% endfor %}
 </div>
 {% endif %}
+
+<details class="card" style="margin-top:1rem">
+  <summary style="cursor:pointer; font-weight:600">이 평가는 어떻게 이루어지나요?</summary>
+  <p class="muted small" style="margin:.6rem 0 .4rem">각 종목의 사업 질을 LLM이 평가(해자·기술·산업추세·파괴위험)하고, 그 등급으로 <strong>DCF(현금흐름할인)</strong> 가정을 조정해 <strong>주당 내재가치</strong>를 추정합니다. 현재가와 비교한 차이가 <strong>상승여력(업사이드)</strong>입니다.</p>
+  <ul style="margin:0; padding-left:1.1rem; font-size:.86rem; color:var(--ink-soft)">
+    <li><strong>해자</strong> — 고성장 추정 기간: 없음 5년 · 좁음 7년 · 넓음 10년</li>
+    <li><strong>산업 추세</strong> — 영구성장률: 쇠퇴 1.5% · 안정 2.5% · 구조적성장 3.0%</li>
+    <li><strong>파괴 위험</strong> — 할인율 가산: 낮음 +0% · 중간 +1% · 높음 +2%</li>
+  </ul>
+  <p class="muted small" style="margin:.5rem 0 .2rem"><strong>약세(bear) · 기본(base) · 강세(bull)</strong> = 같은 종목을 보수적 / 중립 / 낙관 가정으로 각각 계산한 시나리오입니다(가정을 한 단계씩 불리·유리하게 조정). 카드의 상승여력은 <strong>기본(base)</strong> 기준이에요.</p>
+  <p class="muted small" style="margin:.2rem 0 0">개별 종목을 누르면 시나리오별 내재가치 막대와, 현재가를 나타내는 <strong style="color:var(--bad)">빨간 점선</strong>을 볼 수 있어요. 빨간 선이 막대보다 낮으면 저평가입니다. 게이트는 리스크 점검 표시일 뿐 매매를 제안하지 않으며, DCF가 계산되지 않는 종목은 카드에 표시되지 않습니다.</p>
+</details>
+
 {% if not view.rows %}<section class="empty"><p>표시할 기회 후보가 없습니다.</p></section>{% else %}
 <p class="muted">기준일 {{ view.as_of_date }}</p>
 <div class="card chart desktop-only" data-chart="scatter" data-series='{{ scatter_json }}'
