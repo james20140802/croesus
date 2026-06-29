@@ -121,6 +121,10 @@ h1 {
 }
 .page-head { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-bottom: .5rem; }
 .page-head h1 { margin: 0; flex: 1 1 auto; }
+/* h2 used as a section head with an inline toggle: keep the section's top rhythm
+   but let the title grow so the toggle sits flush right (not crowding the title). */
+.page-head--section { margin-top: 1.6rem; }
+.page-head h2 { margin: 0; flex: 1 1 auto; }
 
 h2 {
   font-size: 1.02rem; font-weight: 700; margin: 1.6rem 0 .6rem;

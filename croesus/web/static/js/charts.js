@@ -3,6 +3,50 @@ function cssVar(name, fallback) {
   return (v && v.trim()) || fallback;
 }
 
+// 포트폴리오 추이 차트(평가액/수익률) — 토글로 전환되므로 별도 빌더로 둔다.
+function equityOption(data, mode) {
+  var ink = cssVar('--ink', '#211E18');
+  var soft = cssVar('--ink-soft', '#6F6857');
+  var line = cssVar('--line', '#E0D6C2');
+  var gilt = cssVar('--gilt', '#9A7616');
+  var ok = cssVar('--ok', '#2E6B4B');
+  var isReturn = mode === 'return';
+  var color = isReturn ? ok : gilt;
+  var axis = { axisLine: { lineStyle: { color: line } }, axisLabel: { color: soft },
+               splitLine: { lineStyle: { color: line, opacity: 0.5 } } };
+  return {
+    color: [color], textStyle: { color: ink, fontFamily: 'inherit' },
+    tooltip: { trigger: 'axis', formatter: function (ps) {
+      var p = ps[0], v = p.data;
+      var shown = isReturn
+        ? (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%'
+        : Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 });
+      return p.axisValue + '<br/>' + (isReturn ? '수익률 ' : '평가액 ') + shown;
+    } },
+    grid: { left: 56, right: 16, top: 16, bottom: 28 },
+    xAxis: Object.assign({ type: 'category', data: data.map(function (d) { return d.date; }) }, axis),
+    yAxis: Object.assign({ type: 'value', scale: true,
+      axisLabel: { color: soft, formatter: isReturn ? '{value}%' : null } }, axis),
+    series: [{ type: 'line', smooth: true, showSymbol: false,
+      lineStyle: { color: color, width: 2, type: isReturn ? 'dashed' : 'solid' },
+      areaStyle: isReturn ? null : { color: gilt, opacity: 0.10 },
+      data: data.map(function (d) { return isReturn ? d.return_pct : d.market_value; }) }],
+  };
+}
+
+// 토글 버튼(평가액/수익률) 클릭 시 추이 차트를 다시 그린다.
+window.toggleEquity = function (btn) {
+  var group = btn.closest('.segmented');
+  if (group) group.querySelectorAll('.seg').forEach(function (b) {
+    b.classList.toggle('active', b === btn); });
+  var mode = btn.getAttribute('data-mode');
+  var el = document.querySelector('[data-chart="equity"]');
+  if (el && el.__chart) {
+    el.setAttribute('data-mode', mode);
+    el.__chart.setOption(equityOption(el.__data, mode), true);
+  }
+};
+
 function initCharts() {
   if (typeof echarts === 'undefined') return;   // graceful degrade if vendor missing
   var ink = cssVar('--ink', '#211E18');
@@ -27,7 +71,8 @@ function initCharts() {
     var opt = { color: palette, textStyle: { color: ink, fontFamily: 'inherit' } };
 
     if (kind === 'donut') {
-      opt.tooltip = { trigger: 'item', formatter: '{b}: {d}%' };
+      opt.tooltip = { trigger: 'item', formatter: function (p) {
+        return p.name + ': ' + p.percent.toFixed(1) + '%'; } };
       opt.series = [{ type: 'pie', radius: ['52%', '74%'], avoidLabelOverlap: true,
         itemStyle: { borderColor: cssVar('--surface', '#fff'), borderWidth: 2 },
         label: { color: soft, fontSize: 11 }, data: data }];
@@ -78,25 +123,11 @@ function initCharts() {
         areaStyle: { color: gilt, opacity: 0.10 },
         data: data.map(function (d) { return d.close; }) }];
     } else if (kind === 'equity') {
-      var ok = cssVar('--ok', '#2E6B4B');
-      opt.tooltip = { trigger: 'axis' };
-      opt.legend = { data: ['평가액', '수익률'], textStyle: { color: soft }, top: 0 };
-      opt.grid = { left: 56, right: 52, top: 30, bottom: 28 };
-      opt.xAxis = Object.assign({ type: 'category', data: data.map(function (d) { return d.date; }) }, axis);
-      opt.yAxis = [
-        Object.assign({ type: 'value', scale: true, name: '평가액', nameTextStyle: { color: soft } }, axis),
-        Object.assign({ type: 'value', name: '수익률 %', position: 'right',
-          axisLabel: { color: soft, formatter: '{value}%' },
-          axisLine: { lineStyle: { color: line } }, splitLine: { show: false } }, {}),
-      ];
-      opt.series = [
-        { name: '평가액', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 0,
-          lineStyle: { color: gilt, width: 2 }, areaStyle: { color: gilt, opacity: 0.10 },
-          data: data.map(function (d) { return d.market_value; }) },
-        { name: '수익률', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
-          lineStyle: { color: ok, width: 2, type: 'dashed' },
-          data: data.map(function (d) { return d.return_pct; }) },
-      ];
+      // 평가액과 수익률은 단위·스케일이 달라 한 축에 겹치면 읽기 어렵다.
+      // 한 번에 하나만 그리고, 토글(toggleEquity)로 전환한다.
+      el.__data = data;
+      el.__chart = chart;
+      opt = equityOption(data, el.getAttribute('data-mode') || 'value');
     } else if (kind === 'bands') {
       var keys = Object.keys(data);
       opt.tooltip = { trigger: 'axis' };

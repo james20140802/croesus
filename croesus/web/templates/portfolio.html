@@ -16,9 +16,15 @@
 <p class="muted small" style="margin:.3rem 0 0">기준일 {{ view.as_of_date }} · 통화 {{ view.base_currency }}</p>
 
 {% if view.history and view.history|length > 1 %}
-<h2>평가액 추이</h2>
-<div class="card chart" data-chart="equity" data-series='{{ equity_json }}' style="min-height:240px"></div>
-<p class="card-note">스냅샷이 쌓일수록 평가액·수익률 추이가 더 길게 표시됩니다.</p>
+<div class="page-head page-head--section" style="margin-bottom:.4rem">
+  <h2>추이</h2>
+  <div class="segmented" role="tablist">
+    <button type="button" class="seg active" data-mode="value" onclick="toggleEquity(this)">평가액</button>
+    <button type="button" class="seg" data-mode="return" onclick="toggleEquity(this)">수익률</button>
+  </div>
+</div>
+<div class="card chart" data-chart="equity" data-mode="value" data-series='{{ equity_json }}' style="min-height:240px"></div>
+<p class="card-note">스냅샷이 쌓일수록 추이가 더 길게 표시됩니다. 위 버튼으로 평가액과 수익률을 전환할 수 있어요.</p>
 {% endif %}
 
 <h2>구성 비중</h2>
