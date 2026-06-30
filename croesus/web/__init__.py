@@ -1,3 +1,3 @@
-from croesus.web.app import create_app
+from croesus.web.app import app_factory, create_app
 
-__all__ = ["create_app"]
+__all__ = ["app_factory", "create_app"]
