@@ -51,7 +51,7 @@ the result).
 ```
 experiments/market_signals/
 ├── README.md               # how to run, what each script produces
-├── requirements.txt        # timesfm, torch, scipy (isolated heavy deps)
+├── requirements.txt        # timesfm, torch, scipy, statsmodels (isolated heavy deps)
 ├── common/
 │   ├── data.py             # thin wrapper over events_impact prices loader (S&P, NASDAQ)
 │   └── detrend.py          # SHARED preprocessing: log returns, drift removal, trend fit
@@ -86,6 +86,16 @@ Per user request, detrending is a **first-class, shared** step (useful beyond
 Each experiment declares which transform it uses; the default for #2 is
 `demean_drift(log_returns(price))`.
 
+**Preprocessing on/off comparison (per user):** the framework must make it easy
+to run an experiment **with and without** preprocessing and compare the results
+side by side. Concretely, `detrend.py` exposes an `identity` (no-op) transform
+alongside the real ones, and each experiment loops over a list of transforms
+(e.g. `[identity, demean_drift∘log_returns, detrend_logprice]`), producing one
+artifact set per transform plus a comparison plot/table. The point is to *see*
+how much the preprocessing changes the conclusion (e.g. in #2, how the raw
+price spectrum's huge low-frequency trend energy collapses once drift is
+removed).
+
 ## Experiment #1 — TimesFM evaluation
 
 **Run:** locally for real. Install `timesfm` + `torch` into the experiment venv,
@@ -110,8 +120,10 @@ and compare against **naive baselines** so real information value is visible.
 
 ## Experiment #2 — Fourier / spectral
 
-- **Input:** `demean_drift(log_returns(price))` (drift removed, per user). Also
-  run on `detrend_logprice` residual as a cross-check.
+- **Input:** run the spectrum under multiple transforms and compare:
+  `identity` (raw log price — expected to be dominated by trend),
+  `demean_drift(log_returns(price))` (drift removed, the default), and
+  `detrend_logprice` residual. The contrast across these is itself a result.
 - **Spectrum:** FFT power spectrum; identify peak frequencies / periods.
 - **Significance (the crux):** test whether peaks are real against a null —
   AR(1) red-noise and phase-shuffle/returns-shuffle surrogates. Report which
@@ -126,13 +138,32 @@ and compare against **naive baselines** so real information value is visible.
 
 ## Experiment #3 — Event impact (magnitude + period)
 
-Reuses `experiments/events_impact/analysis/event_study.py` for AR/CAR, extended
-with **local projection** to trace the impulse response over horizons so we get
-both magnitude and duration.
+The quantity we estimate is the **impulse response function (IRF)**: the effect
+of an event at `t=0` on the index at horizons `h = 0,1,…,H`. From that single
+curve, **magnitude** = peak absolute value, **period** = horizon where it
+returns to (the CI band around) zero. Two estimators, simple → rigorous:
 
-- **Magnitude:** peak cumulative abnormal return (max drawdown around the event).
-- **Period:** trading days until cumulative abnormal return recovers toward zero
-  (recovery time).
+1. **Event-study CAAR** (reuse `events_impact/analysis/event_study.py`).
+   Abnormal return `AR_t = actual − expected` (expected from a pre-event
+   estimation window); cumulate to CAR; average same-category events to get
+   `CAAR(h)`. Plotting `CAAR(h)` over horizons *is* an IRF. Significance via
+   cross-sectional t-stat. Simple, but weak when events overlap or controls are
+   needed.
+
+2. **Local projections — Jordà (2005)** (the standard tool for "magnitude +
+   period"). For each horizon `h`, a separate regression
+   `r(t→t+h) = α_h + β_h · Event_t + controls + ε`; the sequence of `β_h`
+   *is* the IRF, each `β_h` being the dynamic effect at horizon `h`. No full
+   system (VAR) assumption needed; overlapping events and controls fit naturally;
+   confidence bands via Newey–West (HAC) standard errors. (Full SVAR/VAR IRF is
+   noted as a heavier alternative but out of scope.)
+
+- **Magnitude:** peak absolute cumulative abnormal return / peak `|β_h|` (max
+  drawdown around the event).
+- **Period:** trading days until the IRF recovers toward zero — measured two
+  ways: (a) first horizon `h` where the response re-enters the zero CI band, and
+  (b) **half-life** `ln(0.5)/ln(ρ)` from an exponential-decay fit when the IRF
+  decays smoothly (gives "days for the shock to halve" as one number).
 - **Event categories** (curated CSVs, `events_impact` schema:
   `date,category,magnitude,scope,metadata`):
   - **war:** 9/11 (2001-09-11), Gulf War (1991-01), Russia-Ukraine
