@@ -62,11 +62,11 @@ def app_factory() -> FastAPI:
     reload 모드에서는 uvicorn이 앱을 import string으로 받아 자식 프로세스에서
     인자 없이 호출하므로, 설정은 환경변수로 전달한다(``__main__`` 참조).
     """
-    db_path = os.environ.get("CROESUS_DB_PATH") or None
-    schedule_raw = os.environ.get("CROESUS_SCHEDULE_AT") or None
+    schedule_raw = os.environ.get("CROESUS_SCHEDULE_AT")
     schedule_at = None
     if schedule_raw:
         from croesus.web.scheduler import parse_run_at
 
         schedule_at = parse_run_at(schedule_raw)
-    return create_app(db_path, schedule_at=schedule_at)
+    # db_path는 넘기지 않으면 resolve_db_path가 CROESUS_DB_PATH를 직접 읽는다.
+    return create_app(None, schedule_at=schedule_at)

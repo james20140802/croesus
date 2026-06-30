@@ -51,11 +51,16 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.reload:
         # reload 모드에서는 uvicorn이 자식 프로세스에서 앱을 import string으로 다시
-        # 만들기 때문에, 설정을 환경변수로 넘겨 app_factory가 읽게 한다.
+        # 만들기 때문에, 설정을 환경변수로 넘겨 app_factory가 읽게 한다. 인자가
+        # 없을 때는 환경변수를 비워, 비-reload 경로 및 셸에 남은 값과 동작을 일치시킨다.
         if args.db_path:
-            os.environ["CROESUS_DB_PATH"] = str(args.db_path)
+            os.environ["CROESUS_DB_PATH"] = args.db_path
+        else:
+            os.environ.pop("CROESUS_DB_PATH", None)
         if args.schedule:
-            os.environ["CROESUS_SCHEDULE_AT"] = str(args.schedule)
+            os.environ["CROESUS_SCHEDULE_AT"] = args.schedule
+        else:
+            os.environ.pop("CROESUS_SCHEDULE_AT", None)
         print("코드 자동 재시작(reload) 활성화 — 파일이 바뀌면 서버가 다시 뜹니다.")
         uvicorn.run(
             "croesus.web:app_factory",
