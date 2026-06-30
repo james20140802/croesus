@@ -46,34 +46,36 @@ def _fetch(ticker: str, start: datetime.date, end: datetime.date) -> pd.DataFram
 def load_prices(asset_id: str, ticker: str,
                 start: datetime.date, end: datetime.date) -> pd.DataFrame:
     conn = _connect()
-    cached = conn.execute(
-        "SELECT date FROM prices_daily WHERE asset_id=? AND date BETWEEN ? AND ?",
-        [asset_id, start, end],
-    ).fetchdf()
-    have = set(cached["date"].dt.date if hasattr(cached["date"], "dt") else cached["date"])
+    try:
+        cached = conn.execute(
+            "SELECT date FROM prices_daily WHERE asset_id=? AND date BETWEEN ? AND ?",
+            [asset_id, start, end],
+        ).fetchdf()
+        have = set(cached["date"].dt.date if hasattr(cached["date"], "dt") else cached["date"])
 
-    covered = bool(have) and start >= min(have) and end <= max(have)
-    if not covered:
-        print(f"[data] fetching {ticker} {start}->{end}", file=sys.stderr)
-        raw = _fetch(ticker, start, end)
-        if not raw.empty:
-            adj = "Adj Close" if "Adj Close" in raw.columns else "Close"
-            rows = [(
-                asset_id, dt,
-                float(r.get("Open", float("nan"))), float(r.get("High", float("nan"))),
-                float(r.get("Low", float("nan"))), float(r.get("Close", float("nan"))),
-                float(r.get(adj, float("nan"))), int(r.get("Volume", 0) or 0), "yfinance",
-            ) for dt, r in raw.iterrows()]
-            conn.executemany(
-                "INSERT OR REPLACE INTO prices_daily VALUES (?,?,?,?,?,?,?,?,?)", rows)
+        covered = bool(have) and start >= min(have) and end <= max(have)
+        if not covered:
+            print(f"[data] fetching {ticker} {start}->{end}", file=sys.stderr)
+            raw = _fetch(ticker, start, end)
+            if not raw.empty:
+                adj = "Adj Close" if "Adj Close" in raw.columns else "Close"
+                rows = [(
+                    asset_id, dt,
+                    float(r.get("Open", float("nan"))), float(r.get("High", float("nan"))),
+                    float(r.get("Low", float("nan"))), float(r.get("Close", float("nan"))),
+                    float(r.get(adj, float("nan"))), int(r.get("Volume", 0) or 0), "yfinance",
+                ) for dt, r in raw.iterrows()]
+                conn.executemany(
+                    "INSERT OR REPLACE INTO prices_daily VALUES (?,?,?,?,?,?,?,?,?)", rows)
 
-    out = conn.execute(
-        """SELECT date, adjusted_close FROM prices_daily
-           WHERE asset_id=? AND date BETWEEN ? AND ? ORDER BY date""",
-        [asset_id, start, end],
-    ).fetchdf()
-    conn.close()
-    if out.empty:
-        raise ValueError(f"No price data for {asset_id} in {start}:{end}")
-    out["date"] = pd.to_datetime(out["date"])
-    return out.set_index("date").sort_index()
+        out = conn.execute(
+            """SELECT date, adjusted_close FROM prices_daily
+               WHERE asset_id=? AND date BETWEEN ? AND ? ORDER BY date""",
+            [asset_id, start, end],
+        ).fetchdf()
+        if out.empty:
+            raise ValueError(f"No price data for {asset_id} in {start}:{end}")
+        out["date"] = pd.to_datetime(out["date"])
+        return out.set_index("date").sort_index()
+    finally:
+        conn.close()
