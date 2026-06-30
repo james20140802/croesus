@@ -5,7 +5,7 @@ period = recovery horizon and half-life. Statsmodels local projection with
 Newey-West bands is included as the rigorous cross-check.
 """
 import datetime
-import json
+from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
@@ -22,7 +22,7 @@ HORIZONS = range(0, 61)  # T+0 .. T+60 trading days
 
 
 def _load_events():
-    csv = pd.read_csv(__file__.replace("run.py", "events.csv"))
+    csv = pd.read_csv(Path(__file__).parent / "events.csv")
     csv["date"] = pd.to_datetime(csv["date"]).dt.date
     return csv
 
@@ -34,13 +34,13 @@ def _local_projection(returns: pd.Series, event_dates, horizons):
     for d in event_dates:
         pos = int(dates.searchsorted(pd.Timestamp(d)))
         if pos < len(dates):
-            ev.iloc[pos] = 1.0
+            ev.iat[pos] = 1.0
     rows = []
-    logret = returns.values
+    ret = returns.values
     for h in horizons:
         y = pd.Series(
-            [np.sum(logret[i: i + h + 1]) if i + h < len(logret) else np.nan
-             for i in range(len(logret))], index=dates)
+            [np.sum(ret[i: i + h + 1]) if i + h < len(ret) else np.nan
+             for i in range(len(ret))], index=dates)
         d = pd.DataFrame({"y": y, "ev": ev}).dropna()
         if d["ev"].sum() < 2:
             continue

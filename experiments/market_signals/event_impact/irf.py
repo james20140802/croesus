@@ -3,8 +3,6 @@
 caar_curve: event-study CAAR over horizons (the simple IRF).
 recovery_horizon + half_life: turn the IRF into magnitude/period numbers.
 """
-import datetime
-
 import numpy as np
 import pandas as pd
 
@@ -44,9 +42,14 @@ def recovery_horizon(curve: pd.DataFrame):
     if curve.empty:
         return None
     trough_idx = curve["caar"].idxmin()
+    trough_val = float(curve.loc[trough_idx, "caar"])
+    # Absolute tolerance relative to trough depth: handles the se==0 / single-event
+    # case where the CI collapses to the point estimate and floating-point residuals
+    # (~1e-17) prevent exact equality to zero.
+    atol = abs(trough_val) * 1e-10
     after = curve.loc[trough_idx:]
     for _, row in after.iterrows():
-        if row["h"] > 0 and row["lo"] <= 0 <= row["hi"]:
+        if row["h"] > 0 and (row["lo"] <= 0 <= row["hi"] or float(row["caar"]) >= -atol):
             return int(row["h"])
     return None
 

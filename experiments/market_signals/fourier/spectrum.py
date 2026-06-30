@@ -1,5 +1,6 @@
 """Periodogram + AR(1) red-noise significance for index returns."""
 import numpy as np
+import pandas as pd
 
 
 def power_spectrum(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -42,7 +43,6 @@ def ar1_null_band(x: np.ndarray, n_surrogate: int = 500, pct: float = 95.0) -> n
 
 
 def significant_peaks(periods, power, band):
-    import pandas as pd
     mask = power > band
     return pd.DataFrame({
         "period": periods[mask],

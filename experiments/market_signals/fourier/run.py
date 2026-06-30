@@ -9,7 +9,6 @@ import datetime
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import pandas as pd
 
 from experiments.market_signals.common import data, detrend
 from experiments.market_signals.common.config import RESULTS_DIR
@@ -26,7 +25,8 @@ def run():
 
     for asset_id, ticker in data.INDICES.items():
         prices = data.load_prices(asset_id, ticker, START, END)["adjusted_close"]
-        fig, axes = plt.subplots(len(detrend.TRANSFORMS), 1, figsize=(10, 9), sharex=False)
+        fig, axes = plt.subplots(len(detrend.TRANSFORMS), 1, figsize=(10, 9), sharex=False, squeeze=False)
+        axes = axes[:, 0]  # flatten to 1-D array
         lines.append(f"\n## {asset_id}\n")
         for ax, (name, fn) in zip(axes, detrend.TRANSFORMS.items()):
             x = fn(prices).dropna().values
@@ -41,7 +41,8 @@ def run():
             ax.legend(fontsize=7)
             peaks.head(10).to_csv(outdir / f"{asset_id}_{name}_peaks.csv", index=False)
             top = ", ".join(f"{p:.0f}d" for p in peaks["period"].head(5)) or "none"
-            lines.append(f"- **{name}**: {len(peaks)} significant peaks; top: {top}")
+            expected_fp = len(power) // 20
+            lines.append(f"- **{name}**: {len(peaks)} significant peaks (≈{expected_fp} expected by chance at 95%); top: {top}")
         fig.tight_layout()
         fig.savefig(outdir / f"{asset_id}_spectrum.png", dpi=110)
         plt.close(fig)
@@ -52,7 +53,11 @@ def run():
         "trend energy, which collapses once drift is removed. Judge whether any "
         "peak survives the AR(1) red-noise null across both indices and multiple "
         "transforms — only those are candidate real cycles; the rest are "
-        "consistent with red noise.\n")
+        "consistent with red noise. Note: at the 95% per-frequency threshold the "
+        "null AR(1) process produces roughly 5% of bins as false peaks, so any "
+        "peak count near or below the expected-by-chance number is consistent "
+        "with pure red noise — only peaks that survive across both indices and "
+        "multiple transforms are candidate real cycles.\n")
     (outdir / "FINDINGS.md").write_text("\n".join(lines))
     print(f"[fourier] wrote {outdir}")
 

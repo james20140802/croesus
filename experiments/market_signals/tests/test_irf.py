@@ -26,7 +26,7 @@ def test_recovery_horizon_detects_return_to_zero():
     r = _series_with_shock("2000-03-01", drop=-0.10, recover_days=8)
     curve = irf.caar_curve(r, [pd.Timestamp("2000-03-01").date()], range(0, 30))
     h = irf.recovery_horizon(curve)
-    assert h is None or h > 0
+    assert h is not None and h > 0
 
 
 def test_half_life_positive_for_decaying_curve():
