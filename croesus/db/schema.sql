@@ -528,3 +528,23 @@ CREATE TABLE IF NOT EXISTS thesis_grades (
   updated_at          TIMESTAMP DEFAULT now(),   -- bumped on every re-grade
   PRIMARY KEY (asset_id, as_of_date)
 );
+
+-- Normalized-FCF reverse-DCF methodology (separate from valuation_snapshots).
+CREATE TABLE IF NOT EXISTS normalized_dcf_snapshots (
+  asset_id                              TEXT NOT NULL,
+  date                                  DATE NOT NULL,
+  current_price                         DOUBLE,
+  normalized_base_fcf                   DOUBLE,
+  reference_growth                      DOUBLE,
+  normalized_intrinsic_value_per_share  DOUBLE,
+  normalized_upside_pct                 DOUBLE,
+  implied_growth                        DOUBLE,
+  plausibility_gap                      DOUBLE,
+  valuation_quality                     TEXT,
+  n_fcf_years                           INTEGER,
+  wacc                                  DOUBLE,
+  assumptions_json                      TEXT,
+  created_at                            TIMESTAMP DEFAULT now(),
+  updated_at                            TIMESTAMP DEFAULT now(),
+  PRIMARY KEY (asset_id, date)
+);
