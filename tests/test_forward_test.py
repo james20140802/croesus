@@ -167,3 +167,53 @@ def test_evaluate_cohorts_measures_realized_return_vs_spy(tmp_path) -> None:
     assert abs(result.benchmark_return - 0.10) < 1e-9    # SPY 400 -> 440
     assert abs(result.excess_return - 0.20) < 1e-9       # beat SPY by 20pp
     assert result.days_held == 59
+
+
+# ── normalized-DCF cohort recorder (DB integration) ──────────────────────────
+
+def test_record_normalized_dcf_cohort_uses_ok_tier_by_gap(tmp_path) -> None:
+    import pandas as pd
+
+    from croesus.assets.seed_us_equities import seed_us_equities
+    from croesus.db.connection import get_connection
+    from croesus.db.migrate import migrate
+    from croesus.factors.equity.normalized_repository import (
+        NormalizedDcfRepository,
+        NormalizedDcfSnapshot,
+    )
+    from croesus.forward_test.repository import ForwardTestRepository
+    from croesus.forward_test.run import record_normalized_dcf_cohort
+    from croesus.prices.repository import PriceRepository
+
+    d = date(2026, 6, 30)
+    db = tmp_path / "croesus.duckdb"
+    migrate(db)
+    with get_connection(db) as conn:
+        seed_us_equities(conn)
+        repo = NormalizedDcfRepository(conn)
+        prices = PriceRepository(conn)
+        # AAPL ok cheap (gap -0.30), MSFT ok pricier (gap +0.10),
+        # NVDA reference_unreliable but "cheaper" (gap -0.90) -> must be excluded.
+        for aid, gap, qual in [
+            ("US_EQ_AAPL", -0.30, "ok"),
+            ("US_EQ_MSFT", 0.10, "ok"),
+            ("US_EQ_NVDA", -0.90, "reference_unreliable"),
+        ]:
+            repo.upsert(NormalizedDcfSnapshot(
+                asset_id=aid, date=d, current_price=100.0,
+                normalized_base_fcf=50.0, reference_growth=0.05,
+                normalized_intrinsic_value_per_share=110.0, normalized_upside_pct=0.1,
+                implied_growth=0.05 + gap, plausibility_gap=gap,
+                valuation_quality=qual, n_fcf_years=8, wacc=0.10, assumptions={}))
+            prices.upsert_daily_prices(aid, pd.DataFrame([{
+                "date": d, "open": 100.0, "high": 100.0, "low": 100.0,
+                "close": 100.0, "adjusted_close": 100.0, "volume": 1_000_000,
+            }]), source="test")
+
+        picks = record_normalized_dcf_cohort(conn, as_of_date=d, log=lambda _m: None)
+        ids = [p.asset_id for p in picks]
+        assert ids == ["US_EQ_AAPL", "US_EQ_MSFT"]  # ok-tier, cheapest gap first
+        assert "US_EQ_NVDA" not in ids  # reference_unreliable excluded from the cohort
+
+        stored = ForwardTestRepository(conn).load_cohort("normalized_dcf", d)
+        assert {p.asset_id for p in stored} == {"US_EQ_AAPL", "US_EQ_MSFT"}

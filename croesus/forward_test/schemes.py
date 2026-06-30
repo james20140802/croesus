@@ -60,3 +60,8 @@ FORWARD_TEST_SCHEMES: dict[str, dict[str, float]] = {
 }
 
 BENCHMARK_SYMBOL = "SPY"
+
+# Not a factor-weight scheme: the normalized-DCF methodology ranks by plausibility
+# gap, so its cohort is recorded by a dedicated recorder (run.record_normalized_dcf_cohort)
+# rather than run_screening. Named here so the CLI and evaluator treat it uniformly.
+NORMALIZED_DCF_SCHEME = "normalized_dcf"
