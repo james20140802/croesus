@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import statistics
+from dataclasses import dataclass
 
 from croesus.factors.equity.valuation import (
     DEFAULT_DCF_KNOBS,
@@ -109,3 +110,72 @@ def reverse_dcf_implied_growth(
         else:
             hi = mid
     return (lo + hi) / 2
+
+
+QUALITY_OK = "ok"
+QUALITY_SHORT_HISTORY = "short_history"
+QUALITY_FCF_NOT_MEANINGFUL = "fcf_not_meaningful"
+
+
+@dataclass(frozen=True)
+class NormalizedDcfResult:
+    normalized_base_fcf: float | None
+    reference_growth: float | None
+    normalized_intrinsic_value_per_share: float | None
+    normalized_upside_pct: float | None
+    implied_growth: float | None
+    plausibility_gap: float | None
+    valuation_quality: str
+    n_fcf_years: int
+
+
+def evaluate_normalized_dcf(
+    *,
+    annual_fcf: list[float],
+    price: float,
+    wacc: float,
+    shares_outstanding: float,
+    total_debt: float | None,
+    cash: float | None,
+    knobs: DcfKnobs = DEFAULT_DCF_KNOBS,
+    window: int = NORMALIZED_FCF_WINDOW,
+    min_years: int = MIN_NORMALIZED_FCF_YEARS,
+) -> NormalizedDcfResult:
+    """One-shot normalized DCF: median base + log-linear reference growth +
+    normalized forward intrinsic + reverse-DCF implied growth + plausibility gap.
+
+    ``valuation_quality`` is ``fcf_not_meaningful`` when the normalized base or
+    reference growth is undefined (financials / sign-flipping FCF), else
+    ``short_history`` when fewer than ``min_years`` of FCF are available, else
+    ``ok``. Returns a fully-populated result in every case (never raises).
+    """
+    n_years = len(annual_fcf[-window:])
+    base = normalized_base_fcf(annual_fcf, window=window)
+    growth = loglinear_fcf_growth(annual_fcf, window=window)
+    if base is None or base <= 0 or growth is None:
+        return NormalizedDcfResult(
+            normalized_base_fcf=base, reference_growth=growth,
+            normalized_intrinsic_value_per_share=None, normalized_upside_pct=None,
+            implied_growth=None, plausibility_gap=None,
+            valuation_quality=QUALITY_FCF_NOT_MEANINGFUL, n_fcf_years=n_years,
+        )
+    forward = two_stage_dcf(
+        base_fcf=base, growth_rate=growth, wacc=wacc,
+        shares_outstanding=shares_outstanding, total_debt=total_debt, cash=cash,
+        knobs=knobs,
+    )
+    intrinsic = forward.intrinsic_value_per_share if forward else None
+    upside = (intrinsic / price - 1.0) if (intrinsic is not None and price) else None
+    implied = reverse_dcf_implied_growth(
+        price=price, base_fcf=base, wacc=wacc,
+        shares_outstanding=shares_outstanding, total_debt=total_debt, cash=cash,
+        knobs=knobs,
+    )
+    gap = (implied - growth) if implied is not None else None
+    quality = QUALITY_SHORT_HISTORY if n_years < min_years else QUALITY_OK
+    return NormalizedDcfResult(
+        normalized_base_fcf=base, reference_growth=growth,
+        normalized_intrinsic_value_per_share=intrinsic, normalized_upside_pct=upside,
+        implied_growth=implied, plausibility_gap=gap,
+        valuation_quality=quality, n_fcf_years=n_years,
+    )

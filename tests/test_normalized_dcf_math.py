@@ -66,3 +66,37 @@ def test_reverse_dcf_none_on_invalid_inputs():
     assert reverse_dcf_implied_growth(
         price=50.0, base_fcf=-1.0, wacc=0.10, shares_outstanding=10.0,
         total_debt=0.0, cash=0.0) is None
+
+
+def _ok_kwargs(annual_fcf, price):
+    return dict(annual_fcf=annual_fcf, price=price, wacc=0.10,
+                shares_outstanding=10.0, total_debt=0.0, cash=0.0)
+
+
+def test_evaluate_marks_financials_not_meaningful():
+    from croesus.factors.equity.normalized import (
+        QUALITY_FCF_NOT_MEANINGFUL, evaluate_normalized_dcf)
+    res = evaluate_normalized_dcf(**_ok_kwargs([107.0, 13.0, -42.0, -148.0], 50.0))
+    assert res.valuation_quality == QUALITY_FCF_NOT_MEANINGFUL
+    assert res.normalized_intrinsic_value_per_share is None
+    assert res.implied_growth is None
+
+
+def test_evaluate_flags_short_history():
+    from croesus.factors.equity.normalized import (
+        QUALITY_SHORT_HISTORY, evaluate_normalized_dcf)
+    res = evaluate_normalized_dcf(**_ok_kwargs([100.0, 104.0, 102.0], 50.0))
+    assert res.valuation_quality == QUALITY_SHORT_HISTORY
+    assert res.n_fcf_years == 3
+
+
+def test_evaluate_full_result_ok():
+    from croesus.factors.equity.normalized import QUALITY_OK, evaluate_normalized_dcf
+    series = [100.0, 102.0, 101.0, 103.0, 102.0]  # ~flat, all positive, 5 yrs
+    res = evaluate_normalized_dcf(**_ok_kwargs(series, 200.0))
+    assert res.valuation_quality == QUALITY_OK
+    assert res.normalized_base_fcf == pytest.approx(102.0)  # median
+    assert res.normalized_intrinsic_value_per_share is not None
+    assert res.implied_growth is not None
+    # priced well above the ~flat normalized intrinsic -> positive plausibility gap
+    assert res.plausibility_gap > 0
