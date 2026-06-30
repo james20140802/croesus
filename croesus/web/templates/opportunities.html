@@ -1,17 +1,37 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>기회</h1>
+{% if methodology == 'normalized_dcf' %}
+<p class="muted" style="margin-top:-.4rem">시장가에 내재된 FCF 성장률과 정규화한 실제 FCF 추세의 격차(<strong>plausibility gap</strong>)로 정렬한 후보입니다. 격차가 작을수록 시장이 성장을 덜 가정 = 상대적 저평가. 매수 제안이 아니라 검토 후보예요.</p>
+{% else %}
 <p class="muted" style="margin-top:-.4rem">적정가(인트린식 밸류) 대비 저평가로 보이는 후보입니다. 매수 제안이 아니라 검토 후보예요.</p>
+{% endif %}
+<div class="filters" style="margin-top:.2rem">
+  {% for k, lbl in methodologies %}
+  <a href="/opportunities?methodology={{ k }}" class="chip{% if methodology==k %} active{% endif %}">{{ lbl }}</a>
+  {% endfor %}
+</div>
 {% if view.gate_summary %}
 <div class="filters">
   {% for g in ["", "pass", "warn", "block"] %}
-  <a href="/opportunities{% if g %}?gate={{ g }}{% endif %}"
+  <a href="/opportunities?methodology={{ methodology }}{% if g %}&gate={{ g }}{% endif %}"
      class="chip{% if gate==g or (not gate and not g) %} active{% endif %}">{{
        (g | gate_label) ~ ' ' ~ view.gate_summary.get(g, 0) if g else "전체" }}</a>
   {% endfor %}
 </div>
 {% endif %}
 
+{% if methodology == 'normalized_dcf' %}
+<details class="card" style="margin-top:1rem">
+  <summary style="cursor:pointer; font-weight:600">정규화 reverse-DCF는 어떻게 계산하나요?</summary>
+  <p class="muted small" style="margin:.6rem 0 .4rem">"적정가가 얼마인가" 대신 <strong>"시장가를 정당화하려면 FCF가 매년 몇 % 성장해야 하는가"</strong>를 역산합니다(<strong>내재 성장률, implied growth</strong>). 이를 정규화한 실제 추세(<strong>기준 성장률, reference growth</strong> = 최근 FCF의 로그선형 기울기, 중앙값 기준)와 비교합니다.</p>
+  <ul style="margin:0; padding-left:1.1rem; font-size:.86rem; color:var(--ink-soft)">
+    <li><strong>plausibility gap</strong> = 내재 성장률 − 기준 성장률. 작을수록 시장이 성장을 덜 가정 = 상대적 저평가(정렬 기준).</li>
+    <li><strong>품질 배지</strong> — <code>ok</code> 신뢰 가능 · <code>reference_unreliable</code> 기준 성장률이 한계값에 포화돼 후순위 · <code>short_history</code> FCF 이력 부족.</li>
+    <li>금융주는 FCF-DCF가 무의미해 제외됩니다. 기계적 DCF는 <strong>보수적 FCF 하단</strong>일 뿐 적정가가 아닙니다.</li>
+  </ul>
+</details>
+{% else %}
 <details class="card" style="margin-top:1rem">
   <summary style="cursor:pointer; font-weight:600">이 평가는 어떻게 이루어지나요?</summary>
   <p class="muted small" style="margin:.6rem 0 .4rem">각 종목의 사업 질을 LLM이 평가(해자·기술·산업추세·파괴위험)하고, 그 등급으로 <strong>DCF(현금흐름할인)</strong> 가정을 조정해 <strong>주당 내재가치</strong>를 추정합니다. 현재가와 비교한 차이가 <strong>상승여력(업사이드)</strong>입니다.</p>
@@ -23,23 +43,37 @@
   <p class="muted small" style="margin:.5rem 0 .2rem"><strong>약세(bear) · 기본(base) · 강세(bull)</strong> = 같은 종목을 보수적 / 중립 / 낙관 가정으로 각각 계산한 시나리오입니다(가정을 한 단계씩 불리·유리하게 조정). 카드의 상승여력은 <strong>기본(base)</strong> 기준이에요.</p>
   <p class="muted small" style="margin:.2rem 0 0">개별 종목을 누르면 시나리오별 내재가치 막대와, 현재가를 나타내는 <strong style="color:var(--bad)">빨간 점선</strong>을 볼 수 있어요. 빨간 선이 막대보다 낮으면 저평가입니다. 게이트는 리스크 점검 표시일 뿐 매매를 제안하지 않으며, DCF가 계산되지 않는 종목은 카드에 표시되지 않습니다.</p>
 </details>
+{% endif %}
 
 {% if not view.rows %}<section class="empty"><p>표시할 기회 후보가 없습니다.</p></section>{% else %}
 <p class="muted">기준일 {{ view.as_of_date }}</p>
 <div class="card chart desktop-only" data-chart="scatter" data-series='{{ scatter_json }}'
      style="min-height:280px"></div>
+{% if methodology == 'normalized_dcf' %}
+<p class="card-note desktop-only">가로축 = 매력도(= −plausibility gap, 클수록 저평가), 점 색 = 게이트. <strong>오른쪽일수록</strong> 시장이 성장을 덜 가정한 후보입니다.</p>
+{% else %}
 <p class="card-note desktop-only">가로축 = 상승여력(%), 세로축 = 확신도, 점 색 = 게이트(초록 통과·노랑 주의·빨강 불가). <strong>오른쪽 위(상승여력 크고 확신도 높음)</strong>에 가까울수록 매력적인 후보입니다. 상승여력이 매우 큰 값은 가독을 위해 +150%에서 잘려 표시되며, 실제 값은 점에 마우스를 올리면 보입니다.</p>
+{% endif %}
 <div class="grid grid-cards">{% for r in view.rows %}
-  <a class="card opp" href="/opportunities/{{ r.asset_id }}">
+  <a class="card opp" href="/opportunities/{{ r.asset_id }}?methodology={{ methodology }}">
     <div class="opp-head"><span class="sym">{{ r.symbol }}</span>
       {% if r.gate_status %}<span class="pill pill--{{ r.gate_status | gate_tone }}">{{ r.gate_status | gate_label }}</span>{% endif %}</div>
     <span class="muted small">{{ r.name or '' }}</span>
     <div class="price">현재가 {{ '{:,.0f}'.format(r.current_price or 0) }}</div>
+    {% if r.methodology_key == 'normalized_dcf' %}
+    <div class="upside {{ 'pos' if (r.plausibility_gap is not none and r.plausibility_gap < 0) else 'neg' }}">
+      격차(gap) {{ ('%+.0f pts' % (r.plausibility_gap*100)) if r.plausibility_gap is not none else '—' }}</div>
+    <div class="muted small">시장 내재 {{ ('%+.0f%%' % (r.implied_growth*100)) if r.implied_growth is not none else '—' }} · FCF 추세 {{ ('%+.0f%%' % (r.reference_growth*100)) if r.reference_growth is not none else '—' }}</div>
+    <div class="muted small">FCF 하단 대비 {{ ('%+.0f%%' % (r.normalized_upside_pct*100)) if r.normalized_upside_pct is not none else '—' }} (적정가 아님)</div>
+    {% if r.gate_reason_codes %}<div class="muted small">{{ r.gate_reason_codes | reason_codes_label }}</div>{% endif %}
+    {% if r.valuation_quality %}<div class="grades"><span class="pill">{{ r.valuation_quality }}</span></div>{% endif %}
+    {% else %}
     <div class="upside {{ 'pos' if (r.base_upside_pct or 0) > 0 else 'neg' }}">
       상승여력 {{ ('%+.0f%%' % (r.base_upside_pct*100)) if r.base_upside_pct is not none else '—' }}</div>
     {% if r.gate_reason_codes %}<div class="muted small">{{ r.gate_reason_codes | reason_codes_label }}</div>{% endif %}
     <div class="grades">{% for k,v in r.grades.items() if v %}
       <span class="pill pill--{{ v | grade_value_tone }}">{{ k | grade_group_label }} {{ v | grade_value_label }}</span>{% endfor %}</div>
+    {% endif %}
   </a>{% endfor %}</div>
 {% endif %}
 {% endblock %}
