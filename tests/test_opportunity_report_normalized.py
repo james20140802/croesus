@@ -108,7 +108,7 @@ def test_report_shows_valuation_quality_badge():
         cards=[card],
     )
     text = render_opportunity_review(result)
-    assert "ok" in text
+    assert "[ok]" in text
 
 
 def test_moat_adjusted_card_output_unchanged():
@@ -153,4 +153,48 @@ def test_moat_adjusted_card_output_unchanged():
     assert "+5.0%" in text
     assert "$300.00" in text  # bear band
     # Normalized-DCF-specific fields must NOT appear for moat-adjusted cards.
-    assert "floor" not in text.lower() or "plausibility" not in text.lower()
+    assert "floor" not in text.lower() and "plausibility" not in text.lower()
+
+
+def test_nil_gap_card_emits_no_normalized_block() -> None:
+    """Cards with plausibility_gap=None must not emit a normalized-DCF block."""
+    card = OpportunityCard(
+        asset_id="US_EQ_AAPL",
+        symbol="AAPL",
+        name="Apple",
+        methodology_key="normalized_dcf",
+        as_of_date=date(2026, 6, 30),
+        current_price=281.74,
+        mechanical_intrinsic_value=None,
+        mechanical_upside_pct=None,
+        band_intrinsic_by_scenario={},
+        band_upside_by_scenario={},
+        base_upside_pct=None,
+        thesis_as_of_date=None,
+        thesis_confidence=None,
+        evidence_source=None,
+        moat_grade=None,
+        tech_grade=None,
+        sector_grade=None,
+        disruption_grade=None,
+        moat_evidence=None,
+        tech_evidence=None,
+        sector_evidence=None,
+        disruption_evidence=None,
+        bear_case=None,
+        normalized_intrinsic_value=None,
+        normalized_upside_pct=None,
+        reference_growth=None,
+        implied_growth=None,
+        plausibility_gap=None,
+        valuation_quality="fcf_not_meaningful",
+        n_fcf_years=2,
+    )
+    result = OpportunityReviewResult(
+        methodology=OPPORTUNITY_METHODOLOGIES["normalized_dcf"],
+        as_of_date=date(2026, 6, 30),
+        cards=[card],
+    )
+    text = render_opportunity_review(result)
+    assert "plausibility" not in text.lower()
+    assert "floor" not in text.lower()

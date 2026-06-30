@@ -105,7 +105,9 @@ def reverse_dcf_implied_growth(
     for _ in range(iterations):
         mid = (lo + hi) / 2
         v = intrinsic(mid)
-        if v is None or v < price:
+        if v is None:
+            return None
+        if v < price:
             lo = mid
         else:
             hi = mid

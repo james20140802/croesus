@@ -72,7 +72,7 @@ def test_compute_persists_normalized_snapshot(tmp_path: Path) -> None:
         assert snap.plausibility_gap is not None
 
 
-def test_compute_skips_asset_without_mechanical_wacc(tmp_path: Path) -> None:
+def test_compute_skips_asset_without_price(tmp_path: Path) -> None:
     db = tmp_path / "croesus.duckdb"
     migrate(db)
     with get_connection(db) as conn:
@@ -81,3 +81,21 @@ def test_compute_skips_asset_without_mechanical_wacc(tmp_path: Path) -> None:
             conn, as_of=date(2026, 6, 30), log=lambda _m: None)
         assert result.computed == []
         assert all(reason for reason in result.skipped.values())
+
+
+def test_compute_skips_asset_without_mechanical_wacc(tmp_path: Path) -> None:
+    db = tmp_path / "croesus.duckdb"
+    migrate(db)
+    with get_connection(db) as conn:
+        seed_us_equities(conn)
+        # Seed a price for AAPL but NO valuation_snapshots row.
+        price_df = pd.DataFrame([{
+            "date": date(2026, 6, 30),
+            "open": 200.0, "high": 200.0, "low": 200.0,
+            "close": 200.0, "adjusted_close": 200.0,
+            "volume": 1_000_000,
+        }])
+        PriceRepository(conn).upsert_daily_prices("US_EQ_AAPL", price_df, source="test")
+        result = compute_and_store_normalized_dcf(
+            conn, as_of=date(2026, 6, 30), log=lambda _m: None)
+        assert result.skipped.get("US_EQ_AAPL") == "no mechanical wacc"

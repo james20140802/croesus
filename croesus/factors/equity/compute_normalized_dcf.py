@@ -78,7 +78,7 @@ def compute_and_store_normalized_dcf(
                 continue
 
             shares = fundamentals.get_latest_metric(asset.asset_id, METRIC_SHARES_OUTSTANDING)
-            if not shares:
+            if shares is None or shares <= 0:
                 result.skipped[asset.asset_id] = "no shares outstanding"
                 log(f"skip normalized DCF for {asset.symbol}: no shares outstanding")
                 continue

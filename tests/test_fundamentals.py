@@ -125,7 +125,7 @@ def test_ingest_maps_labels_derives_bvps_and_continues_after_failure(tmp_path: P
         assert repo.get_annual_fcf("US_EQ_NVDA") == []
 
 
-def test_ingest_stores_all_available_fcf_years(tmp_path: Path) -> None:
+def test_ingest_stores_all_available_fcf_years() -> None:
     # A fake cashflow frame with 10 annual periods must yield 10 stored FCF rows.
     from croesus.fundamentals.ingest_fundamentals import (
         _CASHFLOW_LABELS,

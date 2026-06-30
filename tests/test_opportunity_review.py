@@ -113,7 +113,7 @@ def _seed_opportunity_rows(db_path: Path) -> None:
             repo.upsert_band(_band("US_EQ_AAPL", scenario, intrinsic, 100.0))
 
 
-def test_methodology_registry_exposes_available_a_and_deferred_b() -> None:
+def test_methodology_registry_available_and_deferred() -> None:
     from croesus.opportunities.selection import OPPORTUNITY_METHODOLOGIES
 
     assert OPPORTUNITY_METHODOLOGIES["moat_adjusted_intrinsic_value"].available is True
