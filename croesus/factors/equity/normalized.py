@@ -10,7 +10,13 @@ from __future__ import annotations
 import math
 import statistics
 
-from croesus.factors.equity.valuation import FCF_GROWTH_CAP, FCF_GROWTH_FLOOR
+from croesus.factors.equity.valuation import (
+    DEFAULT_DCF_KNOBS,
+    DcfKnobs,
+    FCF_GROWTH_CAP,
+    FCF_GROWTH_FLOOR,
+    two_stage_dcf,
+)
 
 NORMALIZED_FCF_WINDOW = 10        # years of FCF history to normalize over
 MIN_NORMALIZED_FCF_YEARS = 4      # fewer available -> "short_history" flag
@@ -57,3 +63,49 @@ def loglinear_fcf_growth(
         return None
     growth = math.exp(sxy / sxx) - 1.0
     return max(FCF_GROWTH_FLOOR, min(FCF_GROWTH_CAP, growth))
+
+
+def reverse_dcf_implied_growth(
+    *,
+    price: float,
+    base_fcf: float,
+    wacc: float,
+    shares_outstanding: float,
+    total_debt: float | None,
+    cash: float | None,
+    knobs: DcfKnobs = DEFAULT_DCF_KNOBS,
+    lo: float = -0.50,
+    hi: float = 1.00,
+    iterations: int = 100,
+) -> float | None:
+    """FCF growth ``g`` such that the two-stage DCF intrinsic equals ``price``.
+
+    Intrinsic is monotonically increasing in ``g``, so we bracket-check then
+    bisect on ``[lo, hi]``. ``None`` when inputs are invalid (``base_fcf <= 0``,
+    no shares, ``wacc <= terminal``) or the price is not bracketed within the
+    search range (i.e. implied growth is outside ``[lo, hi]`` — e.g. a name
+    priced for >100% growth).
+    """
+    if base_fcf <= 0 or shares_outstanding <= 0 or wacc <= knobs.terminal_growth_rate:
+        return None
+
+    def intrinsic(g: float) -> float | None:
+        result = two_stage_dcf(
+            base_fcf=base_fcf, growth_rate=g, wacc=wacc,
+            shares_outstanding=shares_outstanding,
+            total_debt=total_debt, cash=cash, knobs=knobs,
+        )
+        return result.intrinsic_value_per_share if result else None
+
+    low_v, high_v = intrinsic(lo), intrinsic(hi)
+    if low_v is None or high_v is None or not (low_v <= price <= high_v):
+        return None
+
+    for _ in range(iterations):
+        mid = (lo + hi) / 2
+        v = intrinsic(mid)
+        if v is None or v < price:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2

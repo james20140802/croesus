@@ -39,3 +39,30 @@ def test_loglinear_growth_is_clipped():
     series = [1.0 * 3.0**i for i in range(5)]  # 200%/yr, must clip to cap
     from croesus.factors.equity.valuation import FCF_GROWTH_CAP
     assert loglinear_fcf_growth(series) == pytest.approx(FCF_GROWTH_CAP)
+
+
+def test_reverse_dcf_recovers_known_growth():
+    from croesus.factors.equity.normalized import reverse_dcf_implied_growth
+    from croesus.factors.equity.valuation import DEFAULT_DCF_KNOBS, two_stage_dcf
+    kw = dict(base_fcf=100.0, wacc=0.10, shares_outstanding=10.0,
+              total_debt=0.0, cash=0.0, knobs=DEFAULT_DCF_KNOBS)
+    forward = two_stage_dcf(growth_rate=0.10, **kw)
+    price = forward.intrinsic_value_per_share
+    implied = reverse_dcf_implied_growth(price=price, **kw)
+    assert implied == pytest.approx(0.10, abs=1e-4)
+
+
+def test_reverse_dcf_none_when_price_above_search_range():
+    from croesus.factors.equity.normalized import reverse_dcf_implied_growth
+    # Absurdly high price -> implied growth > hi cap -> None (out of range).
+    implied = reverse_dcf_implied_growth(
+        price=1e12, base_fcf=100.0, wacc=0.10, shares_outstanding=10.0,
+        total_debt=0.0, cash=0.0)
+    assert implied is None
+
+
+def test_reverse_dcf_none_on_invalid_inputs():
+    from croesus.factors.equity.normalized import reverse_dcf_implied_growth
+    assert reverse_dcf_implied_growth(
+        price=50.0, base_fcf=-1.0, wacc=0.10, shares_outstanding=10.0,
+        total_debt=0.0, cash=0.0) is None
