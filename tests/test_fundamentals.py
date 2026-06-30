@@ -123,3 +123,20 @@ def test_ingest_maps_labels_derives_bvps_and_continues_after_failure(tmp_path: P
         # nothing stored for the failed/empty symbols
         assert repo.get_annual_fcf("US_EQ_MSFT") == []
         assert repo.get_annual_fcf("US_EQ_NVDA") == []
+
+
+def test_ingest_stores_all_available_fcf_years(tmp_path: Path) -> None:
+    # A fake cashflow frame with 10 annual periods must yield 10 stored FCF rows.
+    from croesus.fundamentals.ingest_fundamentals import (
+        _CASHFLOW_LABELS,
+        _extract,
+    )
+
+    cols = [pd.Timestamp(f"{y}-09-30") for y in range(2016, 2026)]
+    frame = pd.DataFrame(
+        {c: [100.0 + i] for i, c in enumerate(cols)},
+        index=["Free Cash Flow"],
+    )
+    metrics = _extract("US_EQ_AAPL", frame, _CASHFLOW_LABELS, period_type="annual", source="yfinance")
+    fcf = [m for m in metrics if m.metric_name == "free_cash_flow"]
+    assert len(fcf) == 10
