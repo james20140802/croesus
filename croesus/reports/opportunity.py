@@ -44,6 +44,26 @@ def _gate_lines(card: OpportunityCard) -> list[str]:
     return lines
 
 
+def _normalized_lines(card: OpportunityCard) -> list[str]:
+    """Return extra lines for normalized-DCF cards (plausibility gap present)."""
+    if card.plausibility_gap is None:
+        return []
+    quality = card.valuation_quality or "n/a"
+    ref = _pct(card.reference_growth)
+    imp = _pct(card.implied_growth)
+    gap_pts = f"{card.plausibility_gap * 100:.1f}"
+    lines = [
+        f"- Implied growth {imp} vs FCF trend {ref}  →  "
+        f"plausibility gap {gap_pts} pts  [{quality}]",
+    ]
+    if card.normalized_upside_pct is not None:
+        lines.append(
+            f"- Normalized FCF floor upside: {_pct(card.normalized_upside_pct)} "
+            f"(conservative floor, not fair value)"
+        )
+    return lines
+
+
 def render_opportunity_review(result: OpportunityReviewResult) -> str:
     lines = [
         f"# Opportunity Review - {result.as_of_date:%Y-%m-%d}",
@@ -76,6 +96,7 @@ def render_opportunity_review(result: OpportunityReviewResult) -> str:
                 f"{_money(bands.get('bear'))} / {_money(bands.get('base'))} / "
                 f"{_money(bands.get('bull'))}",
                 f"- Base band upside: {_pct(card.base_upside_pct)}",
+                *_normalized_lines(card),
                 f"- Thesis grades: {_grade_line(card)}",
                 f"- Thesis evidence: {_evidence_line(card)}",
                 f"- Confidence: {card.thesis_confidence or 'n/a'}; "
