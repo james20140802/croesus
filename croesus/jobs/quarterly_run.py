@@ -26,6 +26,9 @@ from croesus.assets.seed_us_equities import seed_us_equities
 from croesus.data_sources.fundamentals.base import FundamentalsProvider
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
+from croesus.factors.equity.compute_normalized_dcf import (
+    compute_and_store_normalized_dcf,
+)
 from croesus.factors.equity.compute_quality import compute_and_store_quality_factors
 from croesus.factors.equity.compute_valuation import (
     ValuationComputationResult,
@@ -60,6 +63,7 @@ def run_quarterly_pipeline(
     valuation_result = compute_and_store_valuation_factors(
         conn, include_dcf=True, as_of=as_of, log=log
     )
+    compute_and_store_normalized_dcf(conn, as_of=as_of, log=log)
     compute_and_store_quality_factors(conn, as_of=as_of, log=log)
     return QuarterlyRunResult(
         fundamentals_result=fundamentals_result,

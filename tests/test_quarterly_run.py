@@ -70,3 +70,27 @@ def test_quarterly_run_ingests_fundamentals_and_writes_dcf(tmp_path: Path) -> No
 
     assert fcf == 3
     assert snap is not None and snap[0] > 0
+
+
+def test_quarterly_run_populates_normalized_dcf(tmp_path: Path) -> None:
+    db_path = tmp_path / "q_norm.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        from croesus.assets.seed_us_equities import seed_us_equities
+
+        seed_us_equities(conn)
+        PriceRepository(conn).upsert_daily_prices(
+            "US_EQ_AAPL",
+            pd.DataFrame([
+                {"date": AS_OF, "open": 100.0, "high": 100.0, "low": 100.0,
+                 "close": 100.0, "adjusted_close": 100.0, "volume": 1000},
+            ]),
+            source="test",
+        )
+
+        run_quarterly_pipeline(conn, provider=FakeProvider(), as_of=AS_OF)
+
+        n = conn.execute(
+            "SELECT COUNT(*) FROM normalized_dcf_snapshots"
+        ).fetchone()[0]
+    assert n >= 1
