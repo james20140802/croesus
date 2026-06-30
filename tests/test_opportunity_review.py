@@ -356,6 +356,39 @@ def test_normalized_dcf_methodology_ranks_by_plausibility_gap(tmp_path: Path) ->
         assert result.cards[0].valuation_quality == "ok"
 
 
+def test_normalized_dcf_ranking_deprioritizes_flagged_quality(tmp_path: Path) -> None:
+    from croesus.factors.equity.normalized_repository import (
+        NormalizedDcfRepository, NormalizedDcfSnapshot)
+    from croesus.opportunities.review import run_opportunity_review
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        repo = NormalizedDcfRepository(conn)
+        # AAPL: reference_unreliable with a much "cheaper" gap (-0.50).
+        # MSFT: ok with a worse gap (+0.10). The clean ok name must still rank first.
+        for aid, gap, qual in [
+            ("US_EQ_AAPL", -0.50, "reference_unreliable"),
+            ("US_EQ_MSFT", 0.10, "ok"),
+        ]:
+            repo.upsert(NormalizedDcfSnapshot(
+                asset_id=aid, date=date(2026, 6, 30), current_price=100.0,
+                normalized_base_fcf=50.0, reference_growth=0.30,
+                normalized_intrinsic_value_per_share=110.0,
+                normalized_upside_pct=0.10, implied_growth=0.30 + gap,
+                plausibility_gap=gap, valuation_quality=qual, n_fcf_years=8,
+                wacc=0.10, assumptions={}))
+        result = run_opportunity_review(
+            conn, methodology_key="normalized_dcf", as_of_date=date(2026, 6, 30),
+            apply_risk_gate=False)
+        symbols = [c.symbol for c in result.cards]
+        # ok ranks above reference_unreliable despite the latter's smaller gap.
+        assert symbols[0] == "MSFT"
+        assert result.cards[0].valuation_quality == "ok"
+        assert result.cards[1].symbol == "AAPL"
+
+
 def test_opportunity_review_cli_uses_prompt_when_methodology_omitted(
     tmp_path: Path, capsys
 ) -> None:

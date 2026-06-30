@@ -98,3 +98,26 @@ def test_evaluate_full_result_ok():
     assert res.implied_growth is not None
     # priced well above the ~flat normalized intrinsic -> positive plausibility gap
     assert res.plausibility_gap > 0
+
+
+def test_evaluate_flags_reference_unreliable_at_growth_cap():
+    from croesus.factors.equity.normalized import (
+        QUALITY_REFERENCE_UNRELIABLE, evaluate_normalized_dcf)
+    from croesus.factors.equity.valuation import FCF_GROWTH_CAP
+    series = [1.0, 3.0, 9.0, 27.0, 81.0]  # ~200%/yr -> clipped to the +30% cap
+    res = evaluate_normalized_dcf(**_ok_kwargs(series, 200.0))
+    assert res.reference_growth == pytest.approx(FCF_GROWTH_CAP)
+    assert res.valuation_quality == QUALITY_REFERENCE_UNRELIABLE
+    # still fully computed (flagged, not skipped) so the breakdown stays visible
+    assert res.implied_growth is not None
+    assert res.plausibility_gap is not None
+
+
+def test_evaluate_flags_reference_unreliable_at_growth_floor():
+    from croesus.factors.equity.normalized import (
+        QUALITY_REFERENCE_UNRELIABLE, evaluate_normalized_dcf)
+    from croesus.factors.equity.valuation import FCF_GROWTH_FLOOR
+    series = [200.0, 100.0, 50.0, 25.0, 12.0]  # steep decline -> clipped to -5% floor
+    res = evaluate_normalized_dcf(**_ok_kwargs(series, 50.0))
+    assert res.reference_growth == pytest.approx(FCF_GROWTH_FLOOR)
+    assert res.valuation_quality == QUALITY_REFERENCE_UNRELIABLE

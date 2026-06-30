@@ -109,14 +109,24 @@ Ranking is ascending by `plausibility_gap`; `None` sorts last.
 
 | flag | meaning |
 |------|---------|
-| `ok` | normalized base FCF is positive, reference growth is defined, ≥ 4 FCF years |
+| `ok` | normalized base FCF positive, reference growth defined and not clip-pinned, ≥ 4 FCF years |
+| `reference_unreliable` | reference growth saturated at a clip boundary (≤ −5% floor or ≥ +30% cap); the gap anchor is pinned, so the plausibility gap is not trustworthy. Computed and persisted but ranked **below** `ok` names (deprioritized, not skipped) |
 | `short_history` | computed but fewer than 4 FCF years available; estimates are less stable |
-| `fcf_not_meaningful` | base FCF ≤ 0 or reference growth undefined (sign-flipping FCF, financials like JPM); methodology skipped for this asset |
+| `fcf_not_meaningful` | base FCF ≤ 0 or reference growth undefined (sign-flipping FCF, e.g. JPM); methodology skipped for this asset |
 
-Financials (banks, insurers) generate accounting FCF that swings sign as
-loan-book assets move. JPM FCF: 107 → 13 → −42 → −148 B. No normalized base
-or reverse DCF is meaningful; the flag carries the skip reason without
-crashing the run.
+**Financials are excluded by sector** in the orchestration layer (`Financials` /
+`Financial Services`), not just by the FCF-sign check. Banks, insurers, and
+brokers report accounting FCF with no meaningful capex/working-capital structure
+(JPM FCF: 107 → 13 → −42 → −148 B; insurers like PGR/ALL/CBOE show large but
+misleading *positive* FCF). Without this exclusion they dominated the cheap end
+of the gap ranking with absurd per-share intrinsics. Excluded names are skipped
+with reason `financial sector (FCF-DCF n/a)`.
+
+**Why deprioritize, not drop, `reference_unreliable`?** Roughly 1/3 of names pin
+the +30% growth cap on a fast recent FCF run; their gaps are huge-negative
+artifacts of the saturated anchor, not real cheapness. Ranking by a quality tier
+first (`ok` above flagged) keeps the cheap end trustworthy while still persisting
+the flagged breakdown for inspection.
 
 ## WACC reuse contract
 

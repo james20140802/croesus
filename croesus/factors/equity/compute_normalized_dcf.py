@@ -29,6 +29,12 @@ from croesus.fundamentals.repository import (
 )
 from croesus.prices.repository import PriceRepository
 
+# FCF-based DCF does not apply to financials (banks, insurers, brokers): their
+# reported FCF lacks the capex/working-capital structure the model assumes, so
+# it produces misleading per-share intrinsics. Both the GICS string ("Financials")
+# and the yfinance-style variant ("Financial Services") are excluded.
+_FCF_DCF_EXCLUDED_SECTORS = {"Financials", "Financial Services"}
+
 
 @dataclass(frozen=True)
 class NormalizedDcfComputationResult:
@@ -59,6 +65,14 @@ def compute_and_store_normalized_dcf(
 
     for asset in assets:
         try:
+            if asset.sector in _FCF_DCF_EXCLUDED_SECTORS:
+                # FCF-based DCF is not meaningful for financials (no capex/FCF
+                # structure); their positive-but-misleading FCF would otherwise
+                # dominate the cheap end of the plausibility-gap ranking.
+                result.skipped[asset.asset_id] = "financial sector (FCF-DCF n/a)"
+                log(f"skip normalized DCF for {asset.symbol}: financial sector")
+                continue
+
             price = prices.get_latest_close(asset.asset_id, as_of)
             if price is None:
                 result.skipped[asset.asset_id] = "no price"

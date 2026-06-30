@@ -117,6 +117,9 @@ def reverse_dcf_implied_growth(
 QUALITY_OK = "ok"
 QUALITY_SHORT_HISTORY = "short_history"
 QUALITY_FCF_NOT_MEANINGFUL = "fcf_not_meaningful"
+# reference_growth saturated at a clip boundary (>= CAP or <= FLOOR): the
+# log-linear anchor is pinned, so the plausibility gap is not trustworthy.
+QUALITY_REFERENCE_UNRELIABLE = "reference_unreliable"
 
 
 @dataclass(frozen=True)
@@ -147,9 +150,12 @@ def evaluate_normalized_dcf(
     normalized forward intrinsic + reverse-DCF implied growth + plausibility gap.
 
     ``valuation_quality`` is ``fcf_not_meaningful`` when the normalized base or
-    reference growth is undefined (financials / sign-flipping FCF), else
-    ``short_history`` when fewer than ``min_years`` of FCF are available, else
-    ``ok``. Returns a fully-populated result in every case (never raises).
+    reference growth is undefined (sign-flipping FCF), else ``reference_unreliable``
+    when reference growth is pinned at a clip boundary (the gap anchor is
+    saturated), else ``short_history`` when fewer than ``min_years`` of FCF are
+    available, else ``ok``. Sector-level exclusions (e.g. financials) are applied
+    by the orchestration layer, not here. Returns a fully-populated result in
+    every case (never raises).
     """
     n_years = len(annual_fcf[-window:])
     base = normalized_base_fcf(annual_fcf, window=window)
@@ -174,7 +180,14 @@ def evaluate_normalized_dcf(
         knobs=knobs,
     )
     gap = (implied - growth) if implied is not None else None
-    quality = QUALITY_SHORT_HISTORY if n_years < min_years else QUALITY_OK
+    if growth <= FCF_GROWTH_FLOOR or growth >= FCF_GROWTH_CAP:
+        # Anchor pinned at a clip boundary -> gap is unreliable; deprioritized
+        # (still persisted so the breakdown is visible).
+        quality = QUALITY_REFERENCE_UNRELIABLE
+    elif n_years < min_years:
+        quality = QUALITY_SHORT_HISTORY
+    else:
+        quality = QUALITY_OK
     return NormalizedDcfResult(
         normalized_base_fcf=base, reference_growth=growth,
         normalized_intrinsic_value_per_share=intrinsic, normalized_upside_pct=upside,

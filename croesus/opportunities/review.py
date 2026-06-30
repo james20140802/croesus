@@ -5,6 +5,7 @@ from datetime import date
 
 import duckdb
 
+from croesus.factors.equity.normalized import QUALITY_OK
 from croesus.factors.equity.normalized_repository import NormalizedDcfRepository
 from croesus.factors.equity.repository import ValuationSnapshotRepository
 from croesus.opportunities.risk_gate import (
@@ -185,10 +186,14 @@ def _review_methodology_a(
     return cards[:limit]
 
 
-def _normalized_card_sort_key(card: OpportunityCard) -> tuple[int, float, str]:
+def _normalized_card_sort_key(card: OpportunityCard) -> tuple[int, int, float, str]:
+    # Tier first by trustworthiness: clean "ok" names rank above flagged ones
+    # (reference_unreliable / short_history); gap-less cards rank last. Then
+    # ascending plausibility_gap within a tier — cheapest first.
     if card.plausibility_gap is None:
-        return (1, 0.0, card.symbol)
-    return (0, card.plausibility_gap, card.symbol)  # ascending: cheapest first
+        return (2, 0, 0.0, card.symbol)
+    quality_tier = 0 if card.valuation_quality == QUALITY_OK else 1
+    return (0, quality_tier, card.plausibility_gap, card.symbol)
 
 
 def _review_methodology_normalized_dcf(

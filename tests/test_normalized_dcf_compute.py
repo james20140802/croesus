@@ -99,3 +99,18 @@ def test_compute_skips_asset_without_mechanical_wacc(tmp_path: Path) -> None:
         result = compute_and_store_normalized_dcf(
             conn, as_of=date(2026, 6, 30), log=lambda _m: None)
         assert result.skipped.get("US_EQ_AAPL") == "no mechanical wacc"
+
+
+def test_compute_skips_financial_sector(tmp_path: Path) -> None:
+    db = tmp_path / "croesus.duckdb"
+    migrate(db)
+    with get_connection(db) as conn:
+        seed_us_equities(conn)
+        _seed_asset(conn)  # fully seeds AAPL (price, FCF, wacc) so only sector excludes it
+        conn.execute(
+            "UPDATE assets SET sector = 'Financials' WHERE asset_id = 'US_EQ_AAPL'"
+        )
+        result = compute_and_store_normalized_dcf(
+            conn, as_of=date(2026, 6, 30), log=lambda _m: None)
+        assert "US_EQ_AAPL" not in result.computed
+        assert result.skipped.get("US_EQ_AAPL") == "financial sector (FCF-DCF n/a)"
