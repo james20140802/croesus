@@ -6,6 +6,26 @@
     <span class="muted" style="font-size:1rem; font-family:var(--font-sans)">{{ row.name or '' }}</span>
     {% if row.gate_status %}<span class="pill pill--{{ row.gate_status | gate_tone }}">{{ row.gate_status | gate_label }}</span>{% endif %}</h1>
 </div>
+{% if row.methodology_key == 'normalized_dcf' %}
+<div class="card">
+  <div style="display:flex; flex-wrap:wrap; gap:1.5rem">
+    <div class="metric"><span class="k">현재가</span><span class="v">{{ '{:,.0f}'.format(row.current_price or 0) }}</span></div>
+    <div class="metric"><span class="k">격차(gap) <button type="button" class="hint" data-tip="시장가에 내재된 FCF 성장률 − 정규화한 실제 FCF 추세. 작을수록(음수일수록) 시장이 성장을 덜 가정 = 상대적 저평가.">?</button></span><span class="v {{ 'tone-ok' if (row.plausibility_gap is not none and row.plausibility_gap < 0) else 'tone-bad' }}">{{ ('%+.0f pts' % (row.plausibility_gap*100)) if row.plausibility_gap is not none else '—' }}</span></div>
+    {% if row.valuation_quality %}<div class="metric"><span class="k">품질</span><span class="v">{{ row.valuation_quality }}</span></div>{% endif %}
+  </div>
+</div>
+
+<h2 style="display:flex; align-items:center; gap:.4rem">정규화 reverse-DCF 분해
+  <button type="button" class="hint" data-tip="적정가를 못 박는 대신, 시장가를 정당화하는 데 필요한 FCF 성장률을 역산해 실제 추세와 비교합니다.">?</button></h2>
+<div class="card">
+  <div style="display:flex; flex-wrap:wrap; gap:1.5rem">
+    <div class="metric"><span class="k">시장 내재 성장률</span><span class="v">{{ ('%+.1f%%' % (row.implied_growth*100)) if row.implied_growth is not none else '—' }}</span></div>
+    <div class="metric"><span class="k">FCF 추세(기준)</span><span class="v">{{ ('%+.1f%%' % (row.reference_growth*100)) if row.reference_growth is not none else '—' }}</span></div>
+    <div class="metric"><span class="k">FCF 하단 대비</span><span class="v">{{ ('%+.0f%%' % (row.normalized_upside_pct*100)) if row.normalized_upside_pct is not none else '—' }}</span></div>
+  </div>
+</div>
+<p class="card-note">기계적 DCF는 <strong>보수적 FCF 하단</strong>이지 적정가가 아닙니다. 시장 내재 성장률이 FCF 추세보다 크게 높으면(격차 +) 성장에 값을 많이 치른 상태입니다.</p>
+{% else %}
 <div class="card">
   <div style="display:flex; flex-wrap:wrap; gap:1.5rem">
     <div class="metric"><span class="k">현재가</span><span class="v">{{ '{:,.0f}'.format(row.current_price or 0) }}</span></div>
@@ -24,6 +44,7 @@
 <h2>평가 등급</h2>
 <div class="grades">{% for k,v in row.grades.items() if v %}
   <span class="pill pill--lg pill--{{ v | grade_value_tone }}">{{ k | grade_group_label }} · {{ v | grade_value_label }}</span>{% endfor %}</div>
+{% endif %}
 
 {% if row.gate_notes %}
 <h2>리스크 점검</h2>
