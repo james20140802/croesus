@@ -5,6 +5,7 @@ from datetime import date
 
 import duckdb
 
+from croesus.factors.equity.normalized_repository import NormalizedDcfRepository
 from croesus.factors.equity.repository import ValuationSnapshotRepository
 from croesus.opportunities.risk_gate import (
     DEFAULT_MIN_LIQUIDITY_USD,
@@ -46,6 +47,13 @@ class OpportunityCard:
     sector_evidence: str | None
     disruption_evidence: str | None
     bear_case: str | None
+    normalized_intrinsic_value: float | None = None
+    normalized_upside_pct: float | None = None
+    reference_growth: float | None = None
+    implied_growth: float | None = None
+    plausibility_gap: float | None = None
+    valuation_quality: str | None = None
+    n_fcf_years: int | None = None
     risk_gate: RiskGateVerdict | None = None
 
 
@@ -177,6 +185,47 @@ def _review_methodology_a(
     return cards[:limit]
 
 
+def _normalized_card_sort_key(card: OpportunityCard) -> tuple[int, float, str]:
+    if card.plausibility_gap is None:
+        return (1, 0.0, card.symbol)
+    return (0, card.plausibility_gap, card.symbol)  # ascending: cheapest first
+
+
+def _review_methodology_normalized_dcf(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    methodology: OpportunityMethodology,
+    as_of: date,
+    limit: int,
+) -> list[OpportunityCard]:
+    snapshots = NormalizedDcfRepository(conn).load_latest(as_of)
+    labels = _asset_labels(conn, [s.asset_id for s in snapshots])
+    cards: list[OpportunityCard] = []
+    for snap in snapshots:
+        symbol, name = labels.get(snap.asset_id, (snap.asset_id, None))
+        cards.append(OpportunityCard(
+            asset_id=snap.asset_id, symbol=symbol, name=name,
+            methodology_key=methodology.key, as_of_date=snap.date,
+            current_price=snap.current_price,
+            mechanical_intrinsic_value=None, mechanical_upside_pct=None,
+            band_intrinsic_by_scenario={}, band_upside_by_scenario={},
+            base_upside_pct=None,
+            thesis_as_of_date=None, thesis_confidence=None, evidence_source=None,
+            moat_grade=None, tech_grade=None, sector_grade=None,
+            disruption_grade=None, moat_evidence=None, tech_evidence=None,
+            sector_evidence=None, disruption_evidence=None, bear_case=None,
+            normalized_intrinsic_value=snap.normalized_intrinsic_value_per_share,
+            normalized_upside_pct=snap.normalized_upside_pct,
+            reference_growth=snap.reference_growth,
+            implied_growth=snap.implied_growth,
+            plausibility_gap=snap.plausibility_gap,
+            valuation_quality=snap.valuation_quality,
+            n_fcf_years=snap.n_fcf_years,
+        ))
+    cards.sort(key=_normalized_card_sort_key)
+    return cards[:limit]
+
+
 def run_opportunity_review(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -196,6 +245,10 @@ def run_opportunity_review(
     as_of = as_of_date or date.today()
     if methodology.key == "moat_adjusted_intrinsic_value":
         cards = _review_methodology_a(
+            conn, methodology=methodology, as_of=as_of, limit=limit
+        )
+    elif methodology.key == "normalized_dcf":
+        cards = _review_methodology_normalized_dcf(
             conn, methodology=methodology, as_of=as_of, limit=limit
         )
     else:  # pragma: no cover - guarded by select_methodology
