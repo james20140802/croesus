@@ -3,14 +3,22 @@
 Run from repo root:  python -m experiments.market_signals.cross_sectional.run
 
 Builds the point-in-time factor panel over the full price history, then writes:
-  results/cross_sectional/panel.parquet        — the raw long panel
+  results/cross_sectional/panel.csv            — the raw long panel
   results/cross_sectional/ic_summary.csv        — factor x horizon IC stats
-  results/cross_sectional/longshort_summary.csv — Q5-Q1 performance
-  results/cross_sectional/perdate_<f>_<h>.csv   — per-rebalance IC / LS / n / turnover
+  results/cross_sectional/longshort_summary.csv — Q5-Q1 non-overlapping performance
+  results/cross_sectional/perdate_<f>_<h>.csv   — per-rebalance IC / LS / n
   results/cross_sectional/permutation.csv       — observed vs shuffled-null mean IC
+
+IC is estimated on every monthly cross-section (max data); its Newey-West t-stat
+uses a HAC lag equal to the forward-return overlap (h / 21) so overlapping windows
+do not inflate significance. The tradeable long-short equity curve is instead built
+on NON-OVERLAPPING holding periods (rebalance every h days) so returns compound
+correctly — compounding overlapping h-day returns monthly is invalid and grossly
+overstates cumulative performance.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -33,7 +41,8 @@ from experiments.market_signals.cross_sectional.stats import permutation_ic_null
 from experiments.market_signals.cross_sectional.universe import load_universe_prices
 
 HORIZONS = [21, 63, 126]
-COST_BPS = [0.0, 10.0, 20.0]  # one-way per-rebalance turnover cost sensitivity
+COST_BPS = [0.0, 10.0, 20.0]  # per-leg per-rebalance turnover cost sensitivity
+TRADING_DAYS = 252
 OUT = Path(RESULTS_DIR) / "cross_sectional"
 
 
@@ -47,41 +56,65 @@ def _top_bottom_sets(g: pd.DataFrame, q: int = 5):
     return top, bot
 
 
-def _per_date_table(sub: pd.DataFrame, col: str) -> pd.DataFrame:
-    """Per-rebalance IC, long-short return, cross-section size and turnover."""
+def _per_date_ic(sub: pd.DataFrame, col: str) -> pd.DataFrame:
+    """Per-rebalance IC and long-short return over every monthly cross-section."""
     rows = []
+    for dt, g in sub[sub[col].notna()].groupby("date"):
+        rows.append({
+            "date": dt,
+            "ic": spearman_ic(g["value"], g[col]),
+            "ls": long_short_return(g["value"], g[col], 5),
+            "n": int(g["value"].notna().sum()),
+        })
+    return pd.DataFrame(rows)
+
+
+def _nonoverlap_backtest(sub: pd.DataFrame, col: str, h: int) -> tuple[pd.DataFrame, float]:
+    """Long-short equity curve on non-overlapping h-day holding periods.
+
+    Rebalances every ``step = round(h/21)`` months so consecutive h-day forward
+    returns do not overlap. Returns (per-period frame with ls + turnover, ppy).
+    """
+    step = max(1, int(round(h / 21)))
+    ppy = TRADING_DAYS / h
+    dates = sorted(sub.loc[sub[col].notna(), "date"].unique())
+    entry_dates = dates[::step]
     prev_top: set = set()
     prev_bot: set = set()
-    for dt, g in sub[sub[col].notna()].groupby("date"):
-        ic = spearman_ic(g["value"], g[col])
+    rows = []
+    for dt in entry_dates:
+        g = sub[(sub["date"] == dt) & sub[col].notna()]
         ls = long_short_return(g["value"], g[col], 5)
         top, bot = _top_bottom_sets(g)
-        # gross turnover of the long-short book (long + short legs)
         if prev_top or prev_bot:
             t_top = len(top - prev_top) / len(top) if top else 0.0
             t_bot = len(bot - prev_bot) / len(bot) if bot else 0.0
             to = 0.5 * (t_top + t_bot)
         else:
             to = np.nan
-        rows.append({"date": dt, "ic": ic, "ls": ls, "n": int(g["value"].notna().sum()), "turnover": to})
+        rows.append({"date": dt, "ls": ls, "turnover": to})
         prev_top, prev_bot = top, bot
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), ppy
 
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    print("[cross_sectional] loading universe ...")
-    prices = load_universe_prices()
-    print(f"[cross_sectional] {len(prices)} assets")
-    all_dates = sorted({d for g in prices.values() for d in g.index})
-    grid = month_end_grid(all_dates, 2010)
-    print(f"[cross_sectional] {len(grid)} monthly rebalances "
-          f"({pd.Timestamp(grid[0]).date()}..{pd.Timestamp(grid[-1]).date()})")
-    market = equal_weight_market_return(prices)
-
-    print("[cross_sectional] building panel ...")
-    panel = build_panel(prices, grid, HORIZONS, market)
-    panel.to_parquet(OUT / "panel.parquet")
+    cache = OUT / "panel.csv"
+    if cache.exists() and not os.environ.get("CS_REBUILD"):
+        print(f"[cross_sectional] reusing cached panel {cache} (set CS_REBUILD=1 to rebuild)")
+        panel = pd.read_csv(cache, parse_dates=["date"])
+    else:
+        print("[cross_sectional] loading universe ...")
+        prices = load_universe_prices()
+        print(f"[cross_sectional] {len(prices)} assets")
+        all_dates = sorted({d for g in prices.values() for d in g.index})
+        grid = month_end_grid(all_dates, 2010)
+        print(f"[cross_sectional] {len(grid)} monthly rebalances "
+              f"({pd.Timestamp(grid[0]).date()}..{pd.Timestamp(grid[-1]).date()})")
+        market = equal_weight_market_return(prices)
+        print("[cross_sectional] building panel ...")
+        panel = build_panel(prices, grid, HORIZONS, market)
+        panel.to_csv(cache, index=False)
     print(f"[cross_sectional] panel rows: {len(panel):,}")
 
     ic_rows, ls_rows = [], []
@@ -91,22 +124,25 @@ def main() -> None:
             continue
         for h in HORIZONS:
             col = f"fwd_{h}"
-            per_date = _per_date_table(sub, col)
+            overlap = max(1, int(round(h / 21)))
+
+            per_date = _per_date_ic(sub, col)
             if per_date.empty:
                 continue
             per_date.to_csv(OUT / f"perdate_{fac}_{h}.csv", index=False)
 
-            summ = summarize_ic(per_date["ic"])
+            summ = summarize_ic(per_date["ic"], lags=(None if overlap <= 1 else overlap))
             summ.update({"factor": fac, "h": h, "avg_n": float(per_date["n"].mean())})
             ic_rows.append(summ)
 
-            ls = per_date["ls"].dropna()
-            avg_turnover = float(per_date["turnover"].dropna().mean())
+            bt, ppy = _nonoverlap_backtest(sub, col, h)
+            gross = bt["ls"].dropna()
+            avg_turnover = float(bt["turnover"].dropna().mean()) if bt["turnover"].notna().any() else 0.0
             for bps in COST_BPS:
-                # cost = 2 legs * turnover * bps, charged per rebalance
-                net = ls - (per_date["turnover"].fillna(0.0) * 2 * bps / 1e4)
-                perf = perf_summary(net, 12)
-                perf.update({"factor": fac, "h": h, "cost_bps": bps, "avg_turnover": avg_turnover})
+                net = bt["ls"] - (bt["turnover"].fillna(0.0) * 2 * bps / 1e4)
+                perf = perf_summary(net.dropna(), ppy)
+                perf.update({"factor": fac, "h": h, "cost_bps": bps,
+                             "n_periods": int(gross.shape[0]), "avg_turnover": avg_turnover})
                 ls_rows.append(perf)
 
     ic_df = pd.DataFrame(ic_rows)

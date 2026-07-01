@@ -16,15 +16,20 @@ def spearman_ic(values: pd.Series, fwd: pd.Series) -> float:
     return float(spearmanr(df["v"], df["f"]).correlation)
 
 
-def summarize_ic(ic_series: pd.Series) -> dict:
-    """Mean IC, dispersion, Newey-West t-stat, IC IR and hit rate over time."""
+def summarize_ic(ic_series: pd.Series, lags: "int | None" = None) -> dict:
+    """Mean IC, dispersion, Newey-West t-stat, IC IR and hit rate over time.
+
+    ``lags`` sets the HAC lag; pass the forward-return overlap (h/rebalance step)
+    when the per-date IC series is built on overlapping forward windows so the
+    t-stat is not inflated by that induced autocorrelation.
+    """
     s = pd.to_numeric(ic_series, errors="coerce").dropna()
     if len(s) == 0:
         return {"mean": float("nan"), "std": float("nan"), "t_nw": float("nan"),
                 "ir": float("nan"), "hit_rate": float("nan"), "n": 0}
     mean = float(s.mean())
     std = float(s.std(ddof=1)) if len(s) > 1 else float("nan")
-    se = newey_west_se(s.to_numpy())
+    se = newey_west_se(s.to_numpy(), lags=lags)
     t_nw = float(mean / se) if se and np.isfinite(se) and se > 0 else float("nan")
     ir = float(mean / std) if std and std > 0 else float("nan")
     return {"mean": mean, "std": std, "t_nw": t_nw, "ir": ir,

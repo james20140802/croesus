@@ -30,13 +30,18 @@ CROESUS_SOURCE_DB=/path/to/croesus.duckdb python -m experiments.market_signals.c
 
 1. 월별 rebalance 그리드(각 달의 마지막 거래일, 2010~)마다 종목 cross-section 구성:
    각 종목의 as-of 팩터값(과거 슬라이스만) + h∈{21,63,126}일 forward 수익률(adjusted_close).
-2. 시점별 Spearman IC → 평균 IC, Newey-West t-stat, IC IR(=mean/std), hit rate, IC decay.
-3. 5분위 Q5−Q1 롱숏(등가중) 시계열 → 누적/Sharpe/MaxDD, 회전율 기반 비용(0/10/20bps) 민감도.
+2. 시점별 Spearman IC(전체 월별 cross-section) → 평균 IC, Newey-West t-stat, IC IR(=mean/std),
+   hit rate. **중첩 보정**: forward 윈도가 겹치므로(h=126은 6개월) IC t-stat의 HAC 시차를
+   overlap=`round(h/21)`로 두어 겹침이 유의성을 부풀리지 않게 한다.
+3. 5분위 Q5−Q1 롱숏(등가중) 자산곡선은 **비중첩(non-overlapping) 보유기간**으로 구성:
+   `round(h/21)`개월마다 리밸런스해 h일 수익률이 겹치지 않게 한 뒤 복리·연율화(ppy=252/h).
+   → 누적/Sharpe/MaxDD, 회전율 기반 비용(0/10/20bps) 민감도.
+   (겹치는 h일 수익률을 매월 복리하면 누적수익이 ~6배 과대계상된다 — 이 실험에서 실제로 겪은 함정.)
 4. 순열검정: 각 시점 신호를 셔플해 IC=0 귀무 분포 → 관측 평균 IC와 비교.
 
 ## 산출물 (`results/cross_sectional/`, gitignore)
 
-- `panel.parquet` — 원시 long 패널(date, asset_id, factor_name, value, fwd_21/63/126)
+- `panel.csv` — 원시 long 패널(date, asset_id, factor_name, value, fwd_21/63/126)
 - `ic_summary.csv` — 팩터×horizon IC 통계
 - `longshort_summary.csv` — Q5−Q1 성과(비용 bps별)
 - `perdate_<factor>_<h>.csv` — 시점별 IC/롱숏/n/회전율
