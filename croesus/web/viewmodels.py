@@ -74,6 +74,13 @@ class OpportunityRow:
     gate_status: str | None = None          # 'pass' | 'warn' | 'block' (Phase E)
     gate_reason_codes: list = field(default_factory=list)
     gate_notes: list = field(default_factory=list)
+    # Methodology C (normalized reverse-DCF) — None for the moat-adjusted methodology.
+    methodology_key: str | None = None
+    plausibility_gap: float | None = None
+    implied_growth: float | None = None
+    reference_growth: float | None = None
+    normalized_upside_pct: float | None = None
+    valuation_quality: str | None = None
 
 
 @dataclass(frozen=True)

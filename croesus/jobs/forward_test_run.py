@@ -27,8 +27,16 @@ from typing import Sequence
 
 from croesus.db.connection import get_connection
 from croesus.db.migrate import migrate
-from croesus.forward_test.run import evaluate_cohorts, record_cohort
-from croesus.forward_test.schemes import FORWARD_TEST_SCHEMES
+from croesus.forward_test.run import (
+    evaluate_cohorts,
+    record_cohort,
+    record_normalized_dcf_cohort,
+)
+from croesus.forward_test.schemes import FORWARD_TEST_SCHEMES, NORMALIZED_DCF_SCHEME
+
+# All recordable cohort names: the factor-weight schemes plus the normalized-DCF
+# methodology (recorded via a dedicated path, not run_screening).
+_RECORDABLE_SCHEMES = sorted(FORWARD_TEST_SCHEMES) + [NORMALIZED_DCF_SCHEME]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -43,7 +51,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evaluate", action="store_true", help="evaluate recorded cohorts")
     parser.add_argument(
         "--scheme",
-        choices=sorted(FORWARD_TEST_SCHEMES),
+        choices=_RECORDABLE_SCHEMES,
         help="restrict --record/--evaluate to one scheme (default: all)",
     )
     parser.add_argument("--date", dest="as_of", metavar="YYYY-MM-DD", help="as-of date")
@@ -63,9 +71,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     migrate(args.db_path)
     with get_connection(args.db_path) as conn:
         if args.record:
-            schemes = [args.scheme] if args.scheme else list(FORWARD_TEST_SCHEMES)
+            schemes = [args.scheme] if args.scheme else _RECORDABLE_SCHEMES
             for scheme in schemes:
-                record_cohort(conn, scheme, as_of_date=as_of)
+                if scheme == NORMALIZED_DCF_SCHEME:
+                    record_normalized_dcf_cohort(conn, as_of_date=as_of)
+                else:
+                    record_cohort(conn, scheme, as_of_date=as_of)
 
         if args.evaluate:
             results = evaluate_cohorts(conn, eval_date=as_of, scheme=args.scheme)

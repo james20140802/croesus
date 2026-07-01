@@ -113,11 +113,12 @@ def _seed_opportunity_rows(db_path: Path) -> None:
             repo.upsert_band(_band("US_EQ_AAPL", scenario, intrinsic, 100.0))
 
 
-def test_methodology_registry_exposes_available_a_and_deferred_b() -> None:
+def test_methodology_registry_available_and_deferred() -> None:
     from croesus.opportunities.selection import OPPORTUNITY_METHODOLOGIES
 
     assert OPPORTUNITY_METHODOLOGIES["moat_adjusted_intrinsic_value"].available is True
     assert OPPORTUNITY_METHODOLOGIES["event_driven_thesis"].available is False
+    assert OPPORTUNITY_METHODOLOGIES["normalized_dcf"].available is True
 
 
 def test_select_methodology_uses_prompt_and_blocks_unavailable_choice() -> None:
@@ -135,6 +136,7 @@ def test_select_methodology_uses_prompt_and_blocks_unavailable_choice() -> None:
     assert prompter.seen[0]["choices"] == [
         "moat_adjusted_intrinsic_value",
         "event_driven_thesis",
+        "normalized_dcf",
     ]
     assert prompter.seen[0]["default"] == "moat_adjusted_intrinsic_value"
 
@@ -324,6 +326,67 @@ def test_opportunity_review_cli_prints_selected_methodology(
     assert "bear/base/bull: $90.00 / $140.00 / $180.00" in out
     assert "Thesis evidence:" in out
     assert "switching costs in filing" in out
+
+
+def test_normalized_dcf_methodology_ranks_by_plausibility_gap(tmp_path: Path) -> None:
+    from croesus.factors.equity.normalized_repository import (
+        NormalizedDcfRepository, NormalizedDcfSnapshot)
+    from croesus.opportunities.review import run_opportunity_review
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        repo = NormalizedDcfRepository(conn)
+        # AAPL cheap (gap -0.05), MSFT expensive (gap +0.30).
+        for aid, gap in [("US_EQ_AAPL", -0.05), ("US_EQ_MSFT", 0.30)]:
+            repo.upsert(NormalizedDcfSnapshot(
+                asset_id=aid, date=date(2026, 6, 30), current_price=100.0,
+                normalized_base_fcf=50.0, reference_growth=0.03,
+                normalized_intrinsic_value_per_share=110.0,
+                normalized_upside_pct=0.10, implied_growth=0.03 + gap,
+                plausibility_gap=gap, valuation_quality="ok", n_fcf_years=8,
+                wacc=0.10, assumptions={}))
+        result = run_opportunity_review(
+            conn, methodology_key="normalized_dcf", as_of_date=date(2026, 6, 30),
+            apply_risk_gate=False)
+        symbols = [c.symbol for c in result.cards]
+        assert symbols[0] == "AAPL"  # smaller gap ranks first
+        assert result.cards[0].plausibility_gap == -0.05
+        assert result.cards[0].valuation_quality == "ok"
+
+
+def test_normalized_dcf_ranking_deprioritizes_flagged_quality(tmp_path: Path) -> None:
+    from croesus.factors.equity.normalized_repository import (
+        NormalizedDcfRepository, NormalizedDcfSnapshot)
+    from croesus.opportunities.review import run_opportunity_review
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        repo = NormalizedDcfRepository(conn)
+        # AAPL: reference_unreliable with a much "cheaper" gap (-0.50).
+        # MSFT: ok with a worse gap (+0.10). The clean ok name must still rank first.
+        for aid, gap, qual in [
+            ("US_EQ_AAPL", -0.50, "reference_unreliable"),
+            ("US_EQ_MSFT", 0.10, "ok"),
+        ]:
+            repo.upsert(NormalizedDcfSnapshot(
+                asset_id=aid, date=date(2026, 6, 30), current_price=100.0,
+                normalized_base_fcf=50.0, reference_growth=0.30,
+                normalized_intrinsic_value_per_share=110.0,
+                normalized_upside_pct=0.10, implied_growth=0.30 + gap,
+                plausibility_gap=gap, valuation_quality=qual, n_fcf_years=8,
+                wacc=0.10, assumptions={}))
+        result = run_opportunity_review(
+            conn, methodology_key="normalized_dcf", as_of_date=date(2026, 6, 30),
+            apply_risk_gate=False)
+        symbols = [c.symbol for c in result.cards]
+        # ok ranks above reference_unreliable despite the latter's smaller gap.
+        assert symbols[0] == "MSFT"
+        assert result.cards[0].valuation_quality == "ok"
+        assert result.cards[1].symbol == "AAPL"
 
 
 def test_opportunity_review_cli_uses_prompt_when_methodology_omitted(

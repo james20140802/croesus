@@ -15,6 +15,8 @@ from typing import Callable
 import duckdb
 
 from croesus.assets.repository import AssetRepository
+from croesus.factors.equity.normalized import QUALITY_OK
+from croesus.factors.equity.normalized_repository import NormalizedDcfRepository
 from croesus.forward_test.build import build_cohort
 from croesus.forward_test.evaluate import evaluate_cohort
 from croesus.forward_test.models import CohortPick, CohortReturn
@@ -23,6 +25,7 @@ from croesus.forward_test.schemes import (
     BENCHMARK_SYMBOL,
     COHORT_TOP_N,
     FORWARD_TEST_SCHEMES,
+    NORMALIZED_DCF_SCHEME,
 )
 from croesus.macro.screening_adapter import neutral_screening_params
 from croesus.prices.repository import PriceRepository
@@ -82,6 +85,49 @@ def record_cohort(
     ForwardTestRepository(conn).save_cohort(picks)
     log(
         f"recorded cohort {scheme} @ {as_of}: {len(picks)} picks "
+        f"({', '.join(p.asset_id for p in picks)})"
+    )
+    return picks
+
+
+def record_normalized_dcf_cohort(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    as_of_date: date | None = None,
+    top_n: int = COHORT_TOP_N,
+    log: Callable[[str], None] = print,
+) -> list[CohortPick]:
+    """Persist the cohort the normalized-DCF methodology would buy today.
+
+    Unlike the weight schemes, this cohort comes from the ``normalized_dcf``
+    ranking, not from ``run_screening``: the cheapest names by plausibility gap
+    (smaller = cheaper) among the trustworthy ``ok`` tier only — financials are
+    already excluded at compute time and ``reference_unreliable`` names are
+    dropped here. ``evaluate_cohorts`` then measures it vs SPY like any other
+    scheme. Recording the same (scheme, date) again replaces it.
+    """
+    as_of = as_of_date or date.today()
+    snapshots = NormalizedDcfRepository(conn).load_latest(as_of)
+    # score = -gap so the smallest (cheapest) gap sorts to the top of build_cohort.
+    scored = [
+        (s.asset_id, -s.plausibility_gap)
+        for s in snapshots
+        if s.valuation_quality == QUALITY_OK and s.plausibility_gap is not None
+    ]
+
+    prices = PriceRepository(conn)
+    entry_prices: dict[str, float] = {}
+    for asset_id, _ in scored:
+        close = prices.get_latest_close(asset_id, as_of)
+        if close is not None:
+            entry_prices[asset_id] = close
+
+    picks = build_cohort(
+        NORMALIZED_DCF_SCHEME, as_of, scored, _group_of(conn), entry_prices, top_n=top_n
+    )
+    ForwardTestRepository(conn).save_cohort(picks)
+    log(
+        f"recorded cohort {NORMALIZED_DCF_SCHEME} @ {as_of}: {len(picks)} picks "
         f"({', '.join(p.asset_id for p in picks)})"
     )
     return picks

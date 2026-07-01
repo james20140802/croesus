@@ -122,13 +122,15 @@ def test_opportunities_page_renders_with_gate(monkeypatch):
             gate_notes=["섹터 한도 초과"]),
         ])
     monkeypatch.setattr("croesus.web.routes.opportunity.build_opportunity_view",
-                        lambda conn, gate=None: view)
+                        lambda conn, gate=None, methodology=None: view)
     monkeypatch.setattr("croesus.web.routes.opportunity.get_read_connection",
                         __import__("contextlib").contextmanager(lambda p: iter([None])))
     client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
     resp = client.get("/opportunities")
     assert resp.status_code == 200
     assert "MSFT" in resp.text and "TSLA" in resp.text
+    # methodology toggle is present on the moat-adjusted view too
+    assert "정규화 reverse-DCF" in resp.text and "적정가 밴드" in resp.text
     # 원시 코드 대신 한국어 라벨이 노출되어야 한다
     assert "섹터 비중이 상한을 넘었습니다" in resp.text   # SECTOR_OVER_MAX 한국어 라벨
     assert "편입 불가" in resp.text                       # block 게이트 상태 한국어
@@ -138,12 +140,58 @@ def test_opportunities_page_renders_with_gate(monkeypatch):
 
 def test_opportunity_detail_returns_404_for_unknown_asset(monkeypatch):
     monkeypatch.setattr("croesus.web.routes.opportunity.build_opportunity_detail",
-                        lambda conn, asset_id: None)
+                        lambda conn, asset_id, methodology=None: None)
     monkeypatch.setattr("croesus.web.routes.opportunity.get_read_connection",
                         __import__("contextlib").contextmanager(lambda p: iter([None])))
     client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
     resp = client.get("/opportunities/nonexistent-asset-id")
     assert resp.status_code == 404
+
+
+def test_opportunity_detail_renders_normalized_breakdown(monkeypatch):
+    from croesus.web.viewmodels import OpportunityRow
+    row = OpportunityRow(asset_id="a1", symbol="KR", name="Kroger", current_price=55.0,
+        base_upside_pct=None, bands={}, grades={}, confidence=None,
+        gate_status="pass", gate_reason_codes=[], gate_notes=[],
+        methodology_key="normalized_dcf", plausibility_gap=-0.30,
+        implied_growth=-0.05, reference_growth=0.24,
+        normalized_upside_pct=2.5, valuation_quality="ok")
+    monkeypatch.setattr("croesus.web.routes.opportunity.build_opportunity_detail",
+                        lambda conn, asset_id, methodology=None: row)
+    monkeypatch.setattr("croesus.web.routes.opportunity.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/opportunities/a1?methodology=normalized_dcf")
+    assert resp.status_code == 200
+    assert "정규화 reverse-DCF 분해" in resp.text     # normalized section heading
+    assert "시장 내재 성장률" in resp.text             # implied growth metric
+    assert "적정가 시나리오" not in resp.text          # bands section suppressed
+    assert 'data-chart="bands"' not in resp.text        # no fair-value chart for this methodology
+
+
+def test_opportunities_page_renders_normalized_methodology(monkeypatch):
+    from croesus.web.viewmodels import OpportunityView, OpportunityRow
+    view = OpportunityView(as_of_date=date(2026, 6, 30), gate_summary={"pass": 1, "warn": 0, "block": 0},
+        rows=[
+          OpportunityRow(asset_id="a1", symbol="KR", name="Kroger", current_price=55.0,
+            base_upside_pct=None, bands={}, grades={}, confidence=None,
+            gate_status="pass", gate_reason_codes=[], gate_notes=[],
+            methodology_key="normalized_dcf", plausibility_gap=-0.30,
+            implied_growth=-0.05, reference_growth=0.24,
+            normalized_upside_pct=2.5, valuation_quality="ok"),
+        ])
+    monkeypatch.setattr("croesus.web.routes.opportunity.build_opportunity_view",
+                        lambda conn, gate=None, methodology=None: view)
+    monkeypatch.setattr("croesus.web.routes.opportunity.get_read_connection",
+                        __import__("contextlib").contextmanager(lambda p: iter([None])))
+    client = TestClient(create_app("storage/croesus.duckdb"), raise_server_exceptions=False)
+    resp = client.get("/opportunities?methodology=normalized_dcf")
+    assert resp.status_code == 200
+    assert "KR" in resp.text
+    assert "격차(gap)" in resp.text          # normalized card body
+    assert "FCF 추세" in resp.text            # implied vs reference growth line
+    assert "plausibility gap" in resp.text    # normalized explainer
+    assert "ok" in resp.text                  # valuation_quality badge
 
 
 def test_home_aggregates(monkeypatch):

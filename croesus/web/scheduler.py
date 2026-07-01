@@ -64,6 +64,9 @@ def _run_research_refresh(conn, log: Callable[[str], None]) -> None:
     from croesus.factors.equity.compute_valuation import (
         compute_and_store_valuation_factors,
     )
+    from croesus.factors.equity.compute_normalized_dcf import (
+        compute_and_store_normalized_dcf,
+    )
 
     log("이벤트 스캔 (정성평가 대상 선별)")
     try:
@@ -90,6 +93,7 @@ def _run_research_refresh(conn, log: Callable[[str], None]) -> None:
     log("내재가치 밴드 계산 (기회 카드)")
     try:
         compute_and_store_valuation_factors(conn, include_dcf=True, log=lambda _m: None)
+        compute_and_store_normalized_dcf(conn, log=lambda _m: None)
         log("내재가치 밴드 계산 완료")
     except Exception as exc:
         log(f"밴드 계산 건너뜀: {exc}")

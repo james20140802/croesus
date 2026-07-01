@@ -72,6 +72,15 @@ OPPORTUNITY_METHODOLOGIES: dict[str, OpportunityMethodology] = {
         ),
         available=False,
     ),
+    "normalized_dcf": OpportunityMethodology(
+        key="normalized_dcf",
+        label="Normalized reverse DCF",
+        description=(
+            "Methodology C: median-normalized FCF + log-linear growth + reverse "
+            "DCF. Ranks by plausibility gap (market-implied growth vs FCF trend)."
+        ),
+        available=True,
+    ),
 }
 
 

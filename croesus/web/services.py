@@ -202,6 +202,19 @@ from croesus.web.viewmodels import OpportunityView, OpportunityRow
 _OPP_METHODOLOGY = "moat_adjusted_intrinsic_value"
 
 
+NORMALIZED_METHODOLOGY = "normalized_dcf"
+# Methodologies offered in the web opportunities toggle (key, label).
+OPP_METHODOLOGY_CHOICES = (
+    (_OPP_METHODOLOGY, "적정가 밴드"),
+    (NORMALIZED_METHODOLOGY, "정규화 reverse-DCF"),
+)
+
+
+def _resolve_opp_methodology(methodology: str | None) -> str:
+    keys = {k for k, _ in OPP_METHODOLOGY_CHOICES}
+    return methodology if methodology in keys else _OPP_METHODOLOGY
+
+
 def _card_to_row(card) -> OpportunityRow:
     gate = card.risk_gate  # Phase E: RiskGateVerdict | None
     return OpportunityRow(
@@ -213,22 +226,31 @@ def _card_to_row(card) -> OpportunityRow:
         confidence=card.thesis_confidence,
         gate_status=(gate.status if gate else None),
         gate_reason_codes=(list(gate.reason_codes) if gate else []),
-        gate_notes=(list(gate.notes) if gate else []))
+        gate_notes=(list(gate.notes) if gate else []),
+        methodology_key=card.methodology_key,
+        plausibility_gap=card.plausibility_gap,
+        implied_growth=card.implied_growth,
+        reference_growth=card.reference_growth,
+        normalized_upside_pct=card.normalized_upside_pct,
+        valuation_quality=card.valuation_quality)
 
 
-def build_opportunity_view(conn, gate: str | None = None) -> OpportunityView:
+def build_opportunity_view(
+    conn, gate: str | None = None, methodology: str | None = None
+) -> OpportunityView:
     pid = resolve_portfolio_id(conn)
     profile_id = resolve_profile_id(conn, pid)
+    method = _resolve_opp_methodology(methodology)
 
     def factory():
         result = run_opportunity_review(
-            conn, methodology_key=_OPP_METHODOLOGY,
+            conn, methodology_key=method,
             portfolio_id=pid, profile_id=profile_id, apply_risk_gate=True)
         return OpportunityView(
             as_of_date=result.as_of_date,
             rows=[_card_to_row(c) for c in result.cards],
             gate_summary=getattr(result, "gate_summary", None))
-    view = opportunity_cache.get_or_set((_OPP_METHODOLOGY, pid, "view"), factory)
+    view = opportunity_cache.get_or_set((method, pid, "view"), factory)
     if gate:  # 게이트 상태 필터(캐시된 전체에서 파생)
         rows = [r for r in view.rows if r.gate_status == gate]
         return OpportunityView(as_of_date=view.as_of_date, rows=rows,
@@ -236,8 +258,8 @@ def build_opportunity_view(conn, gate: str | None = None) -> OpportunityView:
     return view
 
 
-def build_opportunity_detail(conn, asset_id: str):
-    view = build_opportunity_view(conn)
+def build_opportunity_detail(conn, asset_id: str, methodology: str | None = None):
+    view = build_opportunity_view(conn, methodology=methodology)
     for row in view.rows:
         if row.asset_id == asset_id:
             return row
