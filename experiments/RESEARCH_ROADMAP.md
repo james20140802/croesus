@@ -29,13 +29,25 @@
 
 | # | 실험 | 왜 유망 | 신규 데이터 필요 | 규모 | 상태 |
 |---|------|---------|------------------|------|------|
-| ① | 우리 신호 검증 (cross-sectional IC) | 파이프라인 핵심 베팅을 직접 검증, 상대라 드리프트 상쇄 | 없음 | 중 | TODO |
+| ① | 우리 신호 검증 (cross-sectional IC) | 파이프라인 핵심 베팅을 직접 검증, 상대라 드리프트 상쇄 | 없음 | 중 | **DONE** (2026-07-01) |
 | ③ | 종목 이벤트 스터디 (PEAD류) | 이벤트 드리븐이 Croesus 본 thesis, 큰 표본 | (컨센서스 없음 → 프록시) | 중~대 | TODO |
 | ② | 변동성 예측 + 리스크 타게팅 | vol은 확실히 예측 가능, null→positive | 없음 | 중 | TODO |
 | ④ | 레짐 조건부 팩터 성과 | 조건부 신호는 무조건이 못 사는 곳에 산다 | 없음 | 중 | TODO |
 | ⑤ | LLM 알파 감사 (보너스) | 비싸고 핵심적인 LLM 베팅 검증 | 없음 | 소 | TODO |
 
 권장 순서: **① → ③ → ② → ④** (⑤는 언제든 저비용으로).
+
+> **① 결과 요약(2026-07-01, PR #58).** `experiments/market_signals/cross_sectional/`
+> (플랜: `docs/superpowers/plans/2026-07-01-cross-sectional-ic.md`, 결론: `.../cross_sectional/FINDINGS.md`).
+> - **데이터 갭 발견**: `factor_values`는 역사화 안 됨(2026-05-27 이후 ~5주뿐) → fundamental/valuation/
+>   DCF/LLM 신호는 **지금 과거검증 불가**. 그래서 ①은 `prices_daily` 전 히스토리에서 재계산한
+>   **가격 팩터 7종**만 검증(2016~2026, 521종목, 121개 월별 cross-section).
+> - **결론**: 대부분 예측력 약함. `beta_1y`·`volatility_3m`(순위상관 0.64, 사실상 동일 "고위험" 베팅)은
+>   Sharpe≈0.8지만 survivorship+단일강세장 아티팩트 → BAB와 반대, alpha 아님. **유일하게 깨끗한
+>   신호는 `momentum_6m`**(IC t≈2.1, MaxDD −9%, beta/vol과 직교, 20bps 후 Sharpe 0.74). 경계선.
+> - **④로 연결**: `results/cross_sectional/perdate_momentum_6m_{63,126}.csv` 롱숏 시계열을 레짐별 분해에 재사용.
+> - **③/⑤ 함의**: fundamental·LLM 신호 IC 검증은 `factor_values`/`thesis_grades` 역사화(시점별 스냅샷 축적)
+>   가 선행돼야 함 — 현재는 순방향 1개월치뿐. ⑤는 등급 스냅샷이 쌓일 때까지 표본이 매우 작다.
 
 ---
 
