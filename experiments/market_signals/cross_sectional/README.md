@@ -17,11 +17,19 @@ cross-sectional IC와 분위 롱숏으로 검증한다.
 ## 실행
 
 ```bash
-# 저장소 루트에서
+# 저장소 루트에서 — 프로덕션 DB(~2016+) 기준 10년 실험
 python -m experiments.market_signals.cross_sectional.run
 # 소스 DB를 명시하려면:
 CROESUS_SOURCE_DB=/path/to/croesus.duckdb python -m experiments.market_signals.cross_sectional.run
+
+# 장기(1990~) 실험: 먼저 yfinance로 전체 이력을 별도 스크래치 DB에 수집한 뒤 CS_LONG=1로 실행
+python -m experiments.market_signals.cross_sectional.history            # 1990~ 수집(1회)
+CS_LONG=1 python -m experiments.market_signals.cross_sectional.run       # 결과: results/cross_sectional_long/
 ```
+
+**장기 모드(`CS_LONG=1`)**는 프로덕션의 ~2016 절단을 우회해 1995~2026 전 구간을 검증한다.
+스크래치 DB(`results/cross_sectional/long_history.duckdb`)만 쓰고 **프로덕션은 건드리지 않는다**.
+결론이 최근 표본에 특화됐는지 검증하는 필수 단계 — 실제로 §7에서 결론 일부가 뒤집혔다(FINDINGS 참조).
 
 소스 DB는 항상 **read-only**로 열린다(웹 서버 등 동시 쓰기 프로세스를 막지 않음).
 워크트리의 stale DB 대신 메인 체크아웃 DB를 자동 탐지한다(`source.py`).

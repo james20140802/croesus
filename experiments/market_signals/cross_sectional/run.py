@@ -43,7 +43,13 @@ from experiments.market_signals.cross_sectional.universe import load_universe_pr
 HORIZONS = [21, 63, 126]
 COST_BPS = [0.0, 10.0, 20.0]  # per-leg per-rebalance turnover cost sensitivity
 TRADING_DAYS = 252
-OUT = Path(RESULTS_DIR) / "cross_sectional"
+
+# Long-history mode (CS_LONG=1) reads the yfinance scratch DB (1990+) instead of
+# the production DB (~2016+), and writes results/output to a separate subdir so
+# the two runs don't overwrite each other.
+LONG = bool(os.environ.get("CS_LONG"))
+START_YEAR = int(os.environ.get("CS_START_YEAR", "1995" if LONG else "2010"))
+OUT = Path(RESULTS_DIR) / ("cross_sectional_long" if LONG else "cross_sectional")
 
 
 def _top_bottom_sets(g: pd.DataFrame, q: int = 5):
@@ -104,11 +110,16 @@ def main() -> None:
         print(f"[cross_sectional] reusing cached panel {cache} (set CS_REBUILD=1 to rebuild)")
         panel = pd.read_csv(cache, parse_dates=["date"])
     else:
-        print("[cross_sectional] loading universe ...")
-        prices = load_universe_prices()
+        if LONG:
+            from experiments.market_signals.cross_sectional.history import load_long_history
+            print(f"[cross_sectional] LONG mode: loading yfinance history (>= {START_YEAR}) ...")
+            prices = load_long_history(start_year=START_YEAR)
+        else:
+            print("[cross_sectional] loading universe ...")
+            prices = load_universe_prices()
         print(f"[cross_sectional] {len(prices)} assets")
         all_dates = sorted({d for g in prices.values() for d in g.index})
-        grid = month_end_grid(all_dates, 2010)
+        grid = month_end_grid(all_dates, START_YEAR)
         print(f"[cross_sectional] {len(grid)} monthly rebalances "
               f"({pd.Timestamp(grid[0]).date()}..{pd.Timestamp(grid[-1]).date()})")
         market = equal_weight_market_return(prices)
