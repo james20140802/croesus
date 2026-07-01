@@ -156,6 +156,57 @@ def test_value_with_knobs_wires_wacc_and_dcf() -> None:
     assert value_with_knobs(**{**args, "shares_outstanding": 0.0}) is None
 
 
+def test_reconcile_share_count_corrects_class_mismatch() -> None:
+    from croesus.factors.equity.valuation import reconcile_share_count
+
+    # BRK-B: statement shares are Class-A equivalents (1.438M) while EPS/price
+    # are Class B (1500:1). net_income / eps recovers the true B-share count.
+    recon = reconcile_share_count(
+        statement_shares=1_438_223.0,
+        net_income=66_968_000_000.0,
+        eps=31.042016,
+    )
+    assert recon.corrected is True
+    assert recon.implied_shares is not None
+    # ~2.157B B-shares; ratio ~1500x
+    assert 2.0e9 < recon.shares < 2.3e9
+    assert recon.ratio is not None and recon.ratio > 1000
+    assert recon.reason is not None
+
+
+def test_reconcile_share_count_leaves_consistent_names_untouched() -> None:
+    from croesus.factors.equity.valuation import reconcile_share_count
+
+    # A normal name: net_income == eps * shares (same unit) -> ratio ~1, no change.
+    recon = reconcile_share_count(
+        statement_shares=1_000_000.0,
+        net_income=5_000_000.0,
+        eps=5.0,
+    )
+    assert recon.corrected is False
+    assert recon.shares == 1_000_000.0
+    # basic-vs-diluted noise (a few %) must not trip the guard
+    recon2 = reconcile_share_count(
+        statement_shares=1_000_000.0, net_income=5_100_000.0, eps=5.0
+    )
+    assert recon2.corrected is False
+    assert recon2.shares == 1_000_000.0
+
+
+def test_reconcile_share_count_missing_or_unusable_inputs() -> None:
+    from croesus.factors.equity.valuation import reconcile_share_count
+
+    # No EPS -> cannot imply -> statement kept, not corrected.
+    r = reconcile_share_count(statement_shares=1_000.0, net_income=5_000.0, eps=None)
+    assert r.corrected is False and r.shares == 1_000.0
+    # Loss year (net_income <= 0) -> not usable for implied count.
+    r = reconcile_share_count(statement_shares=1_000.0, net_income=-5_000.0, eps=-4.0)
+    assert r.corrected is False and r.shares == 1_000.0
+    # Missing statement shares -> nothing to correct against.
+    r = reconcile_share_count(statement_shares=None, net_income=5_000.0, eps=5.0)
+    assert r.corrected is False and r.shares is None
+
+
 def test_two_stage_dcf_value_and_guards() -> None:
     result = two_stage_dcf(
         base_fcf=100.0,

@@ -17,6 +17,7 @@ from croesus.fundamentals.repository import (
     METRIC_EBITDA,
     METRIC_EPS,
     METRIC_FREE_CASH_FLOW,
+    METRIC_NET_INCOME,
     METRIC_SHARES_OUTSTANDING,
     METRIC_TOTAL_DEBT,
     PERIOD_ANNUAL,
@@ -40,7 +41,7 @@ def _price_frame(close: float) -> pd.DataFrame:
     )
 
 
-def _fundamentals(asset_id: str, *, eps, bvps, ebitda, debt, cash, shares, fcf) -> list[FundamentalMetric]:
+def _fundamentals(asset_id: str, *, eps, bvps, ebitda, debt, cash, shares, fcf, net_income=None) -> list[FundamentalMetric]:
     years = [date(2022, 12, 31), date(2023, 12, 31), date(2024, 12, 31)]
     rows = [
         FundamentalMetric(asset_id, years[-1], PERIOD_ANNUAL, METRIC_EPS, eps, "t"),
@@ -50,6 +51,8 @@ def _fundamentals(asset_id: str, *, eps, bvps, ebitda, debt, cash, shares, fcf) 
         FundamentalMetric(asset_id, years[-1], PERIOD_ANNUAL, METRIC_CASH_AND_EQUIVALENTS, cash, "t"),
         FundamentalMetric(asset_id, years[-1], PERIOD_ANNUAL, METRIC_SHARES_OUTSTANDING, shares, "t"),
     ]
+    if net_income is not None:
+        rows.append(FundamentalMetric(asset_id, years[-1], PERIOD_ANNUAL, METRIC_NET_INCOME, net_income, "t"))
     for year, value in zip(years, fcf):
         rows.append(FundamentalMetric(asset_id, year, PERIOD_ANNUAL, METRIC_FREE_CASH_FLOW, value, "t"))
     return rows
@@ -177,6 +180,48 @@ def test_snapshot_assumptions_include_dcf_knobs(tmp_path: Path) -> None:
     assert snap.assumptions["explicit_years"] == DEFAULT_DCF_KNOBS.explicit_years
     assert snap.assumptions["terminal_growth_rate"] == DEFAULT_DCF_KNOBS.terminal_growth_rate
     assert snap.assumptions["wacc_risk_premium"] == DEFAULT_DCF_KNOBS.wacc_risk_premium
+
+
+def test_share_class_mismatch_is_corrected(tmp_path: Path) -> None:
+    # BRK-B style: the balance sheet reports Class-A-equivalent shares (10) while
+    # EPS/price are Class B. net_income / eps = 15000 (a 1500x split) recovers the
+    # true price-consistent count. Without the fix the DCF divides a company-wide
+    # equity value by ~10 shares and shows a nonsense +90,000% upside.
+    db_path = tmp_path / "v.duckdb"
+    migrate(db_path)
+    with get_connection(db_path) as conn:
+        seed_us_equities(conn)
+        PriceRepository(conn).upsert_daily_prices("US_EQ_NVDA", _price_frame(50.0), source="test")
+        # bvps here is equity / statement-shares (contaminated); expect a rescale.
+        FundamentalsRepository(conn).upsert_metrics(
+            _fundamentals(
+                "US_EQ_NVDA", eps=1.0, bvps=7500.0, ebitda=100.0, debt=0.0,
+                cash=0.0, shares=10.0, fcf=[30.0, 40.0, 50.0], net_income=15000.0,
+            )
+        )
+        result = compute_and_store_valuation_factors(conn, include_dcf=True, as_of=AS_OF)
+        assert "US_EQ_NVDA" in result.dcf_computed
+
+        snap = ValuationSnapshotRepository(conn).get("US_EQ_NVDA", AS_OF)
+        factors = {
+            row[0]: row[1]
+            for row in conn.execute(
+                "SELECT factor_name, value FROM factor_values WHERE date = ? AND asset_id = 'US_EQ_NVDA'",
+                [AS_OF],
+            ).fetchall()
+        }
+
+    assert snap is not None
+    # Correction recorded and the price-consistent (EPS-implied) count is used.
+    assert snap.assumptions["share_count_corrected"] is True
+    assert snap.assumptions["statement_shares_outstanding"] == 10.0
+    assert abs(snap.assumptions["shares_outstanding"] - 15000.0) < 1e-6
+    # No more nonsense upside: intrinsic is now a sane per-share figure near price,
+    # not ~1500x it. (Without the fix upside_pct would be in the tens of thousands.)
+    assert snap.upside_pct < 50.0
+    # book_value_per_share rescaled onto the corrected count: 7500 * 10/15000 = 5.0,
+    # so P/B = 50/5 = 10 (not the contaminated 50/7500 ≈ 0.0067).
+    assert abs(factors["pb_ratio"] - 10.0) < 1e-6
 
 
 def test_daily_run_multiples_without_dcf(tmp_path: Path) -> None:

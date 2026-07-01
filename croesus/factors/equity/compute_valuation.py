@@ -38,6 +38,7 @@ from croesus.factors.equity.valuation import (
     compute_beta,
     compute_fcf_growth,
     compute_multiples,
+    reconcile_share_count,
     sector_percentile,
     value_with_knobs,
 )
@@ -46,6 +47,7 @@ from croesus.fundamentals.repository import (
     METRIC_CASH_AND_EQUIVALENTS,
     METRIC_EBITDA,
     METRIC_EPS,
+    METRIC_NET_INCOME,
     METRIC_SHARES_OUTSTANDING,
     METRIC_TOTAL_DEBT,
     FundamentalsRepository,
@@ -173,7 +175,22 @@ def _build_multiples(
     ebitda = fundamentals.get_latest_metric(asset.asset_id, METRIC_EBITDA)
     total_debt = fundamentals.get_latest_metric(asset.asset_id, METRIC_TOTAL_DEBT)
     cash = fundamentals.get_latest_metric(asset.asset_id, METRIC_CASH_AND_EQUIVALENTS)
-    shares = fundamentals.get_latest_metric(asset.asset_id, METRIC_SHARES_OUTSTANDING)
+    statement_shares = fundamentals.get_latest_metric(
+        asset.asset_id, METRIC_SHARES_OUTSTANDING
+    )
+    net_income = fundamentals.get_latest_metric(asset.asset_id, METRIC_NET_INCOME)
+    # Guard against a share-class unit mismatch (e.g. BRK-B: balance sheet in
+    # Class-A equivalents, price in Class B) that would otherwise blow up every
+    # per-share figure. EPS-implied count is price-consistent; use it when the
+    # statement count is grossly off.
+    recon = reconcile_share_count(
+        statement_shares=statement_shares, net_income=net_income, eps=eps
+    )
+    shares = recon.shares
+    # book_value_per_share is derived from statement equity / statement shares,
+    # so it inherits the same unit error — rescale it onto the corrected count.
+    if recon.corrected and bvps is not None and shares:
+        bvps = bvps * recon.statement_shares / shares
     annual_fcf = [v for _, v in fundamentals.get_annual_fcf(asset.asset_id)]
     latest_fcf = annual_fcf[-1] if annual_fcf else None
     market_cap = price * shares if shares else None
@@ -201,6 +218,9 @@ def _build_multiples(
             "total_debt": total_debt,
             "cash_and_equivalents": cash,
             "shares_outstanding": shares,
+            "statement_shares_outstanding": recon.statement_shares,
+            "share_count_corrected": recon.corrected,
+            "share_count_reason": recon.reason,
             "latest_fcf": latest_fcf,
         },
         returns=_daily_returns(frame, as_of) if with_returns else {},
@@ -279,6 +299,9 @@ def _compute_dcf(
         log(f"skip DCF for {calc.asset.symbol}: could not estimate FCF growth")
         return None
 
+    if calc.fundamentals.get("share_count_corrected"):
+        log(f"share-count corrected for {calc.asset.symbol}: {calc.fundamentals['share_count_reason']}")
+
     beta = calc.beta if calc.beta is not None else _DEFAULT_BETA
     knobs = DEFAULT_DCF_KNOBS  # Phase A: mechanical defaults; Phase C revises from thesis grades
     dcf = value_with_knobs(
@@ -314,9 +337,12 @@ def _compute_dcf(
                 "base_fcf": dcf.base_fcf,
                 "enterprise_value": dcf.enterprise_value,
                 "equity_value": dcf.equity_value,
+                "shares_outstanding": calc.shares,
                 "explicit_years": knobs.explicit_years,
                 "terminal_growth_rate": knobs.terminal_growth_rate,
                 "wacc_risk_premium": knobs.wacc_risk_premium,
+                "share_count_corrected": calc.fundamentals.get("share_count_corrected", False),
+                "statement_shares_outstanding": calc.fundamentals.get("statement_shares_outstanding"),
             },
         )
     )
