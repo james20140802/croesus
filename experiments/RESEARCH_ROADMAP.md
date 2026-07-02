@@ -30,7 +30,7 @@
 | # | 실험 | 왜 유망 | 신규 데이터 필요 | 규모 | 상태 |
 |---|------|---------|------------------|------|------|
 | ① | 우리 신호 검증 (cross-sectional IC) | 파이프라인 핵심 베팅을 직접 검증, 상대라 드리프트 상쇄 | 없음 | 중 | **DONE** (2026-07-01) |
-| ③ | 종목 이벤트 스터디 (PEAD류) | 이벤트 드리븐이 Croesus 본 thesis, 큰 표본 | (컨센서스 없음 → 프록시) | 중~대 | TODO |
+| ③ | 종목 이벤트 스터디 (PEAD류) | 이벤트 드리븐이 Croesus 본 thesis, 큰 표본 | (컨센서스 없음 → 프록시) | 중~대 | **DONE** (2026-07-02) |
 | ② | 변동성 예측 + 리스크 타게팅 | vol은 확실히 예측 가능, null→positive | 없음 | 중 | **DONE** (2026-07-02) |
 | ④ | 레짐 조건부 팩터 성과 | 조건부 신호는 무조건이 못 사는 곳에 산다 | 없음 | 중 | TODO |
 | ⑤ | LLM 알파 감사 (보너스) | 비싸고 핵심적인 LLM 베팅 검증 | 없음 | 소 | TODO |
@@ -59,6 +59,19 @@
 >   예측 개선 여지.
 > - `macro_scores.amplifier_score` 비교는 **불가**(14일치만 존재 — factor_values와 같은 역사화 갭).
 > - ①(cross-sectional 1차 모멘트 null)과 대조: 시계열 2차 모멘트는 positive. 엣지는 vol clustering에 있었다.
+
+> **③ 결과 요약(2026-07-02).** `experiments/market_signals/event_drift/`
+> (플랜: `docs/superpowers/plans/2026-07-02-event-drift.md`, 결론: `.../event_drift/FINDINGS.md`).
+> - **3b 변형**: 프로덕션 `events`는 5일치·`disclosures`는 0행(역사화 갭)이라 원문 3b 그대로는 불가 →
+>   `croesus/events/detectors.py`의 규칙(3σ return, z≥2 volume; trailing-only라 look-ahead 없음)을
+>   30년·521종목 이력에 소급 재계산. 이벤트 n=14.6만(dedup 후) — 1차의 n=3~4 검정력 문제 해소.
+> - **가격 급변(±3σ) 이벤트: drift 없음** (up/down 모두, 시장조정·placebo·날짜군집 NW 통제) —
+>   ①의 "가격 신호 null"을 이벤트 차원에서 재확인.
+> - **거래량 급증(z≥2) 이벤트: 유의한 양의 drift** (h=1~60 전 구간 t≈3~5, placebo null) — 그러나
+>   크기가 작고(21일 +0.23%) 서프라이즈 크기와 단조 관계 없음, **10bps 비용 후 전멸**(Sharpe
+>   0.47~0.74 → 전부 음수). "통계적 아노말리 ≠ tradable alpha"의 교과서적 사례.
+> - **함의**: abnormal_return은 조사 트리거로만, abnormal_volume은 확인 필터 후보로만. 진짜 PEAD는
+>   3c(컨센서스 수집) 선행 필요 — 별도 데이터 태스크로 남김.
 
 ---
 
