@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from time import monotonic as _monotonic
 from typing import Callable, Iterable
 
 import duckdb
@@ -27,6 +28,8 @@ def grade_theses(
     only_asset_ids: Iterable[str] | None = None,
     client: ChatClient | None = None,
     log: Callable[[str], None] = print,
+    deadline: float | None = None,
+    monotonic: Callable[[], float] = _monotonic,
 ) -> ThesisRunResult:
     """Grade the structural thesis of a prefiltered candidate shortlist.
 
@@ -42,6 +45,12 @@ def grade_theses(
     shortlist is given and no events exist yet it falls back to ``date.today()``.
     Failure contract: ``LlmUnavailable`` stops the whole run (server down);
     ``LlmError`` / unparseable response persists a ``failed`` grade and continues.
+
+    Time budget: with ``deadline`` (a ``monotonic()`` timestamp) set, the loop
+    stops cleanly before the next asset once the clock passes it, counting the
+    unreached candidates in ``result.budget_skipped``. This bounds a degraded
+    LLM (each call can crawl up to ``CROESUS_LLM_TIMEOUT``) so the automated
+    refresh cannot hold the DuckDB write lock for hours and 503 the web.
     """
     if client is None:
         from croesus.research.llm_client import ChatCompletionsClient
@@ -77,7 +86,15 @@ def grade_theses(
 
     assets_by_id = {a.asset_id: a for a in AssetRepository(conn).list_active()}
 
-    for asset_id in candidate_ids:
+    for i, asset_id in enumerate(candidate_ids):
+        if deadline is not None and monotonic() >= deadline:
+            remaining = len(candidate_ids) - i
+            result.budget_skipped += remaining
+            log(
+                f"thesis_grader: time budget reached — skipping {remaining} "
+                f"remaining asset(s)"
+            )
+            break
         asset = assets_by_id.get(asset_id)
         if asset is None:
             # Candidate has an event but isn't in the active universe (e.g.

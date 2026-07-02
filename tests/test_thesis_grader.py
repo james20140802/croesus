@@ -304,6 +304,87 @@ def test_grade_theses_grades_candidates_and_isolates(tmp_path: Path) -> None:
     assert bbb.status == STATUS_FAILED and bbb.error and bbb.moat_grade is None
 
 
+def test_grade_theses_stops_when_time_budget_exhausted(tmp_path: Path) -> None:
+    # A degraded LLM makes each call crawl; with no overall budget the grader
+    # would grind through every shortlist asset for hours, holding the DuckDB
+    # write lock and 503-ing the web. A deadline must stop it between assets.
+    from croesus.assets.models import Asset
+    from croesus.assets.repository import AssetRepository
+    from croesus.research.thesis_grader import grade_theses
+    from croesus.research.thesis_repository import ThesisGradeRepository
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    asof = date(2026, 6, 19)
+
+    calls = {"n": 0}
+
+    class CountingClient:
+        base_url = "x"
+        model = "fake"
+
+        def chat(self, messages):
+            calls["n"] += 1
+            return _GRADER_RESPONSE
+
+    # The budget check before AAA is under the deadline; before BBB it is past
+    # it, so exactly one asset is graded and the rest are budget-skipped.
+    ticks = iter([0.0, 1000.0, 2000.0])
+
+    def fake_monotonic() -> float:
+        return next(ticks)
+
+    with get_connection(db_path) as conn:
+        AssetRepository(conn).upsert_many([
+            Asset(asset_id="US_EQ_AAA", symbol="AAA", name="AAA Inc.", asset_type="equity"),
+            Asset(asset_id="US_EQ_BBB", symbol="BBB", name="BBB Inc.", asset_type="equity"),
+            Asset(asset_id="US_EQ_CCC", symbol="CCC", name="CCC Inc.", asset_type="equity"),
+        ])
+        result = grade_theses(
+            conn, run_id="r1", as_of_date=asof,
+            only_asset_ids=["US_EQ_AAA", "US_EQ_BBB", "US_EQ_CCC"],
+            client=CountingClient(), deadline=100.0, monotonic=fake_monotonic,
+        )
+        repo = ThesisGradeRepository(conn)
+        assert repo.load_for_asset("US_EQ_AAA", asof) is not None
+        assert repo.load_for_asset("US_EQ_BBB", asof) is None
+        assert repo.load_for_asset("US_EQ_CCC", asof) is None
+
+    assert calls["n"] == 1
+    assert result.generated == 1
+    assert result.budget_skipped == 2
+
+
+def test_grade_theses_no_deadline_grades_all(tmp_path: Path) -> None:
+    # deadline=None (the default) must preserve the original behaviour.
+    from croesus.assets.models import Asset
+    from croesus.assets.repository import AssetRepository
+    from croesus.research.thesis_grader import grade_theses
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+    asof = date(2026, 6, 19)
+
+    class OkClient:
+        base_url = "x"
+        model = "fake"
+
+        def chat(self, messages):
+            return _GRADER_RESPONSE
+
+    with get_connection(db_path) as conn:
+        AssetRepository(conn).upsert_many([
+            Asset(asset_id="US_EQ_AAA", symbol="AAA", name="AAA Inc.", asset_type="equity"),
+            Asset(asset_id="US_EQ_BBB", symbol="BBB", name="BBB Inc.", asset_type="equity"),
+        ])
+        result = grade_theses(
+            conn, run_id="r1", as_of_date=asof,
+            only_asset_ids=["US_EQ_AAA", "US_EQ_BBB"], client=OkClient(),
+        )
+
+    assert result.generated == 2 and result.budget_skipped == 0
+
+
 def test_grade_theses_only_asset_ids_bypasses_event_gate(tmp_path: Path) -> None:
     # An explicit shortlist (screening candidates + holdings) is graded directly,
     # even for assets with no event row — the list is its own cost control.

@@ -57,4 +57,5 @@ class ThesisRunResult:
     generated: int = 0
     failed: int = 0
     skipped: int = 0            # event candidates not in the active universe
+    budget_skipped: int = 0     # not reached because the time budget ran out
     skipped_reason: str | None = None

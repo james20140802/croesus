@@ -364,21 +364,34 @@ def _run_news_gdelt(db: Path) -> str:
 
 
 def _run_thesis_grader(db: Path) -> str:
+    import os
+    from time import monotonic
     from uuid import uuid4
 
     from croesus.research.thesis_grader import grade_theses
 
+    # Bound the LLM loop so a degraded Ollama can't hold the DuckDB write lock
+    # for hours (this job is exactly what hung the daily sync). Mirrors the web
+    # scheduler's CROESUS_REFRESH_BUDGET_SECONDS (default 30m; <=0 disables).
+    raw = os.getenv("CROESUS_REFRESH_BUDGET_SECONDS")
+    try:
+        budget = float(raw) if raw and raw.strip() else 1800.0
+    except ValueError:
+        budget = 1800.0
+    deadline = monotonic() + budget if budget > 0 else None
+
     with get_connection(db) as conn:
         # as_of_date defaults to the latest event cohort inside grade_theses, so
         # weekend/holiday runs grade the last trading day's events.
-        result = grade_theses(conn, run_id=uuid4().hex)
+        result = grade_theses(conn, run_id=uuid4().hex, deadline=deadline)
     if result.skipped_reason:
         # The LLM was unreachable — skip (not success), so freshness is NOT
         # advanced and the next cycle retries once the server is back.
         raise SyncSkip(f"LLM unavailable: {result.skipped_reason}")
     return (
         f"thesis_grader generated={result.generated} "
-        f"failed={result.failed} skipped={result.skipped}"
+        f"failed={result.failed} skipped={result.skipped} "
+        f"budget_skipped={result.budget_skipped}"
     )
 
 
