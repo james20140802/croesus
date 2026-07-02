@@ -31,7 +31,7 @@
 |---|------|---------|------------------|------|------|
 | ① | 우리 신호 검증 (cross-sectional IC) | 파이프라인 핵심 베팅을 직접 검증, 상대라 드리프트 상쇄 | 없음 | 중 | **DONE** (2026-07-01) |
 | ③ | 종목 이벤트 스터디 (PEAD류) | 이벤트 드리븐이 Croesus 본 thesis, 큰 표본 | (컨센서스 없음 → 프록시) | 중~대 | TODO |
-| ② | 변동성 예측 + 리스크 타게팅 | vol은 확실히 예측 가능, null→positive | 없음 | 중 | TODO |
+| ② | 변동성 예측 + 리스크 타게팅 | vol은 확실히 예측 가능, null→positive | 없음 | 중 | **DONE** (2026-07-02) |
 | ④ | 레짐 조건부 팩터 성과 | 조건부 신호는 무조건이 못 사는 곳에 산다 | 없음 | 중 | TODO |
 | ⑤ | LLM 알파 감사 (보너스) | 비싸고 핵심적인 LLM 베팅 검증 | 없음 | 소 | TODO |
 
@@ -48,6 +48,17 @@
 > - **④로 연결**: `results/cross_sectional/perdate_momentum_6m_{63,126}.csv` 롱숏 시계열을 레짐별 분해에 재사용.
 > - **③/⑤ 함의**: fundamental·LLM 신호 IC 검증은 `factor_values`/`thesis_grades` 역사화(시점별 스냅샷 축적)
 >   가 선행돼야 함 — 현재는 순방향 1개월치뿐. ⑤는 등급 스냅샷이 쌓일 때까지 표본이 매우 작다.
+
+> **② 결과 요약(2026-07-02).** `experiments/market_signals/vol_targeting/`
+> (플랜: `docs/superpowers/plans/2026-07-02-vol-targeting.md`, 결론: `.../vol_targeting/FINDINGS.md`).
+> - **두 가설 모두 확인**: (a) EWMA/GARCH(1,1)가 naive를 QLIKE에서 유의하게 이김(DM t≈−3.9~−4.2,
+>   SPY 1993~·EW 유니버스 1990~, 월별 walk-forward 364~376개월). (b) vol-targeting(σ_target 0.15,
+>   cap 1.0, 10bps 비용)이 **MaxDD를 SPY −55%→−40%, EW −51%→−28%로 감소**, Sharpe +0.07~0.15.
+> - **정직한 관찰**: 오버레이 성과는 naive≈ewma≈garch — 효과 대부분이 "최근 vol로 스케일" 규칙
+>   자체에서 나옴. **risk-gate에는 단순 규칙으로 충분**, GARCH 인프라 불요. oracle 격차(Sharpe +0.4)는
+>   예측 개선 여지.
+> - `macro_scores.amplifier_score` 비교는 **불가**(14일치만 존재 — factor_values와 같은 역사화 갭).
+> - ①(cross-sectional 1차 모멘트 null)과 대조: 시계열 2차 모멘트는 positive. 엣지는 vol clustering에 있었다.
 
 ---
 
