@@ -300,3 +300,32 @@ def test_soft_dependency_skip_leaves_fresh_dependent_skipped(tmp_path: Path) -> 
     )
     assert calls == []
     assert result.outcome("daily_run").status == "skipped"
+
+
+def test_thesis_grader_job_bounds_llm_with_time_budget(tmp_path: Path, monkeypatch) -> None:
+    # thesis_grader_run is the job that hung the daily sync for hours. It must
+    # pass a deadline so a degraded LLM cannot hold the DuckDB write lock, and
+    # honor CROESUS_REFRESH_BUDGET_SECONDS<=0 to disable the budget.
+    from croesus.jobs import local_sync
+    from croesus.research.thesis_models import ThesisRunResult
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    captured: dict = {}
+
+    def fake_grade(conn, **kwargs):
+        captured.update(kwargs)
+        return ThesisRunResult(run_id=kwargs.get("run_id", "r"))
+
+    monkeypatch.setattr("croesus.research.thesis_grader.grade_theses", fake_grade)
+
+    monkeypatch.setenv("CROESUS_REFRESH_BUDGET_SECONDS", "1800")
+    out = local_sync._run_thesis_grader(db_path)
+    assert captured.get("deadline") is not None
+    assert "budget_skipped=0" in out
+
+    captured.clear()
+    monkeypatch.setenv("CROESUS_REFRESH_BUDGET_SECONDS", "0")  # disabled
+    local_sync._run_thesis_grader(db_path)
+    assert captured.get("deadline") is None
