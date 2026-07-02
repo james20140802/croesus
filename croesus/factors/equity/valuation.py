@@ -46,6 +46,99 @@ class ValuationMultiples:
     fcf_yield: float | None = None
 
 
+# A statement share count that disagrees with the EPS-implied count by more than
+# this factor (or its reciprocal) is treated as a share-class unit error, not
+# basic-vs-diluted noise (which is a few percent).
+SHARE_COUNT_MISMATCH_FACTOR = 5.0
+
+
+@dataclass(frozen=True)
+class ShareCountReconciliation:
+    """Result of cross-checking the balance-sheet share count against the price.
+
+    ``shares`` is the price-consistent count to use downstream (statement count
+    unless a gross unit mismatch was detected and corrected).
+    """
+
+    shares: float | None
+    corrected: bool
+    statement_shares: float | None
+    implied_shares: float | None
+    ratio: float | None
+    reason: str | None
+
+
+def reconcile_share_count(
+    *,
+    statement_shares: float | None,
+    net_income: float | None,
+    eps: float | None,
+    mismatch_factor: float = SHARE_COUNT_MISMATCH_FACTOR,
+) -> ShareCountReconciliation:
+    """Detect a share-class unit mismatch between the balance-sheet share count
+    and the traded price, and recover a price-consistent share count.
+
+    The statement ``shares_outstanding`` can be reported in a different share
+    class than the traded price. Berkshire is the canonical case: the balance
+    sheet reports Class-A equivalents (~1.44M) while BRK-B trades as Class B, a
+    1500:1 split — so ``equity / shares`` per-share figures come out ~1500× too
+    large and a mechanical DCF shows a nonsense +90,000% upside.
+
+    ``net_income / eps`` recovers the true share count in the *same* unit as
+    ``eps``, which — like the price — is the traded class. For a self-consistent
+    name this equals the statement count (they share the same statements), so
+    the ratio is ~1 and nothing changes. It only diverges when ``eps`` and
+    ``shares_outstanding`` are quoted in different classes, which is exactly the
+    bug. When they disagree by more than ``mismatch_factor``×, the EPS-implied
+    count is used instead. Correction is best-effort: without a usable EPS /
+    net income the statement count is returned unchanged.
+    """
+    implied: float | None = None
+    if (
+        net_income is not None
+        and eps is not None
+        and eps > 0
+        and net_income > 0
+    ):
+        candidate = net_income / eps
+        if candidate > 0 and candidate != float("inf"):
+            implied = candidate
+
+    if statement_shares is None or statement_shares <= 0 or implied is None:
+        return ShareCountReconciliation(
+            shares=statement_shares,
+            corrected=False,
+            statement_shares=statement_shares,
+            implied_shares=implied,
+            ratio=None,
+            reason=None,
+        )
+
+    ratio = implied / statement_shares
+    if ratio >= mismatch_factor or ratio <= 1.0 / mismatch_factor:
+        reason = (
+            f"share-class unit mismatch: statement shares {statement_shares:,.0f} "
+            f"vs EPS-implied {implied:,.0f} ({ratio:.0f}×); using EPS-implied count"
+        )
+        return ShareCountReconciliation(
+            shares=implied,
+            corrected=True,
+            statement_shares=statement_shares,
+            implied_shares=implied,
+            ratio=ratio,
+            reason=reason,
+        )
+
+    return ShareCountReconciliation(
+        shares=statement_shares,
+        corrected=False,
+        statement_shares=statement_shares,
+        implied_shares=implied,
+        ratio=ratio,
+        reason=None,
+    )
+
+
 @dataclass(frozen=True)
 class DcfResult:
     intrinsic_value_per_share: float
