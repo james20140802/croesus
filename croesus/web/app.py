@@ -17,6 +17,15 @@ def create_app(db_path: str | Path | None = None, *, schedule_at: time | None = 
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Bring the DB schema up to date before serving. Without this, a schema
+        # addition (a new table like normalized_dcf_snapshots) leaves the page
+        # 500ing on an existing DB until someone runs migrate() by hand.
+        # schema.sql is idempotent (CREATE TABLE IF NOT EXISTS), so this is safe
+        # to run on every startup.
+        from croesus.db.migrate import migrate
+
+        migrate(app.state.db_path)
+
         scheduler = None
         if schedule_at is not None:
             scheduler = DataScheduler(app.state.db_path, schedule_at)
