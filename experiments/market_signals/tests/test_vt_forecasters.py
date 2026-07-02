@@ -1,7 +1,12 @@
 import numpy as np
 import pandas as pd
 
-from experiments.market_signals.vol_targeting.forecasters import ewma_forecast, naive_forecast
+from experiments.market_signals.vol_targeting.forecasters import (
+    ewma_forecast,
+    fit_garch11,
+    garch11_forecast,
+    naive_forecast,
+)
 from experiments.market_signals.vol_targeting.realized import TRADING_DAYS
 
 
@@ -33,3 +38,33 @@ def test_ewma_reacts_to_recent_vol_jump():
     f_calm = ewma_forecast(calm)
     f_after = ewma_forecast(pd.concat([calm, wild]))
     assert f_after > 2 * f_calm
+
+
+def _garch_sim(n=3000, omega=2e-6, alpha=0.10, beta=0.85, seed=7):
+    rng = np.random.default_rng(seed)
+    var = omega / (1 - alpha - beta)
+    r = np.empty(n)
+    for t in range(n):
+        r[t] = np.sqrt(var) * rng.standard_normal()
+        var = omega + alpha * r[t] ** 2 + beta * var
+    idx = pd.bdate_range("2010-01-01", periods=n)
+    return pd.Series(r, index=idx)
+
+
+def test_garch_recovers_persistence_on_simulated_data():
+    fit = fit_garch11(_garch_sim())
+    persistence = fit["alpha"] + fit["beta"]
+    assert 0.88 < persistence < 0.995
+    assert 0.02 < fit["alpha"] < 0.25
+    assert fit["next_var"] > 0
+
+
+def test_garch_forecast_positive_and_sane_on_iid():
+    r = _returns(n=1500, scale=0.01, seed=4)
+    f = garch11_forecast(r)
+    true_ann = 0.01 * np.sqrt(TRADING_DAYS)
+    assert 0.6 * true_ann < f < 1.4 * true_ann
+
+
+def test_garch_needs_history():
+    assert np.isnan(garch11_forecast(_returns(n=100)))
