@@ -88,8 +88,8 @@ def main() -> None:
 
     # 서프라이즈 크기 분위: |magnitude| 5분위별 CAAR(h) — 진짜 drift면 단조.
     q_rows = []
-    for edir in ["up", "down"]:
-        grp = events[(events["event_type"] == "abnormal_return")
+    for etype, edir in GROUPS:
+        grp = events[(events["event_type"] == etype)
                      & (events["direction"] == edir)].reset_index(drop=True)
         quintile = pd.qcut(grp["magnitude"].abs(), 5, labels=False) + 1
         car = event_car_paths(excess, grp, HORIZON)
@@ -98,29 +98,35 @@ def main() -> None:
             dates = grp.loc[sub.index, "date"]
             tbl = caar_table(sub[QUANTILE_H], dates)
             for _, r in tbl.iterrows():
-                q_rows.append({"direction": edir, "quintile": q, **r.to_dict()})
+                q_rows.append({"event_type": etype, "direction": edir,
+                               "quintile": q, **r.to_dict()})
     qdf = pd.DataFrame(q_rows)
     qdf.to_csv(OUT / "magnitude_quintiles.csv", index=False)
     print(f"[ed] magnitude quintiles (h=21):\n"
           f"{qdf[qdf['h'] == 21].round(4).to_string(index=False)}", flush=True)
 
-    # calendar-time 포트폴리오 (abnormal_return, 방향 부호).
-    ar = events[events["event_type"] == "abnormal_return"].reset_index(drop=True)
+    # calendar-time 포트폴리오: abnormal_return은 방향 부호 롱숏, abnormal_volume은 롱온리.
+    books = {
+        "abnormal_return": events[events["event_type"] == "abnormal_return"],
+        "abnormal_volume": events[events["event_type"] == "abnormal_volume"],
+    }
     years = (market.index[-1] - market.index[0]).days / 365.25
     ppy = len(market) / years
     p_rows = []
-    for hold in HOLDS:
-        for cost in COSTS_BPS:
-            ret, to = event_portfolio_returns(excess, ar, hold, cost)
-            active = ret[ret != 0.0]
-            p = perf_summary(ret, ppy)
-            p_rows.append({"hold": hold, "cost_bps": cost, "sharpe": p["sharpe"],
-                           "ann_ret": p["mean"] * ppy, "maxdd": p["maxdd"],
-                           "avg_daily_turnover": to,
-                           "pct_days_active": len(active) / max(len(ret), 1)})
+    for book, ev in books.items():
+        ev = ev.reset_index(drop=True)
+        for hold in HOLDS:
+            for cost in COSTS_BPS:
+                ret, to = event_portfolio_returns(excess, ev, hold, cost)
+                active = ret[ret != 0.0]
+                p = perf_summary(ret, ppy)
+                p_rows.append({"book": book, "hold": hold, "cost_bps": cost,
+                               "sharpe": p["sharpe"], "ann_ret": p["mean"] * ppy,
+                               "maxdd": p["maxdd"], "avg_daily_turnover": to,
+                               "pct_days_active": len(active) / max(len(ret), 1)})
     pdf = pd.DataFrame(p_rows)
     pdf.to_csv(OUT / "portfolio.csv", index=False)
-    print(f"[ed] event portfolio (abnormal_return, signed):\n"
+    print(f"[ed] event portfolios (return=signed L/S, volume=long-only):\n"
           f"{pdf.round(4).to_string(index=False)}", flush=True)
     print(f"[ed] wrote results to {OUT}", flush=True)
 
