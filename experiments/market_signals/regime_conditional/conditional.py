@@ -12,7 +12,10 @@ import pandas as pd
 
 def join_regime(perdate: pd.DataFrame, regimes: pd.DataFrame) -> pd.DataFrame:
     p = perdate.sort_values("date").copy()
-    r = regimes.sort_values("date")[["date", "regime"]]
+    r = regimes.sort_values("date")[["date", "regime"]].copy()
+    # DuckDB(us) vs pandas(ns) 타임스탬프 해상도 불일치 방지
+    p["date"] = pd.to_datetime(p["date"]).astype("datetime64[ns]")
+    r["date"] = pd.to_datetime(r["date"]).astype("datetime64[ns]")
     out = pd.merge_asof(p, r, on="date", direction="backward")
     return out.dropna(subset=["regime"]).reset_index(drop=True)
 
