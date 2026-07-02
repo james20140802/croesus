@@ -1,0 +1,13 @@
+date,category,magnitude,scope,metadata
+2001-09-11,war,,US,"{""name"":""9/11""}"
+1991-01-17,war,,Gulf,"{""name"":""Gulf War start""}"
+2022-02-24,war,,Russia-Ukraine,"{""name"":""RU invasion""}"
+2026-03-01,war,,Iran,"{""name"":""Iran war 2026""}"
+2020-02-24,pandemic,,Global,"{""name"":""COVID crash onset""}"
+2018-07-06,tariff,34,US-China,"{""name"":""first China tariffs""}"
+2019-05-10,tariff,25,US-China,"{""name"":""tariff escalation""}"
+2025-04-02,tariff,,US-broad,"{""name"":""2025 tariffs""}"
+1990-08-02,oil,,Gulf,"{""name"":""Gulf oil spike""}"
+2008-06-01,oil,,Global,"{""name"":""2008 oil peak""}"
+2022-03-01,oil,,Russia-Ukraine,"{""name"":""2022 oil spike""}"
+2026-03-01,oil,,Iran,"{""name"":""Iran oil shock 2026""}"

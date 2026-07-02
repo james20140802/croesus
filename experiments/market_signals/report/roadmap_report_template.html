@@ -1,0 +1,482 @@
+<title>Croesus 시장 시그널 연구 보고서 — 로드맵 ①~④</title>
+<style>
+  :root {
+    --ink: #22272b;
+    --ink-soft: #4a5158;
+    --paper: #f7f8f6;
+    --card: #ffffff;
+    --line: #dfe3de;
+    --green: #2f7d54;
+    --green-bg: #eaf3ee;
+    --amber: #a8690f;
+    --amber-bg: #f9f1e2;
+    --red: #a8433f;
+    --red-bg: #f7ebea;
+    --blue: #5b7fb4;
+    --blue-bg: #edf1f7;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Apple SD Gothic Neo", Pretendard, "Noto Sans KR", "Malgun Gothic", sans-serif;
+    line-height: 1.75;
+    margin: 0;
+    font-size: 16px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 48px 24px 96px; }
+  header.masthead { border-bottom: 3px solid var(--ink); padding-bottom: 28px; margin-bottom: 40px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-soft); font-weight: 700; margin: 0 0 12px;
+  }
+  h1 { font-size: 34px; font-weight: 800; line-height: 1.3; margin: 0 0 14px; text-wrap: balance; }
+  .meta { color: var(--ink-soft); font-size: 14px; margin: 0; }
+  .meta b { color: var(--ink); }
+  h2 {
+    font-size: 24px; font-weight: 800; margin: 64px 0 6px; line-height: 1.35;
+    text-wrap: balance; padding-top: 20px; border-top: 1px solid var(--line);
+  }
+  h2 .qnum {
+    display: inline-block; background: var(--ink); color: var(--paper);
+    font-size: 14px; font-weight: 700; border-radius: 3px;
+    padding: 2px 9px; margin-right: 10px; vertical-align: 3px; letter-spacing: 0.04em;
+  }
+  h3 { font-size: 17.5px; font-weight: 700; margin: 36px 0 8px; }
+  p { margin: 12px 0; max-width: 74ch; }
+  .lede { font-size: 17.5px; color: var(--ink-soft); max-width: 72ch; }
+  .question {
+    font-size: 15px; color: var(--ink-soft); margin: 0 0 20px; font-weight: 600;
+  }
+  /* 요약 카드 */
+  .verdicts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 28px 0 8px; }
+  @media (max-width: 640px) { .verdicts { grid-template-columns: 1fr; } }
+  .vcard {
+    background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+    padding: 18px 20px 16px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .vcard .vhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .vcard .vtitle { font-weight: 800; font-size: 15.5px; }
+  .vcard .vbody { font-size: 14px; color: var(--ink-soft); line-height: 1.65; margin: 0; }
+  .pill {
+    font-size: 11.5px; font-weight: 800; letter-spacing: 0.06em; border-radius: 999px;
+    padding: 3px 11px; white-space: nowrap; flex-shrink: 0;
+  }
+  .pill.null { background: var(--red-bg); color: var(--red); }
+  .pill.pos { background: var(--green-bg); color: var(--green); }
+  .pill.partial { background: var(--amber-bg); color: var(--amber); }
+  .pill.bug { background: var(--blue-bg); color: var(--blue); }
+  /* 쉬운 설명 박스 */
+  .easy {
+    background: var(--blue-bg); border-left: 4px solid var(--blue); border-radius: 0 6px 6px 0;
+    padding: 14px 20px; margin: 20px 0; font-size: 15px;
+  }
+  .easy .tag, .caveat .tag, .keybox .tag {
+    display: block; font-size: 11.5px; font-weight: 800; letter-spacing: 0.1em;
+    text-transform: uppercase; margin-bottom: 6px;
+  }
+  .easy .tag { color: var(--blue); }
+  .easy p, .caveat p, .keybox p { margin: 6px 0; }
+  .caveat {
+    background: var(--amber-bg); border-left: 4px solid var(--amber); border-radius: 0 6px 6px 0;
+    padding: 14px 20px; margin: 20px 0; font-size: 14.5px;
+  }
+  .caveat .tag { color: var(--amber); }
+  .keybox {
+    background: var(--green-bg); border-left: 4px solid var(--green); border-radius: 0 6px 6px 0;
+    padding: 14px 20px; margin: 20px 0; font-size: 15px;
+  }
+  .keybox .tag { color: var(--green); }
+  .keybox.negative { background: var(--red-bg); border-left-color: var(--red); }
+  .keybox.negative .tag { color: var(--red); }
+  /* 그림/표 */
+  figure { margin: 28px 0; }
+  figure img { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  figcaption { font-size: 13.5px; color: var(--ink-soft); margin-top: 8px; line-height: 1.6; max-width: 78ch; }
+  figcaption b { color: var(--ink); }
+  .tablewrap { overflow-x: auto; margin: 20px 0; }
+  table {
+    border-collapse: collapse; font-size: 13.5px; min-width: 480px;
+    font-variant-numeric: tabular-nums;
+  }
+  caption { text-align: left; font-size: 13px; color: var(--ink-soft); padding-bottom: 6px; caption-side: top; }
+  th, td { border-bottom: 1px solid var(--line); padding: 7px 14px 7px 0; text-align: right; }
+  th:first-child, td:first-child { text-align: left; padding-left: 0; }
+  thead th { border-bottom: 2px solid var(--ink); font-size: 12.5px; letter-spacing: 0.03em; }
+  td.good { color: var(--green); font-weight: 700; }
+  td.bad { color: var(--red); font-weight: 700; }
+  td.warn { color: var(--amber); font-weight: 700; }
+  /* 예측가능성 지도 */
+  .map { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 24px 0; }
+  @media (max-width: 640px) { .map { grid-template-columns: 1fr; } }
+  .map .cell { border-radius: 6px; padding: 16px 18px; font-size: 14px; line-height: 1.6; }
+  .map .cell b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .map .no { background: var(--red-bg); }
+  .map .no b { color: var(--red); }
+  .map .yes { background: var(--green-bg); }
+  .map .yes b { color: var(--green); }
+  /* 용어집 */
+  dl.glossary { max-width: 78ch; }
+  dl.glossary dt { font-weight: 800; margin-top: 16px; font-size: 15px; }
+  dl.glossary dd { margin: 4px 0 0 0; color: var(--ink-soft); font-size: 14.5px; }
+  code { font-family: var(--mono); font-size: 0.86em; background: #eceee9; border-radius: 3px; padding: 1px 5px; }
+  ul, ol { max-width: 74ch; padding-left: 22px; }
+  li { margin: 6px 0; }
+  .footnote { font-size: 13px; color: var(--ink-soft); border-top: 1px solid var(--line); margin-top: 56px; padding-top: 16px; }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Croesus Research · Market Signals</p>
+  <h1>시장 시그널 연구 보고서 — 우리가 계산하는 신호는 정말 돈이 되는가</h1>
+  <p class="meta"><b>로드맵 실험 ①~④ 종합</b> · 2026-07-03 · 데이터: 미국 주식 521종목 × 30년(1990~2026), 총 375만 일별 관측
+  · 검증 이벤트 14.6만 건 · 거시 레짐 437개월 · 전 실험 look-ahead 차단·거래비용 반영·placebo 대조</p>
+</header>
+
+<p class="lede">Croesus 파이프라인은 주가에서 여러 신호(팩터·이벤트·레짐)를 계산해 종목을 고른다.
+이 보고서는 그 신호들이 <b>실제로 미래 수익을 예측하는지</b>를 4개의 독립 실험으로 검증한 결과다.
+결론을 한 문장으로 요약하면 — <b>"어느 종목이 오를지(방향)는 어떤 가격 신호로도 믿고 예측할 수 없었고,
+시장이 언제 흔들릴지(변동성)만 견고하게 예측 가능했다."</b> 부수적으로 프로덕션 레짐 엔진의
+실질적 버그 하나를 발견했다.</p>
+
+<div class="verdicts">
+  <div class="vcard">
+    <div class="vhead"><span class="vtitle">① 팩터의 종목 선별력 (Cross-sectional IC)</span><span class="pill null">기각</span></div>
+    <p class="vbody">모멘텀·변동성 등 가격 팩터 7종 중 <b>믿을 수 있는 종목 선별 신호는 없음</b>.
+    강해 보였던 것들은 최근 10년 착시(모멘텀)거나 생존편향 아티팩트(고위험·소형주)로 판명.</p>
+  </div>
+  <div class="vcard">
+    <div class="vhead"><span class="vtitle">② 변동성 예측 + 리스크 타게팅</span><span class="pill pos">확인</span></div>
+    <p class="vbody">변동성은 <b>확실히 예측 가능</b>(t≈4). 예측 변동성으로 노출을 조절하면 최대낙폭이
+    −55%→−40%(SPY), −51%→−28%(등가중)로 감소. 단순 규칙으로 충분.</p>
+  </div>
+  <div class="vcard">
+    <div class="vhead"><span class="vtitle">③ 종목 이벤트 후 표류 (PEAD류)</span><span class="pill partial">통계○ 수익×</span></div>
+    <p class="vbody">가격 급변(±3σ) 후 표류 없음. 거래량 급증 후엔 통계적으로 확실한 표류(t≈3~5)가
+    있으나 크기가 작아 <b>거래비용 10bps만으로 전멸</b>.</p>
+  </div>
+  <div class="vcard">
+    <div class="vhead"><span class="vtitle">④ 레짐 조건부 팩터 성과</span><span class="pill bug">경계선 + 버그 발견</span></div>
+    <p class="vbody">레짐별 팩터 차이는 momentum_6m만 경계선 유의. 대신 <b>프로덕션 레짐 엔진의
+    인플레이션 투표가 퇴화해 있음을 발견</b>(30년 라벨의 70%가 한 레짐) — 수정 필요.</p>
+  </div>
+</div>
+
+<div class="easy">
+  <span class="tag">보고서를 읽기 전에 — 세 가지 도구</span>
+  <p>이 보고서의 모든 실험은 같은 세 가지 도구로 자신을 검증한다. <b>t-통계량</b>은 "이 결과가 순전히
+  우연일 가능성"의 척도다 — 관례상 |t|&gt;2면 '통계적으로 유의'하다고 부른다(우연일 확률 약 5% 미만).
+  <b>placebo(플라시보)</b>는 가짜 신호(무작위 날짜, 뒤섞인 라벨)에 같은 계산을 돌려보는 것이다 —
+  가짜에서도 비슷한 결과가 나오면 진짜 결과도 믿을 수 없다. <b>거래비용 민감도</b>는 매매 1회에
+  0.1%(10bps) 수준의 현실 비용을 물렸을 때 수익이 살아남는지 본다. 통계적으로 존재하는 효과도
+  비용을 못 넘으면 돈이 안 된다 — 이 구분이 이 보고서의 반복되는 주제다.</p>
+</div>
+
+<!-- ═══════════════════════ ① ═══════════════════════ -->
+
+<h2><span class="qnum">①</span>가격 팩터는 어느 종목이 오를지 알려주는가</h2>
+<p class="question">질문 — 파이프라인이 계산하는 모멘텀·변동성·유동성 같은 팩터로 종목 순위를 매기면, 상위 종목이 실제로 하위 종목보다 더 오르는가?</p>
+
+<div class="easy">
+  <span class="tag">쉽게 말하면</span>
+  <p>학생 500명의 과거 성적표(주가 이력)만 보고 다음 학기 석차를 예측할 수 있을까?
+  "최근 6개월간 성적이 오른 학생이 계속 오른다"(모멘텀), "기복이 큰 학생이 결국 이긴다"(고변동성)
+  같은 규칙 7개를 만들어, 매달 예측 순위와 실제 결과의 일치도(<b>IC</b>, 순위 상관계수)를 30년간 측정했다.
+  또 각 규칙으로 상위 20%를 사고 하위 20%를 공매도하는 <b>롱숏</b> 전략의 성과를 계산했다.</p>
+</div>
+
+<p>이 실험은 세 번의 자기 검증을 거치며 결론이 두 번 뒤집혔다. 그 과정 자체가 핵심 결과다.</p>
+
+<h3>1단계 — 최근 10년만 보면 "모멘텀이 답"처럼 보인다</h3>
+<p>2016~2026년 표본에서 6개월 모멘텀(<code>momentum_6m</code>)은 IC t=2.1, 비용 차감 후 Sharpe 0.74,
+최대낙폭 −9%로 유일하게 깨끗한 신호로 보였다. 보고서 초안은 여기서 "모멘텀을 추적하라"고 쓸 뻔했다.</p>
+
+<h3>2단계 — 30년으로 늘리자 모멘텀이 사라졌다</h3>
+<p>프로덕션 DB의 이력이 10년뿐이라(그 자체가 발견된 데이터 갭이다) yfinance로 1990년부터의 전체 이력을
+따로 수집해 같은 계산을 367개 월별 단면으로 다시 돌렸다. 결과: <code>momentum_6m</code>의 30년 IC는
+사실상 0(t=0.79)이고, 2008~09 금융위기 구간에선 오히려 크게 음(−0.075)이었다. 10년 결과는
+<b>최근 강세장에만 존재한 착시</b>였다. 1개월 모멘텀은 30년에서 유의하게 <b>반대로</b> 작동한다
+(단기 반전, t≈−2.6) — 학계에서 잘 알려진 현상인데, Croesus의 팩터 정의가 이를 걸러내지 않고 있었다.</p>
+
+<figure>
+  <img src="{{FIG:f1_ic_tstats}}" alt="30년 팩터별 IC t-통계량 막대그래프">
+  <figcaption><b>그림 1.</b> 팩터 7종 × 예측 기간 3종(21/63/126 거래일)의 30년 IC t-통계량.
+  빨간 점선(|t|=2) 바깥이 '통계적으로 유의'. 유의한 것은 고위험 팩터(volatility·beta)의 양(+),
+  소형/저유동(liquidity_1m)의 음(−), 그리고 1개월 모멘텀의 음(반전)뿐이다. 모멘텀 계열과 추세(above_200d_ma)는
+  전부 0 근처 — 21번 검정하면 우연으로도 1개쯤은 |t|&gt;2가 나온다는 점도 함께 봐야 한다.</figcaption>
+</figure>
+
+<h3>3단계 — 살아남은 두 신호마저 생존편향 검사에서 무너졌다</h3>
+<p>30년에서도 유의했던 두 축(고위험 프리미엄, 소형/저유동 프리미엄)에는 공통 약점이 있다:
+우리 데이터에는 <b>2026년 현재 살아남은 종목만</b> 들어 있다(생존편향). 위험하게 굴다 파산·상장폐지된
+종목들 — 엔론, 리먼, 수많은 닷컴 — 은 표본에서 통째로 빠져 있으므로 "고위험이 이긴다"는 결과는
+기계적으로 부풀려진다. 무료 데이터로는 폐지 종목을 복원할 수 없어, 대신 <b>상장폐지를 가상으로
+주입하는 시뮬레이션</b>으로 편향의 크기를 쟀다.</p>
+
+<figure>
+  <img src="{{FIG:f1b_survivorship}}" alt="생존편향 민감도 곡선">
+  <figcaption><b>그림 2.</b> 가로축: 가정한 연간 부실 상장폐지율(현실 추정치 ≈ 4%). 폐지 시 손실을
+  평균 −75%로 보는 완만한 가정(실선)에서는 고위험 프리미엄이 버티지만, 부실 폐지가 흔히 그렇듯
+  −100% 전손으로 보는 가혹한 가정(점선)에서는 <b>현실적 폐지율에서 프리미엄이 0으로 소멸</b>한다.
+  소형/저유동 프리미엄(파랑)은 두 가정 모두에서 <b>부호가 뒤집힌다</b> — 거의 순수한 데이터 아티팩트라는 뜻.</figcaption>
+</figure>
+
+<div class="keybox negative">
+  <span class="tag">①의 결론</span>
+  <p><b>어떤 단일 가격 팩터도 신뢰할 수 있는 종목 선별 신호가 아니다.</b> 그리고 방법론적 교훈이 더 크다:
+  최근 10년만 봤다면, 혹은 생존편향을 점검하지 않았다면, 두 번 모두 틀린 결론에 확신을 가졌을 것이다.
+  긴 표본 → 하위기간 분해 → 생존편향 시뮬의 3중 점검이 차례로 잘못된 확신을 무너뜨렸다.</p>
+</div>
+
+<div class="caveat">
+  <span class="tag">한계</span>
+  <p>fundamental·밸류에이션·LLM 등급 신호는 검증하지 못했다 — <code>factor_values</code> 테이블이
+  과거 시점 스냅샷을 보관하지 않아(역사화 갭) 백테스트 자체가 불가능하다. 이 갭은 ②~④에서도 반복 발견됐고,
+  데이터 축적이 시작되기 전까지는 "가격 외 신호가 답인가"라는 질문에 답할 수 없다.</p>
+</div>
+
+<!-- ═══════════════════════ ② ═══════════════════════ -->
+
+<h2><span class="qnum">②</span>변동성은 예측 가능한가 — 그리고 그걸로 낙폭을 줄일 수 있는가</h2>
+<p class="question">질문 — 수익률 방향은 못 맞혀도, "다음 달 시장이 얼마나 출렁일지"는 예측할 수 있는가? 예측이 되면 실전 위험관리에 쓸 수 있는가?</p>
+
+<div class="easy">
+  <span class="tag">쉽게 말하면</span>
+  <p>"내일 주가가 오를까 내릴까"는 동전 던지기에 가깝지만, "요즘 장이 험한가"는 누구나 안다 —
+  험한 장은 한동안 험하게 유지되는 경향(변동성 군집)이 있기 때문이다. 이 실험은 (a) 그 경향이
+  통계적으로 견고한지, (b) "험할 것 같으면 주식 비중을 줄이고, 잔잔하면 유지"하는 단순 규칙
+  (<b>변동성 타게팅</b>)이 실제로 손실 폭을 줄이는지를 31년 데이터로 확인했다.</p>
+</div>
+
+<p>결과는 4개 실험 중 유일하게 양(+)의 확인이다. EWMA·GARCH 같은 표준 변동성 모델은 "직전 한 달
+변동성이 그대로 이어진다"는 순진한 예측보다 유의하게 정확했다(QLIKE 손실 기준 t≈−3.9~−4.2,
+두 자산·364~376개월 walk-forward). 그리고 예측 변동성으로 노출을 조절하면:</p>
+
+<div class="tablewrap">
+<table>
+  <caption>변동성 타게팅 성과 — 목표 변동성 15%, 무레버리지(cap=1), 거래비용 10bps 차감 후</caption>
+  <thead><tr><th>자산</th><th>전략</th><th>Sharpe</th><th>최대낙폭</th><th>연변동성</th></tr></thead>
+  <tbody>
+    <tr><td>SPY (1996~2026)</td><td>그냥 보유</td><td>0.61</td><td class="bad">−55.2%</td><td>19.2%</td></tr>
+    <tr><td>SPY</td><td>변동성 타게팅(GARCH)</td><td>0.68</td><td class="good">−39.8%</td><td>14.3%</td></tr>
+    <tr><td>등가중 유니버스 (1995~2026)</td><td>그냥 보유</td><td>1.05</td><td class="bad">−50.5%</td><td>19.1%</td></tr>
+    <tr><td>등가중 유니버스</td><td>변동성 타게팅(GARCH)</td><td>1.19</td><td class="good">−27.9%</td><td>14.5%</td></tr>
+  </tbody>
+</table>
+</div>
+
+<figure>
+  <img src="{{FIG:f2_vol_targeting}}" alt="변동성 타게팅 자산곡선과 드로다운">
+  <figcaption><b>그림 3.</b> 위: 누적 자산(로그). 아래: 고점 대비 낙폭. 변동성 타게팅(빨강)은
+  2000~02·2008·2020 급락기에 노출을 자동으로 줄여 낙폭을 얕게 만든다 — 누적수익을 일부 내주는 대신
+  최악의 순간을 완화하는 교환. 초록 점선(oracle)은 미래 변동성을 미리 아는 이론적 상한으로,
+  예측을 더 개선할 여지가 남아 있음을 보여준다.</figcaption>
+</figure>
+
+<div class="keybox">
+  <span class="tag">②의 결론</span>
+  <p><b>변동성 예측은 실재하는 엣지이고, 용도는 종목 선택이 아니라 포지션 사이징이다.</b>
+  단, 정직한 관찰 하나: 오버레이 성과는 GARCH ≈ EWMA ≈ 순진한 예측이 거의 같다. 효과의 대부분은
+  "최근 변동성으로 스케일한다"는 규칙 자체에서 나오므로, Croesus risk-gate에는 복잡한 모델 인프라 없이
+  <b>단순 규칙으로 충분</b>하다.</p>
+</div>
+
+<div class="caveat">
+  <span class="tag">한계</span>
+  <p>노출을 줄인 잔여 현금의 수익을 0%로 가정(불리한 보수적 가정 — 실제 T-bill 수익을 넣으면 더 좋아진다).
+  파라미터(목표 15%, λ=0.94 등)는 관행적 기본값으로 고정하고 튜닝하지 않았다. 등가중 유니버스의 수익
+  <i>수준</i>은 생존편향으로 부풀려져 있으나, 같은 포트폴리오의 노출 조절 비교이므로 상대 비교는 공정하다.</p>
+</div>
+
+<!-- ═══════════════════════ ③ ═══════════════════════ -->
+
+<h2><span class="qnum">③</span>큰 사건 뒤에 주가는 계속 같은 방향으로 흐르는가</h2>
+<p class="question">질문 — 종목에 큰 일(가격 급변, 거래량 폭증)이 생긴 뒤에도 한동안 같은 방향의 초과수익이 이어지는가(표류·drift)? 이어진다면 그걸 사고팔아 돈을 벌 수 있는가?</p>
+
+<div class="easy">
+  <span class="tag">쉽게 말하면</span>
+  <p>"뉴스 보고 사도 늦지 않다"는 속설의 검증이다. 학계의 유명한 현상(어닝 서프라이즈 후 표류, PEAD)은
+  실적 발표 충격이 주가에 몇 주에 걸쳐 서서히 반영된다고 말한다. 우리 저장소엔 실적 컨센서스 데이터가
+  없어서, 대신 프로덕션 이벤트 탐지기와 동일한 규칙 — 하루 수익률이 평소 변동성의 3배를 넘는 <b>가격 급변</b>,
+  거래량이 평소보다 표준편차 2배 이상 많은 <b>거래량 급증</b> — 을 30년 이력에 소급 적용해
+  <b>이벤트 14만 6천 건</b>을 얻었다. 이전 시도(거시 이벤트 3~4건)와 달리 통계가 충분히 서는 표본이다.</p>
+</div>
+
+<figure>
+  <img src="{{FIG:f3_caar}}" alt="이벤트 후 누적초과수익 곡선">
+  <figcaption><b>그림 4.</b> 이벤트 발생 다음 날부터의 시장조정 누적초과수익(CAAR).
+  가격 급등(주황)·급락(빨강) 뒤에는 의미 있는 표류가 없다 — 시장은 큰 가격 충격을 대체로 하루 안에
+  다 반영한다. 반면 거래량 급증(초록) 뒤에는 완만하고 지속적인 양(+)의 표류가 있고(전 구간 t≈3~5),
+  무작위 날짜 placebo(점선)는 0 근처에 머문다. 문제는 크기다: 60일 누적이 <b>+0.31%</b>에 불과하다.</figcaption>
+</figure>
+
+<p>거래량 급증 신호는 통계적으로는 이 보고서에서 가장 강한 결과다(n=105,809, placebo 완전 무反応).
+그러나 세 가지 추가 검증이 모두 "돈은 안 된다"를 가리켰다:</p>
+
+<ul>
+  <li><b>크기 단조성 없음</b> — 진짜 정보 표류라면 서프라이즈가 클수록 표류도 커야 하는데, 5분위 분해에서
+  그런 패턴이 어느 그룹에도 없다.</li>
+  <li><b>비용 후 전멸</b> — 이벤트당 기대수익(+0.1~0.2%)이 왕복 거래비용(0.2%)과 같은 자릿수라,
+  편도 10bps만 물려도 모든 조합의 Sharpe가 음수로 뒤집힌다(아래 그림).</li>
+  <li><b>고회전 구조</b> — 이벤트 드리븐 특성상 일 회전율이 ②의 월 회전율보다 자릿수가 높다.</li>
+</ul>
+
+<figure>
+  <img src="{{FIG:f3b_cost}}" alt="거래비용 전후 이벤트 포트폴리오 Sharpe">
+  <figcaption><b>그림 5.</b> 이벤트 후 보유 포트폴리오의 Sharpe — 비용 0(파랑) vs 10bps(빨강).
+  비용 하나로 전부 음수가 된다. <b>t=5짜리 통계적 확실성도 수익성을 보장하지 않는다</b> —
+  표본이 10만 건이면 +0.07%짜리 미미한 효과도 t=5가 나온다.</figcaption>
+</figure>
+
+<div class="keybox negative">
+  <span class="tag">③의 결론</span>
+  <p><b>"통계적 아노말리 ≠ 거래 가능한 알파"의 교과서적 사례.</b> 실무 함의: 가격 급변 이벤트는
+  알파 소스가 아니라 "무슨 일이 있었는지 조사하라"는 트리거로만, 거래량 급증은 정보 도착의 프록시로서
+  다른 신호의 확인 필터 후보로만 쓸 것. 진짜 PEAD 검증은 애널리스트 컨센서스 데이터 수집이 선행돼야 한다.</p>
+</div>
+
+<div class="caveat">
+  <span class="tag">한계</span>
+  <p>컨센서스 부재로 진짜 어닝 서프라이즈 기반이 아니다. 섹터 중립화는 생략(스크래치 DB에 섹터 없음).
+  생존 유니버스라 급락 후 추가 하락(폭락 지속)은 과소평가됐을 수 있다 — 실제로 유일하게 방향이 맞는
+  약한 신호가 "가장 큰 폭락은 한 달 더 흘러내린다"(t=−2.0, 경계선)였다.</p>
+</div>
+
+<!-- ═══════════════════════ ④ ═══════════════════════ -->
+
+<h2><span class="qnum">④</span>거시 국면(레짐)에 따라 통하는 팩터가 달라지는가</h2>
+<p class="question">질문 — 성장×인플레이션 4국면(Goldilocks/Reflation/Stagflation/Deflation)별로 팩터 성과가 유의하게 다른가? 다르다면 스크리닝 가중치를 국면에 따라 조절할 근거가 되는가?</p>
+
+<div class="easy">
+  <span class="tag">쉽게 말하면</span>
+  <p>계절에 따라 잘 팔리는 옷이 다르듯, 경제 국면에 따라 잘 통하는 투자 스타일이 다르다는 가설이다.
+  Croesus에는 이미 성장·인플레이션 지표들의 다수결 투표로 국면을 판정하는 레짐 엔진이 있다.
+  문제는 그 판정 기록이 14일치뿐이라는 것 — 그래서 <b>프로덕션 투표 규칙을 그대로 가져와</b>,
+  각 시점에 실제로 공개돼 있었을 경제지표만 사용하도록(발표 시차 적용) 1990년부터 매월 소급 실행해
+  437개월의 국면 라벨을 만들었다. 이 라벨로 ①의 팩터 롱숏 수익률을 국면별로 갈라 봤다.</p>
+</div>
+
+<h3>부수 발견이 본 발견이 됐다 — 레짐 엔진의 인플레이션 투표는 퇴화해 있다</h3>
+<p>소급 실행 준비 중 확인한 사실: 인플레이션 방향 투표에 들어가는 Core CPI·Core PCE·임금은
+<b>지수 레벨</b>이라 3개월 기울기가 98~99% 양수다(물가 지수는 거의 항상 오르니까). 5표 중 3표가
+사실상 상수 "Rising" → 프로덕션 레짐의 인플레이션 축은 거의 정보가 없다. 그 결과가 아래 그림이다.</p>
+
+<figure>
+  <img src="{{FIG:f4_regime_dist}}" alt="레짐 분포 비교">
+  <figcaption><b>그림 6.</b> 30년 소급 라벨의 국면 분포. 프로덕션 규칙 그대로(아래)는 437개월의 70%가
+  Reflation, Goldilocks는 단 4개월 — 사실상 "성장 방향 × 상수"로 퇴화했다. 인플레이션 계열을
+  전년동월비(YoY) 변화율로 바꿔 같은 투표를 돌리면(위) 4개 국면이 균형 있게 나뉜다.
+  소급 라벨은 프로덕션 DB에 실존하는 14일치 기록과 일치함을 확인했다(재현 충실성 검증).</figcaption>
+</figure>
+
+<div class="keybox">
+  <span class="tag">가장 실행 가능한 산출물</span>
+  <p><code>croesus/macro/indicators/inflation.py</code>가 레벨 기울기로 투표하는 것은 사실상 버그다 —
+  YoY 변환을 넣어야 Layer-1 레짐 판정이 의미를 가진다. 별도 이슈로 보고할 가치가 있다.</p>
+</div>
+
+<h3>보정된 라벨로도, 레짐 조건부 신호는 경계선</h3>
+
+<figure>
+  <img src="{{FIG:f4b_heatmap}}" alt="레짐 × 팩터 Sharpe 히트맵">
+  <figcaption><b>그림 7.</b> YoY 보정 라벨 기준 국면 × 팩터 롱숏 Sharpe. 눈에 띄는 패턴은
+  6개월 모멘텀의 "Goldilocks에서 벌고(+0.33) Deflation에서 붕괴(−0.99)" — 2009·2020년식
+  폭락 직후 반등장에서 모멘텀 롱숏이 역폭발하는 <b>momentum crash</b> 현상과 정확히 일치한다.
+  이 패턴은 두 라벨 변형 모두에서 재현됐다(라벨 셔플 placebo p=0.077/0.044).</figcaption>
+</figure>
+
+<p>그러나 과대해석을 막는 사실들: 변형 2 × 팩터 7 = 14회 검정에서 p&lt;0.05는 2개(우연 기대 ~0.7개) —
+경계선이다. 레짐 라벨은 시장 자체의 다음 달 수익은 전혀 예측하지 못한다(placebo p=0.6~0.8).
+그리고 보정 라벨조차 평균 지속기간이 1.4~2.1개월로 짧아, <b>국면을 확인한 시점엔 이미 다음 국면일
+가능성이 높다</b> — 레짐 타이밍이 실무에서 어려운 구조적 이유다.</p>
+
+<div class="keybox negative">
+  <span class="tag">④의 결론</span>
+  <p><b>스크리닝 가중치의 레짐 조정은 보류 권장.</b> 유일하게 방어 가능한 조정("Deflation 국면에서
+  모멘텀·추세 가중치 축소")도 근거가 경계선이고 라벨 지속성이 짧다. 같은 드로다운 통제 목적이면
+  ②의 변동성 타게팅이 레짐 판정 없이 더 싸고 견고하게 달성한다. 선행 과제는 인플레이션 투표 수정이다.</p>
+</div>
+
+<div class="caveat">
+  <span class="tag">한계</span>
+  <p>FRED 최신 데이터를 사용해 발표 시차는 적용했지만 사후 개정(revision)까지는 통제하지 못했다 —
+  라벨이 실시간보다 유리한데도 결과가 약하다는 점은 오히려 결론을 강화한다. ISM PMI는 30년 소급이
+  불가능해 제외(투표 함수는 결측을 허용). 국면당 표본이 51~158개월로 작은 쪽은 신뢰구간이 넓다.</p>
+</div>
+
+<!-- ═══════════════════════ 종합 ═══════════════════════ -->
+
+<h2>종합 — 무엇이 예측 가능하고, 무엇이 아닌가</h2>
+
+<p>네 실험은 서로 다른 각도에서 같은 질문을 때렸고, 답의 구조가 일관된다:
+<b>수익률의 방향(1차 모멘트)은 어느 각도에서도 예측 불가, 수익률의 진폭(2차 모멘트)만 예측 가능.</b></p>
+
+<div class="map">
+  <div class="cell no"><b>종목 간 비교 (①)</b>가격 팩터로 승자 고르기 — 기각.
+  10년 착시와 생존편향 아티팩트만 발견.</div>
+  <div class="cell no"><b>이벤트 후 방향 (③)</b>사건 뒤 표류 타기 — 통계적으론 존재하나
+  비용 후 전멸. 거래 불가.</div>
+  <div class="cell no"><b>국면 조건부 방향 (④)</b>레짐별 팩터 로테이션 — 경계선 유의,
+  라벨 지속성 부족. 보류.</div>
+  <div class="cell yes"><b>시장의 진폭 (②)</b>변동성 예측 + 노출 조절 — 확인.
+  최대낙폭 −55%→−40%. 실전 적용 권장.</div>
+</div>
+
+<h3>Croesus에 대한 실무 권고</h3>
+<ol>
+  <li><b>적용:</b> 포트폴리오 risk-gate에 "최근 실현변동성 기반 노출 스케일" 규칙 추가(②).
+  GARCH 인프라 불요 — 단순 규칙으로 충분.</li>
+  <li><b>수정:</b> 레짐 엔진 인플레이션 투표에 YoY 변환 적용(④에서 발견된 퇴화).</li>
+  <li><b>강등:</b> 가격 팩터 점수와 가격 이벤트를 알파 소스로 취급하지 말 것(①③) —
+  각각 참고 지표·조사 트리거로 역할 재정의.</li>
+  <li><b>데이터 우선순위:</b> 모든 실험이 같은 병목에 부딪혔다 — <code>factor_values</code>·
+  <code>thesis_grades</code>·<code>events</code>·<code>macro_scores</code>가 과거 스냅샷을 보관하지
+  않는 <b>역사화 갭</b>. 지금부터 시점별 스냅샷을 쌓아야 fundamental·LLM 신호의 검증(로드맵 ⑤)이
+  가능해진다. 진짜 PEAD를 원하면 애널리스트 컨센서스 수집이 추가로 필요하다.</li>
+</ol>
+
+<div class="easy">
+  <span class="tag">null 결과는 실패가 아니다</span>
+  <p>4개 중 3개가 "안 된다"로 끝났지만, 이는 이 연구의 가장 값진 산출물이다. 시장에서 가장 붐비는
+  구석(가격만으로 방향 맞히기)에 엣지가 없다는 것은 정상이고, 그걸 수치로 확정한 덕분에
+  잘못된 신호에 자본과 개발 시간을 태우는 일을 막았다. 남는 탐색 공간 — 가격 밖 정보(컨센서스,
+  공시 텍스트, 펀더멘털의 시점별 축적)와 위험 관리 — 이 어디인지도 명확해졌다.</p>
+</div>
+
+<h2>부록 A — 공통 방법론 (자신을 속이지 않기 위한 장치)</h2>
+<ul>
+  <li><b>Look-ahead 차단</b>: 모든 시점 t의 판단에 t 이후 정보를 쓰지 않음 — 팩터는 과거 창,
+  레짐은 발표 시차 적용, 이벤트 탐지는 과거 이동창만 사용.</li>
+  <li><b>Placebo 대조</b>: 무작위 날짜 이벤트(③), 라벨 원형 시프트(④), 신호 순열(①)로
+  "가짜에서도 나오는 결과"를 걸러냄.</li>
+  <li><b>다중검정 정직 고지</b>: 검정 횟수와 우연 기대치를 병기(①: 21회 중 ~1개, ④: 14회 중 ~0.7개).</li>
+  <li><b>거래비용 민감도</b>: 0/10/20bps 스윕. 회전율 명시.</li>
+  <li><b>생존편향</b>: 제거 불가능한 경우 민감도 시뮬레이션으로 범위를 추정하고 모든 결론에 명시.</li>
+  <li><b>파라미터 고정</b>: 프로덕션 규칙·관행적 기본값 사용, 사후 튜닝 없음(과적합 방지).</li>
+</ul>
+
+<h2>부록 B — 용어집</h2>
+<dl class="glossary">
+  <dt>팩터 (factor)</dt><dd>주가·거래량 이력에서 기계적으로 계산되는 종목 특성 점수. 예: 6개월 모멘텀 = 최근 6개월 수익률.</dd>
+  <dt>IC (Information Coefficient)</dt><dd>신호가 매긴 종목 순위와 실제 미래 수익률 순위의 상관계수. 0이면 무정보, 0.05면 약하지만 쓸모 있는 수준.</dd>
+  <dt>t-통계량</dt><dd>결과가 우연일 가능성의 척도. |t|&gt;2 ≈ 우연일 확률 5% 미만. 단, 여러 번 검정하면 우연히 넘는 것이 생기므로 검정 횟수와 함께 봐야 한다.</dd>
+  <dt>Sharpe 비율</dt><dd>위험(변동성) 한 단위당 초과수익. 1.0 이상이면 우수, 0.5 내외면 약함, 음수면 손실.</dd>
+  <dt>최대낙폭 (MaxDD)</dt><dd>고점 대비 최악의 하락 폭. 투자자가 실제로 견뎌야 하는 고통의 크기.</dd>
+  <dt>롱숏 (long-short)</dt><dd>신호 상위 종목을 사고(롱) 하위 종목을 공매도(숏)하는 시장중립 전략. 시장 전체의 등락 효과를 상쇄해 신호의 순수한 힘만 잰다.</dd>
+  <dt>placebo (플라시보)</dt><dd>가짜 신호(무작위 날짜, 뒤섞인 라벨)에 같은 분석을 적용한 대조군. 신약 시험의 위약과 같은 역할.</dd>
+  <dt>생존편향 (survivorship bias)</dt><dd>현재 살아남은 종목만으로 과거를 분석할 때 생기는 왜곡. 파산·상장폐지 종목의 손실이 표본에서 빠져 성과가 부풀려진다.</dd>
+  <dt>look-ahead 편향</dt><dd>그 시점에 알 수 없었던 미래 정보가 분석에 새어 들어가는 오류. 백테스트를 무의미하게 만드는 가장 흔한 원인.</dd>
+  <dt>bps (베이시스 포인트)</dt><dd>0.01%. 거래비용 10bps = 매매 금액의 0.1%.</dd>
+  <dt>CAAR</dt><dd>이벤트 후 누적 평균 초과수익. 시장 전체 움직임을 뺀 뒤 이벤트 종목들이 평균적으로 얼마나 더/덜 올랐는지의 누적치.</dd>
+  <dt>레짐 (regime)</dt><dd>성장(확장/수축) × 인플레이션(상승/하락)으로 나눈 거시경제 4국면. Goldilocks(확장+물가안정), Reflation(확장+물가상승), Stagflation(수축+물가상승), Deflation(수축+물가하락).</dd>
+  <dt>변동성 군집 (volatility clustering)</dt><dd>"험한 날 뒤에 험한 날이 온다" — 변동성이 한동안 높거나 낮게 유지되는 성질. 금융 시계열에서 가장 견고한 규칙성.</dd>
+</dl>
+
+<p class="footnote">상세 결과와 재현 방법: 각 실험 디렉터리의 <code>FINDINGS.md</code>·<code>README.md</code>
+(<code>experiments/market_signals/{cross_sectional, vol_targeting, event_drift, regime_conditional}/</code>),
+연구 백로그는 <code>experiments/RESEARCH_ROADMAP.md</code>. 구현 계획: <code>docs/superpowers/plans/2026-07-0{1,2}-*.md</code>.
+모든 차트는 <code>python3 -m experiments.market_signals.report.roadmap_figs</code>로 결과 CSV에서 재생성 가능.
+로드맵 ⑤(LLM 알파 감사)는 등급 스냅샷 축적 후 진행 예정.</p>
+
+</div>

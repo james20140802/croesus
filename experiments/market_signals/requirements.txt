@@ -1,0 +1,12 @@
+# Isolated heavy deps for the market_signals experiments.
+# Install into a dedicated venv; do NOT add these to the root pyproject.toml.
+numpy>=1.24
+pandas>=2.0
+scipy>=1.11
+statsmodels>=0.14
+matplotlib>=3.7
+yfinance>=0.2
+duckdb>=1.0
+# Experiment #1 only (large download). Pin to a known-good release.
+timesfm==1.2.0
+torch>=2.2
