@@ -145,6 +145,57 @@ def test_research_refresh_skips_gracefully_when_llm_down(tmp_path, monkeypatch):
     assert any("LLM 미가용" in m for m in logs)
 
 
+def test_refresh_budget_seconds_default_and_env(monkeypatch):
+    from croesus.web.scheduler import _refresh_budget_seconds
+
+    monkeypatch.delenv("CROESUS_REFRESH_BUDGET_SECONDS", raising=False)
+    assert _refresh_budget_seconds(None) == 1800.0       # 기본 30분
+    assert _refresh_budget_seconds(60) == 60.0           # 명시값 우선
+    monkeypatch.setenv("CROESUS_REFRESH_BUDGET_SECONDS", "300")
+    assert _refresh_budget_seconds(None) == 300.0        # env 반영
+    monkeypatch.setenv("CROESUS_REFRESH_BUDGET_SECONDS", "garbage")
+    assert _refresh_budget_seconds(None) == 1800.0       # 잘못된 값 → 기본
+
+
+def test_research_refresh_forwards_deadline_to_grader(tmp_path, monkeypatch):
+    # 리서치 단계가 grade_theses에 시간 예산(deadline)을 그대로 전달해야
+    # LLM 루프가 예산 내에 멈추고 락을 해제한다.
+    from datetime import date
+
+    from croesus.assets.models import Asset
+    from croesus.assets.repository import AssetRepository
+    from croesus.db.connection import get_connection
+    from croesus.db.migrate import migrate
+    from croesus.research.thesis_models import ThesisRunResult
+    from croesus.web import scheduler
+
+    db_path = tmp_path / "croesus.duckdb"
+    migrate(db_path)
+
+    captured: dict = {}
+
+    def fake_grade(conn, **kwargs):
+        captured.update(kwargs)
+        result = ThesisRunResult(run_id=kwargs.get("run_id", "r"))
+        result.skipped_reason = "server down"  # 밴드 계산 전에 종료
+        return result
+
+    monkeypatch.setattr("croesus.research.thesis_grader.grade_theses", fake_grade)
+
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "INSERT INTO screening_results (run_id, asset_id, score, rank, "
+            "decision_bucket) VALUES (?, ?, ?, ?, ?)",
+            ["run-1", "US_EQ_CAND", 0.9, 1, "candidate"],
+        )
+        AssetRepository(conn).upsert_many([Asset(
+            asset_id="US_EQ_CAND", symbol="CAND", name="Cand Inc.", asset_type="equity",
+        )])
+        scheduler._run_research_refresh(conn, lambda _m: None, deadline=123.0)
+
+    assert captured.get("deadline") == 123.0
+
+
 def test_state_as_dict_is_template_friendly():
     s = DataScheduler("db", time(8, 30), now=lambda: datetime(2026, 6, 29, 7, 0))
     d = s.state.as_dict()
